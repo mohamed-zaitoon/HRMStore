@@ -1,0 +1,5 @@
+# Open-source code. Copyright Mohamed Zaitoon 2025-2026.
+User-agent: *
+Allow: /
+
+Sitemap: https://hrmstore.mohamedzaitoon.com/sitemap.xml

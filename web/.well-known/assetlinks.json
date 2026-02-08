@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.mohamedzaitoon.hrmstore",
+      "sha256_cert_fingerprints": [
+        "A5:A1:BA:CA:84:EA:CC:B4:E3:74:08:A7:F2:9C:23:F1:BA:A0:44:01:8F:23:C4:CC:66:4F:D9:C4:CA:95:EF:DB"
+      ]
+    }
+  }
+]

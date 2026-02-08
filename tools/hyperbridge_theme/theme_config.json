@@ -1,0 +1,25 @@
+{
+  "id": "hrmstore_dynamic_island",
+  "meta": {
+    "name": "HRM Store - الجزيرة الديناميكية",
+    "author": "Mohamed Zaitoon",
+    "version": 1,
+    "description": "ثيم HyperBridge بسيط يعتمد على ألوان أيقونة التطبيق وشكل سكويركل."
+  },
+  "global": {
+    "highlight_color": "#25F4EE",
+    "background_color": "#000000",
+    "text_color": "#FFFFFF",
+    "use_app_colors": true,
+    "icon_shape_id": "squircle",
+    "icon_padding_percent": 15
+  },
+  "apps": {
+    "com.mohamedzaitoon.hrmstore": {
+      "use_app_colors": true
+    },
+    "com.mohamedzaitoon.hrmstore.admin": {
+      "use_app_colors": true
+    }
+  }
+}

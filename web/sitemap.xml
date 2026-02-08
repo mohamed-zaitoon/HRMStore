@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Open-source code. Copyright Mohamed Zaitoon 2025-2026. -->
+<urlset xmlns="https://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://hrmstore.mohamedzaitoon.com/</loc>
+        <priority>1.0</priority>
+    </url>
+    <url>
+        <loc>https://hrmstore.mohamedzaitoon.com/login</loc>
+        <priority>0.8</priority>
+    </url>
+    <url>
+        <loc>https://hrmstore.mohamedzaitoon.com/privacy</loc>
+        <priority>0.3</priority>
+    </url>
+</urlset>

@@ -1,0 +1,71 @@
+# Open-source code. Copyright Mohamed Zaitoon 2025-2026.
+name: hrmstoreapp
+description: "HRM Store"
+publish_to: 'none'
+version: 1.0.0-beta+101
+
+environment:
+  sdk: '>=3.10.8 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  flutter_web_plugins:
+    sdk: flutter
+
+  flutter_localizations:
+    sdk: flutter
+
+  firebase_core: ^4.4.0
+  firebase_auth: ^6.0.2
+  firebase_storage: ^13.0.2
+  firebase_app_check: ^0.4.1+4
+  cloud_firestore: ^6.1.2
+  firebase_remote_config: ^6.1.4
+  firebase_crashlytics: ^5.0.7
+  uuid: ^4.4.0
+  onesignal_flutter: ^5.4.0
+  crypto: ^3.0.3
+  url_launcher: ^6.3.1
+  intl: ^0.20.2
+  universal_html: ^2.2.4
+  dynamic_color: ^1.6.0
+
+  permission_handler: ^12.0.1
+  http: ^1.2.2
+  package_info_plus: ^9.0.0
+  shared_preferences: ^2.3.5
+  connectivity_plus: ^7.0.0
+  device_info_plus: ^12.3.0
+  file_picker: ^10.3.10
+  firebase_analytics: ^12.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+dependency_overrides:
+  characters: ^1.4.1
+  matcher: ^0.12.18
+  material_color_utilities: ^0.13.0
+  meta: ^1.18.1
+  test_api: ^0.7.9
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+
+  image_path: "assets/icon/app_icon.png"
+
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/app_icon.png
+    - assets/hyperbridge/hrmstore_dynamic_island.hbr

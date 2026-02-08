@@ -1,0 +1,21 @@
+<!-- Open-source code. Copyright Mohamed Zaitoon 2025-2026. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    
+    <uses-permission android:name="android.permission.INTERNET"/>
+    
+
+    
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />و
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
+
+
+</manifest>

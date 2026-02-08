@@ -1,0 +1,52 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+pubspec.lock
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+
+# Build outputs
+build/
+ios/Pods/
+ios/Runner.xcworkspace/
+ios/Runner/GeneratedPluginRegistrant.*
+android/.gradle/
+android/app/build/
+android/build/
+web/.dart_tool/
+
+# IntelliJ / VSCode
+.idea/
+.vscode/
+
+# OS junk
+*.DS_Store
+Thumbs.db
+
+# Firebase / keys / secrets
+android/app/google-services.json
+android/app/src/*/google-services.json
+android/app/src/*/key.properties
+android/app/release-key.jks
+android/app/debug.keystore
+ios/Runner/GoogleService-Info.plist
+**/firebase_app_id_file.json
+**/firebase_options.dart
+
+# Generated icons / fastlane / tooling
+ios/fastlane/report.xml
+ios/fastlane/Preview.html
+ios/fastlane/screenshots/
+android/app/src/main/res/mipmap-*/ic_launcher.png
+android/app/src/main/res/mipmap-*/ic_launcher_round.png
+
+# Logs
+*.log
+
+# Temporary
+/tmp/
+*.lock
+
+# Firebase Functions (إن وُجد)
+functions/

@@ -1,0 +1,189 @@
+<!-- Open-source code. Copyright Mohamed Zaitoon 2025-2026. -->
+<!DOCTYPE html>
+<html>
+
+<head>
+
+  <base href="/">
+
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF">
+  <!-- Extra safeguard: force upgrading any http resources to https in browser -->
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+
+
+  <title>HRM Store</title>
+  <meta name="description"
+    content="موقع وتطبيق HRM Store لشحن نقاط تيك توك أونلاين بسهولة. اطلب شحن النقاط لحسابك، تابع حالة الطلبات، واستفد من عروض رمضان والأكواد الخاصة.">
+  <meta name="keywords"
+    content="HRM Store, شحن نقاط تيك توك, شحن لايف تيك توك, تيك توك كوينز, tiktok coins, tiktok live recharge, mohamed zaitoon">
+  <meta name="author" content="Mohamed Zaitoon">
+
+
+  <link rel="canonical" href="https://hrmstore.mohamedzaitoon.com/">
+
+
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="HRM Store">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+
+  <link rel="icon" type="image/png" href="favicon.png" />
+
+
+  <meta name="google-signin-client_id"
+    content="855596025920-qm674asuc99pv5j9a3siv292j90r1s0a.apps.googleusercontent.com">
+
+
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="HRM Store | شحن نقاط تيك توك أونلاين">
+  <meta property="og:description"
+    content="اشحن نقاط تيك توك لحسابك بسهولة، تابع حالة طلباتك، واستفد من عروض رمضان والأكواد الخاصة.">
+  <meta property="og:site_name" content="HRM Store">
+  <meta property="og:url" content="https://hrmstore.mohamedzaitoon.com/">
+
+  <meta property="og:image" content="https://hrmstore.mohamedzaitoon.com/og-image.png">
+  <meta property="og:locale" content="ar_AR">
+
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="HRM Store | شحن نقاط تيك توك أونلاين">
+  <meta name="twitter:description" content="HRM Store لخدمات الشحن والمتابعة مع عروض خاصة للمستخدمين.">
+  <meta name="twitter:image" content="https://hrmstore.mohamedzaitoon.com/og-image.png">
+
+
+  <link rel="manifest" href="manifest.json">
+
+
+  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+  <script>
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    let hrmstoreOneSignalReady = false;
+
+    function _domainAllowed() {
+      const host = location.hostname;
+      return host === 'localhost' || host === '127.0.0.1' ||
+        host.endsWith('hrmstore.web.app') || host.endsWith('hrmstore.mohamedzaitoon.com');
+    }
+
+    function hrmstoreOneSignalWithSdk(callback) {
+      window.OneSignalDeferred.push(async function (OneSignal) {
+        try {
+          await callback(OneSignal);
+        } catch (e) {
+          console.error('OneSignal callback error', e);
+        }
+      });
+    }
+
+    window.hrmstoreOneSignalInit = function (appId) {
+      return new Promise(function (resolve) {
+        if (!appId) {
+          console.warn('OneSignal init skipped: missing appId');
+          resolve(false);
+          return;
+        }
+
+        if (!_domainAllowed()) {
+          console.warn('OneSignal init skipped: unauthorized domain', location.hostname);
+          resolve(false);
+          return;
+        }
+
+        if (!window.isSecureContext &&
+          location.hostname !== 'localhost' &&
+          location.hostname !== '127.0.0.1') {
+          console.warn('OneSignal init skipped: insecure context');
+          resolve(false);
+          return;
+        }
+
+        hrmstoreOneSignalWithSdk(async function (OneSignal) {
+          await OneSignal.init({
+            appId: appId,
+            allowLocalhostAsSecureOrigin: true,
+            serviceWorkerPath: '/OneSignalSDKWorker.js',
+            serviceWorkerUpdaterPath: '/OneSignalSDKUpdaterWorker.js',
+            serviceWorkerParam: { scope: '/' }
+          });
+          hrmstoreOneSignalReady = true;
+          resolve(true);
+        });
+      });
+    };
+
+    window.hrmstoreOneSignalLogin = function (externalId) {
+      return new Promise(function (resolve) {
+        if (!externalId || !_domainAllowed() || !hrmstoreOneSignalReady) {
+          resolve(false);
+          return;
+        }
+        hrmstoreOneSignalWithSdk(async function (OneSignal) {
+          try {
+            await OneSignal.login(externalId);
+          } catch (e) {
+            console.warn('OneSignal login skipped', e);
+          }
+          resolve(true);
+        });
+      });
+    };
+
+    window.hrmstoreOneSignalLogout = function () {
+      return new Promise(function (resolve) {
+        if (!hrmstoreOneSignalReady) { resolve(false); return; }
+        hrmstoreOneSignalWithSdk(async function (OneSignal) {
+          await OneSignal.logout();
+          resolve(true);
+        });
+      });
+    };
+
+    window.hrmstoreOneSignalRequestPermission = function () {
+      return new Promise(function (resolve) {
+        if (!hrmstoreOneSignalReady) { resolve(false); return; }
+        hrmstoreOneSignalWithSdk(async function (OneSignal) {
+          await OneSignal.Notifications.requestPermission();
+          resolve(true);
+        });
+      });
+    };
+
+    window.hrmstoreOneSignalGetSubscriptionId = function () {
+      return new Promise(function (resolve) {
+        if (!hrmstoreOneSignalReady) { resolve(null); return; }
+        hrmstoreOneSignalWithSdk(async function (OneSignal) {
+          const id = OneSignal?.User?.PushSubscription?.id || null;
+          resolve(id);
+        });
+      });
+    };
+  </script>
+</head>
+
+<body>
+  <noscript>
+    <div style="max-width: 760px; margin: 24px auto; font-family: Arial, sans-serif; color: #111;">
+      <h1 style="margin: 0 0 12px;">HRM Store</h1>
+      <p style="margin: 0 0 10px;">
+        HRM Store منصة موثوقة لشحن خدمات تيك توك والألعاب ومتابعة الطلبات بسهولة وأمان.
+      </p>
+      <p style="margin: 0;">
+        <a href="/privacy">سياسة الخصوصية</a>
+      </p>
+    </div>
+  </noscript>
+
+  <script src="flutter_bootstrap.js" async></script>
+
+</body>
+
+</html>

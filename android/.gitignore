@@ -1,0 +1,13 @@
+# Open-source code. Copyright Mohamed Zaitoon 2025-2026.
+gradle-wrapper.jar
+/.gradle
+/captures/
+/gradlew
+/gradlew.bat
+/local.properties
+GeneratedPluginRegistrant.java
+.cxx/
+
+key.properties
+**/*.keystore
+**/*.jks

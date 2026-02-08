@@ -1,0 +1,16 @@
+{
+  "projects": {
+    "default": "hrmstore",
+    "staging": "hrmstore"
+  },
+  "targets": {
+    "hrmstore": {
+      "hosting": {
+        "hrmstore": [
+          "hrmstore"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
