@@ -30,6 +30,17 @@ android/app/src/*/google-services.json
 android/app/src/*/key.properties
 android/app/release-key.jks
 android/app/debug.keystore
+/.firebase/
+/.firebase/**
+/.gradle/
+/.gradle/**
+android/app/src/main/cpp/*.cpp
+*.pem
+*.cer
+*.key
+*.p12
+*.jks
+*.keystore
 ios/Runner/GoogleService-Info.plist
 **/firebase_app_id_file.json
 **/firebase_options.dart

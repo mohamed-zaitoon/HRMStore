@@ -1,9 +1,9 @@
 <!-- Open-source code. Copyright Mohamed Zaitoon 2025-2026. -->
 # HRM Store
 
-![GitHub Release](https://img.shields.io/github/v/release/mohamed-zaitoon/HRM-Store?include_prereleases&style=for-the-badge)
-![GitHub License](https://img.shields.io/github/license/mohamed-zaitoon/HRM-Store?style=for-the-badge)
-![Last Commit](https://img.shields.io/github/last-commit/mohamed-zaitoon/HRM-Store?style=for-the-badge)
+![GitHub Release](https://img.shields.io/github/v/release/mohamed-zaitoon/HRMStore?include_prereleases&style=for-the-badge)
+![GitHub License](https://img.shields.io/github/license/mohamed-zaitoon/HRMStore?style=for-the-badge)
+![Last Commit](https://img.shields.io/github/last-commit/mohamed-zaitoon/HRMStore?style=for-the-badge)
 
 ![Flutter](https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white)
