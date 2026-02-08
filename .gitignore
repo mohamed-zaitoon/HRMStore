@@ -35,6 +35,7 @@ android/app/debug.keystore
 /.gradle/
 /.gradle/**
 android/app/src/main/cpp/*.cpp
+android/app/src/main/cpp/native-lib.cpp
 *.pem
 *.cer
 *.key
