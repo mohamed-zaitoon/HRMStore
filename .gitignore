@@ -62,3 +62,4 @@ android/app/src/main/res/mipmap-*/ic_launcher_round.png
 
 # Firebase Functions (إن وُجد)
 functions/
+lib/services/remote_config_service.dart
