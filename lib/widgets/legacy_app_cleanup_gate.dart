@@ -79,8 +79,8 @@ class _LegacyAppCleanupGateState extends State<LegacyAppCleanupGate>
         context: activeContext,
         barrierDismissible: false,
         builder: (dialogContext) {
-          return WillPopScope(
-            onWillPop: () async => false,
+          return PopScope(
+            canPop: false,
             child: AlertDialog(
               title: const Text('إزالة النسخة القديمة'),
               content: Column(

@@ -34,10 +34,10 @@ class GlassCard extends StatelessWidget {
     final Color base =
         brightness == Brightness.dark ? Colors.black : Colors.white;
     final Color fill = tint ??
-        base.withOpacity(brightness == Brightness.dark ? 0.32 : 0.7);
+        base.withValues(alpha: brightness == Brightness.dark ? 0.32 : 0.7);
     final Color border = borderColor ??
         (brightness == Brightness.dark ? Colors.white : Colors.black)
-            .withOpacity(0.08);
+            .withValues(alpha: 0.08);
 
     return Padding(
       padding: margin,
@@ -54,8 +54,8 @@ class GlassCard extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  fill.withOpacity(0.9),
-                  fill.withOpacity(0.75),
+                  fill.withValues(alpha: 0.9),
+                  fill.withValues(alpha: 0.75),
                 ],
               ),
             ),

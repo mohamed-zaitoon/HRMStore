@@ -1,25 +1,26 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
-import 'dart:html' as html;
+import 'package:web/web.dart' as web;
 
 // EN: Sets Page Title.
 // AR: تضبط Page Title.
 void setPageTitle(String title) {
-  html.document.title = title;
+  web.document.title = title;
 }
 
 // EN: Sets Meta Description.
 // AR: تضبط Meta Description.
 void setMetaDescription(String description) {
-  final metaList =
-      html.document.head?.querySelectorAll('meta[name="description"]') ?? [];
+  final existing =
+      web.document.head?.querySelector('meta[name="description"]');
 
-  if (metaList.isNotEmpty) {
-    metaList.first.setAttribute('content', description);
-  } else {
-    final meta = html.MetaElement()
-      ..name = 'description'
-      ..content = description;
-    html.document.head?.append(meta);
+  if (existing != null) {
+    existing.setAttribute('content', description);
+    return;
   }
+
+  final meta = web.HTMLMetaElement()
+    ..name = 'description'
+    ..content = description;
+  web.document.head?.append(meta);
 }

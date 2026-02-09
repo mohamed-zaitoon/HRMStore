@@ -43,12 +43,12 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
     final Color base = brightness == Brightness.dark
         ? Colors.black
         : Colors.white;
-    final Color tint = base.withOpacity(
-      brightness == Brightness.dark ? 0.35 : 0.7,
+    final Color tint = base.withValues(
+      alpha: brightness == Brightness.dark ? 0.35 : 0.7,
     );
     final Color borderColor =
         (brightness == Brightness.dark ? Colors.white : Colors.black)
-            .withOpacity(0.08);
+            .withValues(alpha: 0.08);
 
     return AppBar(
       title: title,

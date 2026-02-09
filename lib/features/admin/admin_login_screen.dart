@@ -252,7 +252,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                   child: GlassCard(
                     padding: const EdgeInsets.all(24),
                     margin: EdgeInsets.zero,
-                    tint: TTColors.cardBg.withOpacity(0.9),
+                    tint: TTColors.cardBg.withValues(alpha: 0.9),
                     child: Form(
                       key: _formKey,
                       child: Column(
@@ -337,7 +337,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
 
                           // مدة التذكر
                           DropdownButtonFormField<int>(
-                            value: _days,
+                            initialValue: _days,
                             decoration: const InputDecoration(
                               labelText: 'تذكرني لمدة',
                               prefixIcon: Icon(Icons.timer),

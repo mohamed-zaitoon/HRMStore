@@ -30,12 +30,12 @@ class GlassBottomSheet extends StatelessWidget {
     final Color base = brightness == Brightness.dark
         ? Colors.black
         : Colors.white;
-    final Color tint = base.withOpacity(
-      brightness == Brightness.dark ? 0.35 : 0.7,
+    final Color tint = base.withValues(
+      alpha: brightness == Brightness.dark ? 0.35 : 0.7,
     );
     final Color borderColor =
         (brightness == Brightness.dark ? Colors.white : Colors.black)
-            .withOpacity(0.08);
+            .withValues(alpha: 0.08);
 
     return Padding(
       padding: margin,
@@ -51,7 +51,7 @@ class GlassBottomSheet extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [tint.withOpacity(0.9), tint.withOpacity(0.75)],
+                colors: [tint.withValues(alpha: 0.9), tint.withValues(alpha: 0.75)],
               ),
             ),
             child: Padding(
@@ -65,7 +65,7 @@ class GlassBottomSheet extends StatelessWidget {
                       height: 4,
                       margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
-                        color: borderColor.withOpacity(0.7),
+                        color: borderColor.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(999),
                       ),
                     ),

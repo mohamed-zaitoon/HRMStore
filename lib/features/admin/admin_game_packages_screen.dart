@@ -46,7 +46,7 @@ class _AdminGamePackagesScreenState extends State<AdminGamePackagesScreen> {
                   valueListenable: gameValue,
                   builder: (_, value, __) {
                     return DropdownButtonFormField<String>(
-                      value: value,
+                      initialValue: value,
                       decoration: const InputDecoration(labelText: "اللعبة"),
                       items: GamePackage.gameOrder()
                           .map(

@@ -2,7 +2,7 @@
 name: hrmstoreapp
 description: "HRM Store"
 publish_to: 'none'
-version: 1.0.0-rc1+102
+version: 1.0.0+103
 
 environment:
   sdk: '>=3.10.8 <4.0.0'
@@ -40,6 +40,7 @@ dependencies:
   device_info_plus: ^12.3.0
   file_picker: ^10.3.10
   firebase_analytics: ^12.1.1
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

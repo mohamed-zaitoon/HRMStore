@@ -1612,7 +1612,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
     final brightness = Theme.of(context).brightness;
     final bool isDark = brightness == Brightness.dark;
     final Color cardTint =
-        TTColors.cardBgFor(brightness).withOpacity(isDark ? 0.9 : 0.85);
+        TTColors.cardBgFor(brightness).withValues(alpha: isDark ? 0.9 : 0.85);
     final Color accent =
         isDark ? const Color(0xFF5FE0C9) : const Color(0xFF52D6C2);
 
@@ -1704,7 +1704,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
               child: ListTile(
                 leading: CircleAvatar(
                   radius: 20,
-                  backgroundColor: accent.withOpacity(0.18),
+                  backgroundColor: accent.withValues(alpha: 0.18),
                   child: Icon(item.icon, color: accent, size: 20),
                 ),
                 title: Text(
@@ -1730,7 +1730,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
             children: [
               CircleAvatar(
                 radius: 22,
-                backgroundColor: accent.withOpacity(0.18),
+                backgroundColor: accent.withValues(alpha: 0.18),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Image.asset(

@@ -143,7 +143,7 @@ class _TopSnackBarEntryState extends State<_TopSnackBarEntry>
                       filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: widget.backgroundColor.withOpacity(0.72),
+                          color: widget.backgroundColor.withValues(alpha: 0.72),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
                             color: Colors.transparent,
@@ -156,11 +156,11 @@ class _TopSnackBarEntryState extends State<_TopSnackBarEntry>
                               offset: Offset(0, 6),
                             ),
                           ],
-                          gradient: LinearGradient(
-                            colors: [
-                              widget.backgroundColor.withOpacity(0.78),
-                              widget.backgroundColor.withOpacity(0.58),
-                            ],
+                            gradient: LinearGradient(
+                              colors: [
+                              widget.backgroundColor.withValues(alpha: 0.78),
+                              widget.backgroundColor.withValues(alpha: 0.58),
+                              ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),

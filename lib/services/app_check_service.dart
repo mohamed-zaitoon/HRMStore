@@ -14,17 +14,18 @@ class AppCheckService {
       return;
     }
 
-    final androidProvider =
-        kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity;
+    final AndroidAppCheckProvider providerAndroid = kDebugMode
+        ? const AndroidDebugProvider()
+        : const AndroidPlayIntegrityProvider();
 
-    final webProvider = kIsWeb
+    final providerWeb = kIsWeb
         ? ReCaptchaV3Provider(webRecaptchaSiteKey)
         : null;
 
     try {
       await FirebaseAppCheck.instance.activate(
-        androidProvider: androidProvider,
-        webProvider: webProvider,
+        providerAndroid: providerAndroid,
+        providerWeb: providerWeb,
       );
     } catch (e) {
       if (kDebugMode) {

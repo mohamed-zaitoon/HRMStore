@@ -53,11 +53,11 @@ class _SnowBackgroundState extends State<SnowBackground>
           ];
 
     final accent1 = isDark
-        ? const Color(0xFF1E3A8A).withOpacity(0.25)
-        : const Color(0xFF3B82F6).withOpacity(0.18);
+        ? const Color(0xFF1E3A8A).withValues(alpha: 0.25)
+        : const Color(0xFF3B82F6).withValues(alpha: 0.18);
     final accent2 = isDark
-        ? const Color(0xFF0EA5E9).withOpacity(0.22)
-        : const Color(0xFF06B6D4).withOpacity(0.18);
+        ? const Color(0xFF0EA5E9).withValues(alpha: 0.22)
+        : const Color(0xFF06B6D4).withValues(alpha: 0.18);
 
     return SizedBox.expand(
       child: Stack(
@@ -139,7 +139,7 @@ class _GlowingBlob extends StatelessWidget {
         gradient: RadialGradient(
           colors: [
             color,
-            color.withOpacity(0.0),
+            color.withValues(alpha: 0.0),
           ],
         ),
       ),

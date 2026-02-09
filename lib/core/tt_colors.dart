@@ -28,7 +28,7 @@ class TTColors {
   // EN: Gets background color for brightness.
   // AR: تجلب لون الخلفية حسب السطوع.
   static Color backgroundFor(Brightness brightness) =>
-      _schemeFor(brightness)?.background ??
+      _schemeFor(brightness)?.surface ??
       (brightness == Brightness.dark ? _darkBackground : _lightBackground);
 
   // EN: Gets card background color for brightness.
@@ -40,7 +40,7 @@ class TTColors {
   // EN: Gets text color for brightness.
   // AR: تجلب لون النص حسب السطوع.
   static Color textFor(Brightness brightness) =>
-      _schemeFor(brightness)?.onBackground ??
+      _schemeFor(brightness)?.onSurface ??
       (brightness == Brightness.dark ? _darkText : _lightText);
 
   // EN: Gets muted text color for brightness.
