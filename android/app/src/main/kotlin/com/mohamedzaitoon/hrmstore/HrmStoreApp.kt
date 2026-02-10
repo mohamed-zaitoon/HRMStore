@@ -1,3 +1,4 @@
+// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 package com.mohamedzaitoon.hrmstore
 
 import android.app.Application

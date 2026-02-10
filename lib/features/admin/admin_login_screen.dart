@@ -1,3 +1,4 @@
+// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;

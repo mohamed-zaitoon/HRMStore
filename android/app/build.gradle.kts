@@ -58,7 +58,9 @@ configure<ApplicationExtension>{
             applicationIdSuffix = ".admin"
             resValue("string", "app_name", "HRM Store (ادمن)")
             minSdk = 35
-
+            // Fixed admin version
+            versionName = "2.1"
+            versionCode = 200
         }
     }
 
@@ -133,6 +135,7 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-    implementation("com.github.mohamed-zaitoon:apputilx:1.2.1")
+    implementation("com.github.mohamed-zaitoon:apputilx:1.3.0")
     implementation("com.onesignal:OneSignal:5.1.20")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

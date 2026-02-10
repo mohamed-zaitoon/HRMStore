@@ -1,11 +1,12 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/constants.dart';
@@ -17,6 +18,7 @@ import '../widgets/top_snackbar.dart';
 enum ReleaseStage { alpha, beta, rc, stable }
 
 class UpdateManager {
+  static const MethodChannel _androidChannel = MethodChannel('tt_android_info');
   static const String _githubApi =
       "https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO/releases";
 
@@ -117,19 +119,16 @@ class UpdateManager {
 
       String downloadUrl = release['html_url']?.toString() ?? "";
 
-      try {
-        final androidInfo = await DeviceInfoPlugin().androidInfo;
-        final abi = androidInfo.supportedAbis.first.toLowerCase();
-
-        final assets = (release['assets'] as List<dynamic>?) ?? [];
-        for (final a in assets) {
-          final name = a['name'].toString().toLowerCase();
-          if (name.endsWith('.apk') && name.contains(abi)) {
-            downloadUrl = a['browser_download_url'].toString();
-            break;
-          }
+      // اختر أول أصل APK
+      final assets = (release['assets'] as List<dynamic>?) ?? [];
+      for (final a in assets) {
+        final name = a['name']?.toString().toLowerCase() ?? "";
+        final url = a['browser_download_url']?.toString();
+        if (name.endsWith('.apk')) {
+          downloadUrl = url ?? downloadUrl;
+          break;
         }
-      } catch (_) {}
+      }
 
       if (!context.mounted) return;
       if (manual) Navigator.pop(context);
@@ -278,10 +277,12 @@ class UpdateManager {
                     ),
                   ),
                   ElevatedButton(
-                    onPressed: () => launchUrl(
-                      Uri.parse(ensureHttps(url)),
-                      mode: LaunchMode.externalApplication,
-                    ),
+                    onPressed: () async {
+                      await launchUrl(
+                        Uri.parse(ensureHttps(url)),
+                        mode: LaunchMode.externalApplication,
+                      );
+                    },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: TTColors.primaryCyan,
                       foregroundColor: Colors.black,
@@ -302,6 +303,7 @@ class UpdateManager {
       ),
     );
   }
+
 }
 
 class _ParsedVersion {

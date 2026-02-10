@@ -125,6 +125,39 @@ class MainActivity: FlutterActivity() {
                         result.error("UNINSTALL_ERROR", e.message, null)
                     }
                 }
+                "installApk" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrBlank()) {
+                        result.error("NO_PATH", "path is null or empty", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val ok = installApk(path)
+                        if (ok) {
+                            result.success(true)
+                        } else {
+                            result.error("INSTALL_FAILED", "Could not start installer", null)
+                        }
+                    } catch (e: Exception) {
+                        result.error("INSTALL_ERROR", e.message, null)
+                    }
+                }
+                "fetchLatestApk" -> {
+                    val user = call.argument<String>("user")
+                    val repo = call.argument<String>("repo")
+                    val currentVersion = call.argument<String>("currentVersion") ?: ""
+                    if (user.isNullOrBlank() || repo.isNullOrBlank()) {
+                        result.error("BAD_ARGS", "user/repo are required", null)
+                        return@setMethodCallHandler
+                    }
+                    UpdateChecker.fetchLatestApk(user, repo, currentVersion) { res, err ->
+                        if (err != null) {
+                            result.error("UPDATE_ERROR", err, null)
+                        } else {
+                            result.success(res)
+                        }
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -134,7 +167,7 @@ class MainActivity: FlutterActivity() {
     // AR: تنسخ ملف الثيم إلى الكاش وتفتحه في HyperBridge.
     @Throws(IOException::class)
     private fun applyHyperBridgeTheme(assetName: String): Boolean {
-        val cacheRoot = File(cacheDir, "hyperbridge")
+        val cacheRoot = File(cacheDir, "hrmstore")
         if (!cacheRoot.exists()) {
             cacheRoot.mkdirs()
         }
@@ -154,7 +187,7 @@ class MainActivity: FlutterActivity() {
 
         val uri = FileProvider.getUriForFile(
             this,
-            "${packageName}.hyperbridge.provider",
+            "${packageName}.hrmstore.provider",
             outFile
         )
 
@@ -166,6 +199,40 @@ class MainActivity: FlutterActivity() {
 
         startActivity(intent)
         return true
+    }
+
+    // EN: Installs an APK from the given path using FileProvider (no browser required).
+    // AR: يثبّت ملف APK من المسار المحدد عبر FileProvider بدون الحاجة لفتح المتصفح.
+    private fun installApk(path: String): Boolean {
+        val file = File(path)
+        if (!file.exists()) {
+            android.util.Log.e("UpdateInstaller", "APK file not found at $path")
+            return false
+        }
+        android.util.Log.i("UpdateInstaller", "Installing APK at $path size=${file.length()}")
+
+        val uri = FileProvider.getUriForFile(
+            this,
+            "${packageName}.provider",
+            file
+        )
+
+        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            data = uri
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            putExtra(Intent.EXTRA_RETURN_RESULT, true)
+        }
+
+        return try {
+            startActivity(intent)
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        } catch (e: Exception) {
+            android.util.Log.e("UpdateInstaller", "Install intent failed", e)
+            false
+        }
     }
 
 

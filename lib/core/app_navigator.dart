@@ -1,3 +1,4 @@
+// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 import 'package:flutter/material.dart';
 
 // EN: Global navigator access for dialogs that are triggered above the app Navigator.

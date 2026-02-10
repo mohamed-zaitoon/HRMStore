@@ -1,3 +1,4 @@
+# Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 cmake_minimum_required(VERSION 3.10.2)
 project("hrmstore")
 
