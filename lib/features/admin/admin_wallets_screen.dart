@@ -11,6 +11,12 @@ import '../../widgets/top_snackbar.dart';
 class AdminWalletsScreen extends StatelessWidget {
   const AdminWalletsScreen({super.key});
 
+  // EN: Extracts every wallet number stored in a wallets document,
+  //     whether it's a single 'number', a list under 'numbers',
+  //     or multiple values combined in one string; returns unique, trimmed values.
+  // AR: يستخرج كل أرقام المحافظ داخل مستند wallets سواء كانت في حقل مفرد
+  //     باسم number أو في قائمة numbers أو مجمعة كسلسلة نصية؛ يعيد القيم
+  //     بعد تنظيفها وإزالة التكرار.
   List<String> _extractWallets(Map<String, dynamic> data, String docId) {
     final List<String> wallets = [];
 
@@ -49,12 +55,20 @@ class AdminWalletsScreen extends StatelessWidget {
     return wallets.toSet().toList(); // ensure unique
   }
 
+  // EN: Chooses a readable label for the wallet card using label/provider/name,
+  //     falling back to the document ID if none are provided.
+  // AR: يحدد تسمية واضحة لبطاقة المحفظة بالاعتماد على الحقول label أو provider أو name،
+  //     ويعود إلى معرّف المستند إذا لم تتوفر أي تسمية.
   String _extractLabel(Map<String, dynamic> data, String docId) {
     final label = data['label'] ?? data['provider'] ?? data['name'];
     if (label is String && label.trim().isNotEmpty) return label.trim();
     return docId;
   }
 
+  // EN: Builds the admin wallets screen: listens to Firestore, flattens all wallet
+  //     numbers into a list, and renders copy-friendly cards for each entry.
+  // AR: يبني شاشة محافظ الأدمن: يستمع لتحديثات Firestore، يجمع كل الأرقام في قائمة،
+  //     ويعرض بطاقات قابلة للنسخ لكل رقم على حدة.
   @override
   Widget build(BuildContext context) {
     return Scaffold(

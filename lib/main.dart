@@ -45,12 +45,7 @@ Future<void> main() async {
 
   runApp(HrmStoreApp(prefs: prefs, isAdminApp: isAdmin));
 
-  unawaited(
-    _postInit(
-      whatsapp: whatsapp,
-      isAdmin: isAdmin,
-    ),
-  );
+  unawaited(_postInit(whatsapp: whatsapp, isAdmin: isAdmin));
 }
 
 Future<void> _postInit({
