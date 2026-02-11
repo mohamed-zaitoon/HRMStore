@@ -204,6 +204,15 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                 ),
 
                 _menuTile(
+                  icon: Icons.account_balance_wallet,
+                  title: "المحافظ",
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.pushNamed(context, '/admin/wallets');
+                  },
+                ),
+
+                _menuTile(
                   icon: Icons.brightness_6,
                   title: "وضع التطبيق",
                   onTap: () async {

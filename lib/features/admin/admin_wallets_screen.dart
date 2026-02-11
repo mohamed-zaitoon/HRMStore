@@ -1,0 +1,164 @@
+// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../core/tt_colors.dart';
+import '../../widgets/glass_app_bar.dart';
+import '../../widgets/glass_card.dart';
+import '../../widgets/top_snackbar.dart';
+
+class AdminWalletsScreen extends StatelessWidget {
+  const AdminWalletsScreen({super.key});
+
+  List<String> _extractWallets(Map<String, dynamic> data, String docId) {
+    final List<String> wallets = [];
+
+    void addIfValid(dynamic v) {
+      if (v is String && v.trim().isNotEmpty) {
+        wallets.add(v.trim());
+      } else if (v is num) {
+        wallets.add(v.toString());
+      }
+    }
+
+    if (data['number'] != null) addIfValid(data['number']);
+
+    if (data['numbers'] is List) {
+      for (final v in (data['numbers'] as List)) {
+        addIfValid(v);
+      }
+    }
+
+    // If a single string field contains multiple numbers separated by spaces/commas/newlines.
+    if (wallets.isEmpty && data['number'] is String) {
+      final parts = (data['number'] as String)
+          .split(RegExp(r'[\\s,;\\n]+'))
+          .where((e) => e.trim().isNotEmpty);
+      wallets.addAll(parts);
+    }
+
+    // As a last resort pick any string/num field in the doc.
+    if (wallets.isEmpty) {
+      for (final entry in data.entries) {
+        addIfValid(entry.value);
+      }
+    }
+
+    if (wallets.isEmpty) wallets.add(docId);
+    return wallets.toSet().toList(); // ensure unique
+  }
+
+  String _extractLabel(Map<String, dynamic> data, String docId) {
+    final label = data['label'] ?? data['provider'] ?? data['name'];
+    if (label is String && label.trim().isNotEmpty) return label.trim();
+    return docId;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: const GlassAppBar(title: Text("المحافظ 💳")),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance.collection('wallets').snapshots(),
+        builder: (ctx, snap) {
+          if (snap.hasError) {
+            return const Center(child: Text('خطأ في جلب البيانات'));
+          }
+          if (!snap.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final docs = snap.data!.docs;
+          if (docs.isEmpty) {
+            return const Center(child: Text('لا توجد محافظ مضافة بعد'));
+          }
+
+          final List<_WalletEntry> items = [];
+          for (final doc in docs) {
+            final data = doc.data();
+            final label = _extractLabel(data, doc.id);
+            for (final w in _extractWallets(data, doc.id)) {
+              items.add(_WalletEntry(label: label, number: w));
+            }
+          }
+
+          if (items.isEmpty) {
+            return const Center(child: Text('لا توجد محافظ مضافة بعد'));
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(16),
+            physics: const BouncingScrollPhysics(),
+            itemCount: items.length,
+            separatorBuilder: (context, _) => const SizedBox(height: 12),
+            itemBuilder: (c, i) {
+              final item = items[i];
+
+              return GlassCard(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: TTColors.primaryCyan.withAlpha(35),
+                      foregroundColor: TTColors.primaryCyan,
+                      child: const Icon(Icons.account_balance_wallet),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.label,
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold,
+                              color: TTColors.textWhite,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            item.number,
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              color: TTColors.textGray,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy),
+                      color: TTColors.primaryCyan,
+                      tooltip: 'نسخ',
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: item.number),
+                        );
+                        if (ctx.mounted) {
+                          TopSnackBar.show(
+                            ctx,
+                            'تم نسخ رقم المحفظة',
+                            backgroundColor: Colors.green,
+                            textColor: Colors.white,
+                            icon: Icons.check,
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _WalletEntry {
+  final String label;
+  final String number;
+  _WalletEntry({required this.label, required this.number});
+}

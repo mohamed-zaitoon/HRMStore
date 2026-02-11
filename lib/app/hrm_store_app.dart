@@ -30,6 +30,7 @@ import '../features/admin/admin_prices_screen.dart';
 import '../features/admin/admin_availability_screen.dart';
 import '../features/admin/admin_game_packages_screen.dart';
 import '../features/admin/admin_users_screen.dart';
+import '../features/admin/admin_wallets_screen.dart';
 
 import '../features/platform/android_landing_page.dart';
 import '../features/orders/ramadan_codes_screen.dart';
@@ -182,6 +183,10 @@ class HrmStoreApp extends StatelessWidget {
       case '/admin/users':
         return MaterialPageRoute(
           builder: (_) => const AdminUsersScreen(),
+        );
+      case '/admin/wallets':
+        return MaterialPageRoute(
+          builder: (_) => const AdminWalletsScreen(),
         );
 
       default:
