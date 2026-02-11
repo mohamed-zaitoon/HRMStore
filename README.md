@@ -2,7 +2,7 @@
 # HRM Store
 
 ![GitHub Release](https://img.shields.io/github/v/release/mohamed-zaitoon/HRMStore?include_prereleases&style=for-the-badge)
-![GitHub License](https://img.shields.io/github/license/mohamed-zaitoon/HRMStore?style=for-the-badge)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
 ![Last Commit](https://img.shields.io/github/last-commit/mohamed-zaitoon/HRMStore?style=for-the-badge)
 
 ![Flutter](https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)
