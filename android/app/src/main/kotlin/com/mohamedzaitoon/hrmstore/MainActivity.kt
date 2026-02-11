@@ -142,6 +142,30 @@ class MainActivity: FlutterActivity() {
                         result.error("INSTALL_ERROR", e.message, null)
                     }
                 }
+                "installApkRooted" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrBlank()) {
+                        result.error("NO_PATH", "path is null or empty", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val ok = installApkRooted(path)
+                        if (ok) {
+                            result.success(true)
+                        } else {
+                            result.error("INSTALL_FAILED", "pm install failed", null)
+                        }
+                    } catch (e: Exception) {
+                        result.error("INSTALL_ERROR", e.message, null)
+                    }
+                }
+                "isRooted" -> {
+                    try {
+                        result.success(isDeviceRooted())
+                    } catch (e: Exception) {
+                        result.error("ROOT_ERROR", e.message, null)
+                    }
+                }
                 "fetchLatestApk" -> {
                     val user = call.argument<String>("user")
                     val repo = call.argument<String>("repo")
@@ -232,6 +256,43 @@ class MainActivity: FlutterActivity() {
         } catch (e: Exception) {
             android.util.Log.e("UpdateInstaller", "Install intent failed", e)
             false
+        }
+    }
+
+    // EN: Installs APK silently via root (pm install -r). Returns true if exitCode==0.
+    // AR: يثبّت الـAPK بصلاحيات الروت (pm install -r) ويعيد true إذا نجح.
+    private fun installApkRooted(path: String): Boolean {
+        return try {
+            val proc = ProcessBuilder("su", "-c", "pm install -r \"$path\"")
+                .redirectErrorStream(true)
+                .start()
+            val exit = proc.waitFor()
+            exit == 0
+        } catch (e: Exception) {
+            android.util.Log.e("UpdateInstaller", "Root install failed", e)
+            false
+        }
+    }
+
+    // EN: Basic root detection (su binary + test-keys tag).
+    // AR: كشف مبسط للروت بفحص su و test-keys.
+    private fun isDeviceRooted(): Boolean {
+        try {
+            val tags = Build.TAGS
+            if (tags != null && tags.contains("test-keys")) return true
+            val paths = arrayOf(
+                "/system/bin/su",
+                "/system/xbin/su",
+                "/system/app/Superuser.apk",
+                "/sbin/su",
+                "/su/bin/su"
+            )
+            if (paths.any { java.io.File(it).exists() }) return true
+            val process = Runtime.getRuntime().exec(arrayOf("which", "su"))
+            val exit = process.waitFor()
+            return exit == 0
+        } catch (_: Exception) {
+            return false
         }
     }
 

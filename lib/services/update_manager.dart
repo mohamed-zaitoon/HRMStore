@@ -2,11 +2,16 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/constants.dart';
@@ -21,6 +26,7 @@ class UpdateManager {
   static const MethodChannel _androidChannel = MethodChannel('tt_android_info');
   static const String _githubApi =
       "https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO/releases";
+  static const _downloadDirName = "Download";
 
   // EN: Checks check.
   // AR: تفحص check.
@@ -139,6 +145,216 @@ class UpdateManager {
     }
   }
 
+  // EN: Downloads latest APK then triggers native installer.
+  // AR: يحفظ الـAPK في مجلد Download الخاص بالتطبيق ثم يطلق شاشة التثبيت.
+  static Future<void> _downloadAndInstall(
+    BuildContext context,
+    String version,
+    String url,
+  ) async {
+    if (!context.mounted) return;
+    if (url.trim().isEmpty) {
+      TopSnackBar.show(
+        context,
+        "تعذّر إيجاد رابط التحميل.",
+        backgroundColor: Colors.orange.shade800,
+        textColor: Colors.white,
+        icon: Icons.link_off,
+      );
+      return;
+    }
+
+    // على الويب أو iOS نفتح الرابط في المتصفح.
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      await launchUrl(Uri.parse(ensureHttps(url)));
+      return;
+    }
+
+    final sanitizedUrl = ensureHttps(url);
+    final isDirectApk = sanitizedUrl.toLowerCase().endsWith('.apk');
+    if (!isDirectApk) {
+      await launchUrl(Uri.parse(sanitizedUrl));
+      return;
+    }
+
+    final progress = ValueNotifier<double>(0);
+    bool dialogOpen = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ValueListenableBuilder<double>(
+        valueListenable: progress,
+        builder: (_, value, child) {
+          final percent = (value * 100).clamp(0, 100);
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 24,
+            ),
+            child: GlassCard(
+              margin: EdgeInsets.zero,
+              padding: const EdgeInsets.all(18),
+              borderColor: TTColors.primaryCyan.withAlpha(140),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "جاري تنزيل التحديث...",
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontWeight: FontWeight.bold,
+                      color: TTColors.primaryCyan,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  LinearProgressIndicator(
+                    value: value == 0 ? null : value,
+                    backgroundColor: TTColors.textGray.withValues(alpha: 0.2),
+                    color: TTColors.primaryCyan,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "${percent.toStringAsFixed(0)}%",
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      color: TTColors.textGray,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).whenComplete(() => dialogOpen = false);
+
+    try {
+      final downloadDir = await _resolveDownloadDir();
+
+      final filePath = p
+          .join(downloadDir.path, "hrmstore-$version.apk")
+          .replaceAll('\\', '/');
+
+      final uri = Uri.parse(sanitizedUrl);
+      final request = http.Request('GET', uri);
+      final client = http.Client();
+      final total = <int?>[null]; // mutable box to use in finally for progress
+      final file = File(filePath).openWrite();
+      try {
+        final streamResponse = await client.send(request);
+
+        if (streamResponse.statusCode != 200) {
+          throw Exception("فشل التحميل (رمز ${streamResponse.statusCode})");
+        }
+
+        total[0] = streamResponse.contentLength;
+        int received = 0;
+
+        await for (final chunk in streamResponse.stream) {
+          file.add(chunk);
+          received += chunk.length;
+          if ((total[0] ?? 0) > 0) {
+            progress.value = received / (total[0]!);
+          }
+        }
+      } finally {
+        await file.close();
+        client.close();
+      }
+
+      progress.value = 1;
+
+      if (dialogOpen && context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogOpen = false;
+      }
+
+      // حاول التثبيت بالروت أولاً، ثم بالأسلوب العادي.
+      bool installedOk = await _tryRootInstall(filePath);
+      if (!installedOk) {
+        final bool? installed = await _androidChannel.invokeMethod<bool>(
+          'installApk',
+          {'path': filePath},
+        );
+        installedOk = installed == true;
+      }
+
+      if (!installedOk && context.mounted) {
+        TopSnackBar.show(
+          context,
+          "تم التنزيل في مجلد $_downloadDirName، افتح الملف يدويًا للتثبيت.",
+          backgroundColor: Colors.orange.shade800,
+          textColor: Colors.white,
+          icon: Icons.info,
+        );
+      }
+    } catch (e) {
+      if (dialogOpen && context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogOpen = false;
+      }
+      if (context.mounted) {
+        TopSnackBar.show(
+          context,
+          "تعذّر إتمام التحديث: ${e.toString()}",
+          backgroundColor: Colors.red.shade800,
+          textColor: Colors.white,
+          icon: Icons.error,
+        );
+      }
+    } finally {
+      progress.dispose();
+    }
+  }
+
+  static Future<bool> _tryRootInstall(String filePath) async {
+    try {
+      final bool? rooted = await _androidChannel.invokeMethod<bool>('isRooted');
+      if (rooted != true) return false;
+      final bool? ok = await _androidChannel.invokeMethod<bool>(
+        'installApkRooted',
+        {'path': filePath},
+      );
+      return ok == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // EN: Finds a writable app-specific Download directory, with fallbacks.
+  // AR: يحدد مجلد تنزيل قابل للكتابة خاص بالتطبيق مع حلول احتياطية.
+  static Future<Directory> _resolveDownloadDir() async {
+    // 1) Internal files dir (works with FileProvider `files-path`).
+    try {
+      final support = await getApplicationSupportDirectory();
+      final dir = Directory(p.join(support.path, _downloadDirName));
+      if (await _ensureDir(dir)) return dir;
+    } catch (_) {}
+
+    // 2) App-specific external (if the device allows).
+    try {
+      final ext = await getExternalStorageDirectory();
+      if (ext != null) {
+        final dir = Directory(p.join(ext.path, _downloadDirName));
+        if (await _ensureDir(dir)) return dir;
+      }
+    } catch (_) {}
+
+    // 3) Last resort: cache dir.
+    final cache = await getTemporaryDirectory();
+    final dir = Directory(p.join(cache.path, _downloadDirName));
+    await dir.create(recursive: true);
+    return dir;
+  }
+
+  static Future<bool> _ensureDir(Directory dir) async {
+    if (await dir.exists()) return true;
+    await dir.create(recursive: true);
+    return await dir.exists();
+  }
+
   // EN: Handles compare Versions.
   // AR: تتعامل مع compare Versions.
   static int _compareVersions(String a, String b) {
@@ -188,7 +404,9 @@ class UpdateManager {
         .map((e) => int.tryParse(e) ?? 0)
         .toList();
 
-    while (nums.length < 3) nums.add(0);
+    while (nums.length < 3) {
+      nums.add(0);
+    }
 
     return _ParsedVersion(nums.take(3).toList(), stage, stageNumber);
   }
@@ -278,10 +496,7 @@ class UpdateManager {
                   ),
                   ElevatedButton(
                     onPressed: () async {
-                      await launchUrl(
-                        Uri.parse(ensureHttps(url)),
-                        mode: LaunchMode.externalApplication,
-                      );
+                      await _downloadAndInstall(context, version, url);
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: TTColors.primaryCyan,
@@ -303,7 +518,6 @@ class UpdateManager {
       ),
     );
   }
-
 }
 
 class _ParsedVersion {

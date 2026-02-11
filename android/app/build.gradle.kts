@@ -56,11 +56,11 @@ configure<ApplicationExtension>{
         create("admin") {
             dimension = "default"
             applicationIdSuffix = ".admin"
-            resValue("string", "app_name", "HRM Store (ادمن)")
+            resValue("string", "app_name", "HRM Store (Admin)")
             minSdk = 35
             // Fixed admin version
-            versionName = "2.1"
-            versionCode = 200
+            versionName = "2.2"
+            versionCode = 220
         }
     }
 
