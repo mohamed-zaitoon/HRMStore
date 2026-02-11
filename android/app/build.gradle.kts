@@ -49,7 +49,7 @@ configure<ApplicationExtension>{
             dimension = "default"
             applicationId = "com.mohamedzaitoon.hrmstore"
             resValue("string", "app_name", "HRM Store")
-            minSdk = 26
+            minSdk = 28
             manifestPlaceholders["applicationName"] = ".HrmStoreApp"
         }
 

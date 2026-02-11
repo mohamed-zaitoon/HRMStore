@@ -65,3 +65,4 @@ android/app/src/main/res/mipmap-*/ic_launcher_round.png
 functions/
 function/
 lib/services/remote_config_service.dart
+debug-info/
