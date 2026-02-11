@@ -22,6 +22,42 @@ HRM Store is a Flutter application for purchasing TikTok coins with a smooth, Ar
 - Remote Config for operational settings and offers
 - OneSignal notifications
 
+## Code Overview / نظرة عامة على الكود
+
+- Entrypoints / نقاط الدخول  
+  - `lib/main.dart`: boots the user app, initializes Firebase/Remote Config/OneSignal with `isAdminApp=false`.  
+  - `lib/main_admin.dart`: boots the admin app, sets `isAdminApp=true`, persists the flag in SharedPreferences.
+
+- App shell / الهيكل العام  
+  - `lib/app/hrm_store_app.dart`: main `MaterialApp`, routes for user/admin, dynamic color + theme mode, web title observer.  
+  - `lib/features/platform/android_landing_page.dart`: redirects Android web visitors to install/open app with gradient CTA.
+
+- Update flow / نظام التحديث  
+  - `lib/services/update_manager.dart`: checks Remote Config + GitHub releases, downloads APK to `files/Download`, installs via root (`installApkRooted`) then normal `installApk`, shows progress and fallbacks.  
+  - `android/app/src/main/kotlin/com/mohamedzaitoon/hrmstore/UpdateChecker.kt`: GitHub latest release fetcher, picks first `.apk` asset, compares versions.  
+  - `android/app/src/main/kotlin/com/mohamedzaitoon/hrmstore/MainActivity.kt`: MethodChannel `tt_android_info` for sdk info, file read, integrity, uninstall/install, root install, fetchLatestApk bridge; uses FileProvider `${applicationId}.provider`.  
+  - `android/app/src/main/AndroidManifest.xml`: permissions (INSTALL_PACKAGES, storage, notifications), deep links, FileProvider per `res/xml/file_paths.xml`.
+
+- Admin tools / أدوات الأدمن  
+  - `lib/features/admin/admin_orders_screen.dart`: admin dashboard for orders, filters, wallet editing per order, receipts preview, menu navigation.  
+  - `lib/features/admin/admin_wallets_screen.dart`: streams Firestore `wallets`, extracts numbers from `number`/`numbers`/mixed strings, shows copyable cards.  
+  - Other admin screens: prices, promo codes, availability, users, game packages under `lib/features/admin/`.
+
+- User flows / تدفقات المستخدم  
+  - `lib/features/calculator/calculator_screen.dart`: core purchase flow; runs `UpdateManager.check` on app start; manual update button in menu.  
+  - `lib/features/orders/orders_screen.dart`: shows user orders; auto-assigns wallet numbers from Firestore `wallets` when missing.
+
+- OneSignal / الإشعارات  
+  - `lib/services/onesignal_service.dart`: initializes OneSignal, sets externalId per user/admin, handles permissions.
+
+- Storage & FileProvider / التخزين وموفر الملفات  
+  - `android/app/src/main/res/xml/file_paths.xml`: grants cache/files/external_files for FileProvider to serve APK/theme assets.
+
+- Deployment notes / ملاحظات النشر  
+  - GitHub releases must include an `.apk` asset for in-app updates.  
+  - Remote Config keys: `latest_version_name`, `allow_beta_updates`, `allow_alpha_updates`.  
+  - Root install needs available `su`; otherwise the user sees the normal installer.
+
 ## Tech Stack
 
 - Flutter (stable)
