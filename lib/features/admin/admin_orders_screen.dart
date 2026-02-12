@@ -53,6 +53,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
         return 'غير محدد';
     }
   }
+
   // EN: Initializes widget state.
   // AR: تهيّئ حالة الودجت.
   @override
@@ -354,9 +355,9 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
             if (!s.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
-        if (s.data!.docs.isEmpty) {
-          return const Center(child: Text("لا توجد طلبات شحن"));
-        }
+            if (s.data!.docs.isEmpty) {
+              return const Center(child: Text("لا توجد طلبات شحن"));
+            }
 
             final statuses = <String>[
               'all',
@@ -406,10 +407,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
               else
                 ...docs.map((doc) {
                   final data = doc.data() as Map<String, dynamic>;
-                  return _AdminOrderCard(
-                    id: doc.id,
-                    data: data
-                  );
+                  return _AdminOrderCard(id: doc.id, data: data);
                 }),
             ];
 
@@ -435,10 +433,7 @@ class _AdminOrderCard extends StatefulWidget {
 
   // EN: Creates AdminOrderCard.
   // AR: ينشئ AdminOrderCard.
-  const _AdminOrderCard({
-    required this.id,
-    required this.data,
-  });
+  const _AdminOrderCard({required this.id, required this.data});
 
   // EN: Creates state object.
   // AR: تنشئ كائن الحالة.
@@ -675,21 +670,43 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     final status = widget.data['status'] ?? 'unknown';
     final bool isFinalStatus = _isFinalStatus;
     final receiptUrl = widget.data['receipt_url'];
-    final method = widget.data['method'];
-    final String productType =
-        (widget.data['product_type'] ?? 'tiktok').toString();
+    final String method = (widget.data['method'] ?? '').toString();
+    final bool isBinanceMethod = method == 'Binance Pay';
+    final String productType = (widget.data['product_type'] ?? 'tiktok')
+        .toString();
     final bool isGameOrder = productType == 'game';
     final bool isPromoOrder = productType == 'tiktok_promo';
+    final String egpPriceText = (widget.data['price'] ?? '').toString().trim();
+    String usdtAmountText = '';
+    if (isBinanceMethod) {
+      final directUsdt = (widget.data['usdt_amount'] ?? '').toString().trim();
+      if (directUsdt.isNotEmpty) {
+        usdtAmountText = directUsdt;
+      } else {
+        final double? egpAmount = double.tryParse(egpPriceText);
+        final dynamic usdtRateRaw = widget.data['usdt_price'];
+        double? usdtRate;
+        if (usdtRateRaw is num) {
+          usdtRate = usdtRateRaw.toDouble();
+        } else if (usdtRateRaw is String) {
+          usdtRate = double.tryParse(usdtRateRaw.trim());
+        }
+        if (egpAmount != null && usdtRate != null && usdtRate > 0) {
+          usdtAmountText = (egpAmount / usdtRate).toStringAsFixed(2);
+        }
+      }
+    }
+    final String egpDisplay = "$egpPriceText LE";
+    final String displayPriceText = isBinanceMethod && usdtAmountText.isNotEmpty
+        ? "💰 $usdtAmountText USDT ($egpDisplay)"
+        : "💰 $egpDisplay";
     final String gameKey = (widget.data['game'] ?? '').toString();
-    final String packageLabel =
-        (widget.data['package_label'] ?? '').toString();
+    final String packageLabel = (widget.data['package_label'] ?? '').toString();
     final String gameId = (widget.data['game_id'] ?? '').toString();
     final String promoVideoLink = (widget.data['video_link'] ?? '').toString();
     final String leftText = isGameOrder
         ? "🎮 ${GamePackage.gameLabel(gameKey)} - $packageLabel"
-        : (isPromoOrder
-            ? "📣 ترويج فيديو"
-            : "💎 ${widget.data['points']}");
+        : (isPromoOrder ? "📣 ترويج فيديو" : "💎 ${widget.data['points']}");
 
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 16),
@@ -746,7 +763,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
               ),
 
               Text(
-                "💰 ${widget.data['price']} ج.م",
+                displayPriceText,
                 style: const TextStyle(
                   color: Colors.green,
                   fontWeight: FontWeight.bold,
@@ -774,9 +791,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
                 ),
                 IconButton(
                   onPressed: () async {
-                    await Clipboard.setData(
-                      ClipboardData(text: gameId),
-                    );
+                    await Clipboard.setData(ClipboardData(text: gameId));
                     if (!mounted) return;
                     TopSnackBar.show(
                       context,
@@ -925,8 +940,8 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
                 final statusText = status == 'completed'
                     ? 'مكتمل'
                     : status == 'rejected'
-                        ? 'مرفوض'
-                        : 'ملغي';
+                    ? 'مرفوض'
+                    : 'ملغي';
                 return Text(
                   "تم تعيين الطلب ك$statusText.\nلا يمكن تعديل الحالة أو البيانات بعد ذلك.",
                   textAlign: TextAlign.center,

@@ -40,10 +40,12 @@ class _OrdersScreenState extends State<OrdersScreen> {
   @override
   void initState() {
     super.initState();
-    _autoRefreshTimer =
-        Timer.periodic(const Duration(seconds: 15), (_) => setState(() {
-              _refreshToken++;
-            }));
+    _autoRefreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => setState(() {
+        _refreshToken++;
+      }),
+    );
   }
 
   @override
@@ -55,6 +57,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   Future<String> _resolveWallet(
     String orderId,
     String current,
+    String method,
     Timestamp? createdAt,
     int refreshToken,
   ) async {
@@ -63,6 +66,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
     if (normalized.isNotEmpty &&
         normalized != "تواصل مع الدعم" &&
         !normalized.toLowerCase().contains("support")) {
+      return normalized;
+    }
+
+    // لا ننشئ رقماً عشوائياً إلا لطلبات المحفظة فقط
+    if (method != 'Wallet') {
       return normalized;
     }
 
@@ -78,8 +86,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
     // لا تعيد استعلام إذا كنا قد عيّنا رقماً عشوائياً سابقاً لنفس الطلب
     if (_walletCache.containsKey(orderId)) return _walletCache[orderId]!;
 
-    final snap =
-        await FirebaseFirestore.instance.collection('wallets').limit(50).get();
+    final snap = await FirebaseFirestore.instance
+        .collection('wallets')
+        .limit(50)
+        .get();
     if (snap.docs.isEmpty) return "";
 
     String _extractWallet(Map<String, dynamic> data) {
@@ -109,18 +119,21 @@ class _OrdersScreenState extends State<OrdersScreen> {
     _walletCache[orderId] = wallet;
 
     // احفظ الرقم في الطلب بعد الدقيقة ليظهر للجميع
-    await FirebaseFirestore.instance
-        .collection('orders')
-        .doc(orderId)
-        .set({'wallet_number': wallet, 'updated_at': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+    await FirebaseFirestore.instance.collection('orders').doc(orderId).set({
+      'wallet_number': wallet,
+      'updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return wallet;
   }
+
   // EN: Uploads Receipt For Order.
   // AR: ترفع Receipt For Order.
   Future<void> _uploadReceiptForOrder(
     String orderId,
-    String price,
+    String amountText,
     String walletNum,
+    String paymentLabel,
+    Color paymentColor,
   ) async {
     bool proceed = false;
     await showDialog(
@@ -137,21 +150,28 @@ class _OrdersScreenState extends State<OrdersScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "المبلغ: $price جنيه",
+              "المبلغ: $amountText",
               style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
             ),
 
             const SizedBox(height: 10),
 
             Text(
-              "حول المبلغ للرقم:",
+              "حول المبلغ إلى:",
+              style: TextStyle(color: TTColors.textGray, fontFamily: 'Cairo'),
+            ),
+
+            const SizedBox(height: 4),
+
+            Text(
+              paymentLabel,
               style: TextStyle(color: TTColors.textGray, fontFamily: 'Cairo'),
             ),
 
             SelectableText(
               walletNum,
-              style: const TextStyle(
-                color: Colors.orange,
+              style: TextStyle(
+                color: paymentColor,
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
@@ -276,12 +296,13 @@ class _OrdersScreenState extends State<OrdersScreen> {
             .collection('orders')
             .doc(orderId)
             .update({
-          'receipt_url': uploadRes.url,
-          'receipt_path': uploadRes.path,
-          'receipt_expires_at':
-              Timestamp.fromDate(DateTime.now().add(const Duration(minutes: 30))),
-          'status': 'pending_review'
-        });
+              'receipt_url': uploadRes.url,
+              'receipt_path': uploadRes.path,
+              'receipt_expires_at': Timestamp.fromDate(
+                DateTime.now().add(const Duration(minutes: 30)),
+              ),
+              'status': 'pending_review',
+            });
         if (!mounted) return;
         TopSnackBar.show(
           context,
@@ -337,25 +358,38 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 children: s.data!.docs.map((d) {
                   final data = d.data() as Map<String, dynamic>;
                   final status = (data['status'] ?? 'unknown').toString();
-                  final String? deliveryLink = data['delivery_link']?.toString();
-                  final String productType =
-                      (data['product_type'] ?? 'tiktok').toString();
+                  final String? deliveryLink = data['delivery_link']
+                      ?.toString();
+                  final String productType = (data['product_type'] ?? 'tiktok')
+                      .toString();
                   final bool isGameOrder = productType == 'game';
                   final bool isPromoOrder = productType == 'tiktok_promo';
-                  final String promoLink = (data['video_link'] ?? '').toString();
+                  final String promoLink = (data['video_link'] ?? '')
+                      .toString();
                   final String gameKey = (data['game'] ?? '').toString();
-                  final String packageLabel =
-                      (data['package_label'] ?? '').toString();
+                  final String packageLabel = (data['package_label'] ?? '')
+                      .toString();
                   final String gameId = (data['game_id'] ?? '').toString();
                   final String titleText = isGameOrder
                       ? "${GamePackage.gameLabel(gameKey)} - $packageLabel"
                       : (isPromoOrder
-                          ? "ترويج فيديو تيك توك"
-                          : "${data['points']} نقطة");
+                            ? "ترويج فيديو تيك توك"
+                            : "${data['points']} نقطة");
 
                   final String walletNum =
                       data['wallet_number']?.toString() ?? "";
-                  final bool showWalletSection = data['method'] == 'Wallet' &&
+                  final String paymentMethod = (data['method'] ?? '')
+                      .toString();
+                  final bool isWalletMethod = paymentMethod == 'Wallet';
+                  final bool isBinanceMethod = paymentMethod == 'Binance Pay';
+                  final String orderAmountText =
+                      isBinanceMethod &&
+                          (data['usdt_amount']?.toString().trim().isNotEmpty ??
+                              false)
+                      ? "${data['usdt_amount']} USDT"
+                      : "${data['price']} جنيه";
+                  final bool showWalletSection =
+                      (isWalletMethod || isBinanceMethod) &&
                       (status == 'pending_payment' ||
                           status == 'pending_review' ||
                           status == 'processing');
@@ -411,7 +445,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         const SizedBox(height: 8),
 
                         Text(
-                          'السعر: ${data['price']} جنيه',
+                          'السعر: $orderAmountText',
                           style: TextStyle(color: TTColors.textGray),
                         ),
 
@@ -453,11 +487,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                         size: 20,
                                       ),
                                       onPressed: () async {
-                                        final url = ensureHttps(promoLink.trim());
+                                        final url = ensureHttps(
+                                          promoLink.trim(),
+                                        );
                                         try {
                                           await launchUrl(
                                             Uri.parse(url),
-                                            mode: LaunchMode.externalApplication,
+                                            mode:
+                                                LaunchMode.externalApplication,
                                           );
                                         } catch (_) {}
                                       },
@@ -478,27 +515,35 @@ class _OrdersScreenState extends State<OrdersScreen> {
                             future: _resolveWallet(
                               d.id,
                               walletNum,
+                              paymentMethod,
                               data['created_at'] as Timestamp?,
                               _refreshToken,
                             ),
                             builder: (ctx, snapWallet) {
                               final resolved = snapWallet.data ?? "";
+                              final paymentLabel = isBinanceMethod
+                                  ? "Binance Pay ID:"
+                                  : "رقم المحفظة:";
+                              final paymentColor = isBinanceMethod
+                                  ? const Color(0xFFF3BA2F)
+                                  : Colors.orangeAccent;
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Container(
                                     padding: const EdgeInsets.all(10),
                                     decoration: BoxDecoration(
-                                      color: Colors.orange.withAlpha(26),
+                                      color: paymentColor.withAlpha(26),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        const Text(
-                                          "رقم المحفظة:",
+                                        Text(
+                                          paymentLabel,
                                           style: TextStyle(
-                                            color: Colors.orangeAccent,
+                                            color: paymentColor,
                                             fontSize: 12,
                                             fontFamily: 'Cairo',
                                           ),
@@ -525,13 +570,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                                   ? null
                                                   : () {
                                                       Clipboard.setData(
-                                                        ClipboardData(text: resolved),
+                                                        ClipboardData(
+                                                          text: resolved,
+                                                        ),
                                                       );
                                                       TopSnackBar.show(
                                                         context,
                                                         "تم النسخ",
-                                                        backgroundColor: TTColors.cardBg,
-                                                        textColor: TTColors.textWhite,
+                                                        backgroundColor:
+                                                            TTColors.cardBg,
+                                                        textColor:
+                                                            TTColors.textWhite,
                                                         icon: Icons.copy,
                                                       );
                                                     },
@@ -554,14 +603,18 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                         "إرفاق الإيصال وإكمال الطلب",
                                         style: TextStyle(fontFamily: 'Cairo'),
                                       ),
-                                      onPressed: (snapWallet.connectionState == ConnectionState.waiting ||
+                                      onPressed:
+                                          (snapWallet.connectionState ==
+                                                  ConnectionState.waiting ||
                                               resolved.trim().isEmpty)
                                           ? null
                                           : () => _uploadReceiptForOrder(
-                                                d.id,
-                                                data['price'].toString(),
-                                                resolved,
-                                              ),
+                                              d.id,
+                                              orderAmountText,
+                                              resolved,
+                                              paymentLabel,
+                                              paymentColor,
+                                            ),
                                     ),
                                   ),
                                 ],
@@ -591,7 +644,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                 style: TextStyle(fontFamily: 'Cairo'),
                               ),
                               onPressed: () async {
-                                final Uri url = Uri.parse(ensureHttps(deliveryLink.trim()));
+                                final Uri url = Uri.parse(
+                                  ensureHttps(deliveryLink.trim()),
+                                );
                                 try {
                                   await launchUrl(
                                     url,
@@ -709,7 +764,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
   }
 
-  Future<void> _maybeCleanupReceipt(String orderId, Map<String, dynamic> data) async {
+  Future<void> _maybeCleanupReceipt(
+    String orderId,
+    Map<String, dynamic> data,
+  ) async {
     final String url = data['receipt_url']?.toString() ?? '';
     if (url.isEmpty) return;
     final Timestamp? expiresTs = data['receipt_expires_at'] as Timestamp?;

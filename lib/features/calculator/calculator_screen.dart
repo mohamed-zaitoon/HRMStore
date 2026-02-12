@@ -107,6 +107,8 @@ class _CalculatorScreenState extends State<CalculatorScreen>
 
   String _walletNumber = "";
   String _instapayLink = "";
+  String _binanceId = "";
+  double _usdtPrice = 0;
   double _offer5 = 0;
   double _offer50 = 0;
   bool _isRamadanMode = false;
@@ -182,8 +184,9 @@ class _CalculatorScreenState extends State<CalculatorScreen>
       snap ??= await users.doc(whatsapp).get();
 
       final data = snap.data();
-      final remoteTiktok =
-          (data?['tiktok'] ?? data?['username'] ?? '').toString().trim();
+      final remoteTiktok = (data?['tiktok'] ?? data?['username'] ?? '')
+          .toString()
+          .trim();
       if (remoteTiktok.isNotEmpty) {
         setState(() => _tiktokCtrl.text = remoteTiktok);
         prefs.setString('user_tiktok', remoteTiktok);
@@ -249,7 +252,10 @@ class _CalculatorScreenState extends State<CalculatorScreen>
     return true;
   }
 
-  Future<void> _syncTiktokToFirestore(String handle, SharedPreferences? prefs) async {
+  Future<void> _syncTiktokToFirestore(
+    String handle,
+    SharedPreferences? prefs,
+  ) async {
     if (handle.isEmpty) return;
     try {
       final p = prefs ?? await SharedPreferences.getInstance();
@@ -291,9 +297,15 @@ class _CalculatorScreenState extends State<CalculatorScreen>
         ),
       );
       await rc.fetchAndActivate();
+      final rcUsdtPrice = rc.getDouble('usdt_price');
+      final parsedUsdtFromString = double.tryParse(rc.getString('usdt_price'));
       setState(() {
         _walletNumber = rc.getString('wallet_number');
         _instapayLink = rc.getString('instapay_link');
+        _binanceId = rc.getString('binance_id');
+        _usdtPrice = rcUsdtPrice > 0
+            ? rcUsdtPrice
+            : (parsedUsdtFromString ?? 0);
         _offer5 = rc.getDouble('offer5');
         _offer50 = rc.getDouble('offer50');
         _isRamadanMode = rc.getBool('is_ramadan');
@@ -589,27 +601,20 @@ class _CalculatorScreenState extends State<CalculatorScreen>
           return const Padding(
             padding: EdgeInsets.all(16),
             child: Center(
-              child: CircularProgressIndicator(
-                color: TTColors.primaryCyan,
-              ),
+              child: CircularProgressIndicator(color: TTColors.primaryCyan),
             ),
           );
         }
 
-        final packages = snapshot.data!.docs
-            .map((d) => GamePackage.fromDoc(d))
-            .toList()
-          ..sort((a, b) {
-            final order = {
-              'pubg': 0,
-              'freefire': 1,
-              'cod': 2,
-            };
-            final g1 = order[a.game] ?? 9;
-            final g2 = order[b.game] ?? 9;
-            if (g1 != g2) return g1.compareTo(g2);
-            return a.sort.compareTo(b.sort);
-          });
+        final packages =
+            snapshot.data!.docs.map((d) => GamePackage.fromDoc(d)).toList()
+              ..sort((a, b) {
+                final order = {'pubg': 0, 'freefire': 1, 'cod': 2};
+                final g1 = order[a.game] ?? 9;
+                final g2 = order[b.game] ?? 9;
+                if (g1 != g2) return g1.compareTo(g2);
+                return a.sort.compareTo(b.sort);
+              });
 
         if (packages.isEmpty) {
           return Padding(
@@ -642,9 +647,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
                   leading: Icon(_gameIcon(game)),
                   title: Text(
                     GamePackage.gameLabel(game),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 );
               },
@@ -656,9 +659,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
                         title: Text(pkg.label),
                         subtitle: Text(
                           "السعر: ${pkg.price} جنيه",
-                          style: TextStyle(
-                            color: TTColors.textGray,
-                          ),
+                          style: TextStyle(color: TTColors.textGray),
                         ),
                         onTap: () async {
                           if (closeContext != null &&
@@ -724,12 +725,8 @@ class _CalculatorScreenState extends State<CalculatorScreen>
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-          ],
-          decoration: const InputDecoration(
-            labelText: "ادخل الـ ID",
-          ),
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(labelText: "ادخل الـ ID"),
         ),
         actions: [
           TextButton(
@@ -771,7 +768,10 @@ class _CalculatorScreenState extends State<CalculatorScreen>
             child: Material(
               color: Colors.transparent,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
                   child: GlassCard(
@@ -835,6 +835,22 @@ class _CalculatorScreenState extends State<CalculatorScreen>
                           Colors.purpleAccent,
                           () => _processInstaPay(),
                         ),
+
+                        const SizedBox(height: 10),
+
+                        _payOptionWithLeading(
+                          "Binance Pay",
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: Image.asset(
+                              'assets/icon/binance_logo.png',
+                              width: 22,
+                              height: 22,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          () => _processBinancePay(),
+                        ),
                       ],
                     ),
                   ),
@@ -859,11 +875,33 @@ class _CalculatorScreenState extends State<CalculatorScreen>
     );
   }
 
+  Widget _payOptionWithLeading(String t, Widget leading, VoidCallback tap) {
+    return ListTile(
+      leading: leading,
+      title: Text(t, style: const TextStyle(fontFamily: 'Cairo')),
+      onTap: tap,
+      tileColor: TTColors.cardBg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    );
+  }
+
+  String _formatUsdtAmount(double amount) => amount.toStringAsFixed(2);
+
+  double? _calcOrderUsdtAmount() {
+    final int egpAmount = _calcPrice ?? 0;
+    if (egpAmount <= 0 || _usdtPrice <= 0) return null;
+    return egpAmount / _usdtPrice;
+  }
+
   Map<String, dynamic> _buildOrderPayload({
     required String method,
     required String status,
     String? receiptUrl,
     String? receiptPath,
+    String? paymentTarget,
+    String? binanceId,
+    String? usdtAmount,
+    double? usdtPrice,
   }) {
     final priceValue = _calcPrice ?? 0;
     final tiktokHandle = _tiktokCtrl.text.trim();
@@ -873,13 +911,19 @@ class _CalculatorScreenState extends State<CalculatorScreen>
       'user_tiktok': tiktokHandle,
       'price': priceValue.toString(),
       'method': method,
-      'wallet_number': _walletNumber,
+      'wallet_number': paymentTarget ?? _walletNumber,
+      if (binanceId != null && binanceId.trim().isNotEmpty)
+        'binance_id': binanceId.trim(),
+      if (usdtAmount != null && usdtAmount.trim().isNotEmpty)
+        'usdt_amount': usdtAmount.trim(),
+      if (usdtPrice != null && usdtPrice > 0) 'usdt_price': usdtPrice,
       'status': status,
       'receipt_url': receiptUrl,
       'receipt_path': receiptPath,
       if (receiptUrl != null)
-        'receipt_expires_at':
-            Timestamp.fromDate(DateTime.now().add(const Duration(minutes: 30))),
+        'receipt_expires_at': Timestamp.fromDate(
+          DateTime.now().add(const Duration(minutes: 30)),
+        ),
       'created_at': FieldValue.serverTimestamp(),
     };
 
@@ -935,10 +979,85 @@ class _CalculatorScreenState extends State<CalculatorScreen>
     );
 
     if (!mounted) return;
-    await FirebaseFirestore.instance.collection('orders').add(
+    await FirebaseFirestore.instance
+        .collection('orders')
+        .add(_buildOrderPayload(method: "Wallet", status: 'pending_payment'));
+
+    if (!mounted) return;
+    Navigator.pushNamed(context, '/orders', arguments: widget.whatsapp);
+    setState(() {
+      _promoLink = null;
+    });
+  }
+
+  Future<void> _processBinancePay() async {
+    Navigator.pop(context);
+
+    if (!await _checkCancelLimit()) return;
+
+    final String binanceId = _binanceId.trim();
+    if (binanceId.isEmpty) {
+      _showCustomToast("Binance ID غير متاح حالياً", color: Colors.orange);
+      return;
+    }
+
+    final usdtAmount = _calcOrderUsdtAmount();
+    if (usdtAmount == null) {
+      _showCustomToast("سعر USDT غير متاح حالياً", color: Colors.orange);
+      return;
+    }
+    final usdtAmountText = _formatUsdtAmount(usdtAmount);
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: TTColors.cardBg,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.currency_bitcoin,
+              color: Color(0xFFF3BA2F),
+              size: 50,
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              "المبلغ المطلوب: $usdtAmountText USDT",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              "سيظهر Binance Pay ID في 'طلباتي'.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("متابعة"),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    await FirebaseFirestore.instance
+        .collection('orders')
+        .add(
           _buildOrderPayload(
-            method: "Wallet",
+            method: "Binance Pay",
             status: 'pending_payment',
+            paymentTarget: binanceId,
+            binanceId: binanceId,
+            usdtAmount: usdtAmountText,
+            usdtPrice: _usdtPrice,
           ),
         );
 
@@ -1209,8 +1328,9 @@ class _CalculatorScreenState extends State<CalculatorScreen>
   }
 
   Future<bool> _checkCancelLimit() async {
-    final since =
-        Timestamp.fromDate(DateTime.now().subtract(const Duration(hours: 24)));
+    final since = Timestamp.fromDate(
+      DateTime.now().subtract(const Duration(hours: 24)),
+    );
 
     Future<int> _countCancelled(Query<Map<String, dynamic>> base) async {
       // The query already filters by status and timestamp.
@@ -1235,7 +1355,9 @@ class _CalculatorScreenState extends State<CalculatorScreen>
         return false;
       }
     } catch (e) {
-      debugPrint("cancel limit check failed: $e"); // TODO: أنشئ فهرس مركب: user_whatsapp Asc, cancelled_at Desc, status Asc
+      debugPrint(
+        "cancel limit check failed: $e",
+      ); // TODO: أنشئ فهرس مركب: user_whatsapp Asc, cancelled_at Desc, status Asc
       // السماح بالمتابعة حتى لا نحظر المستخدم بسبب فهرس/شبكة
       return true;
     }
@@ -1337,7 +1459,8 @@ class _CalculatorScreenState extends State<CalculatorScreen>
               ),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
-                  minHeight: MediaQuery.of(context).size.height -
+                  minHeight:
+                      MediaQuery.of(context).size.height -
                       appBarHeight -
                       (isLargeWeb ? 40 : 0),
                 ),
@@ -1388,133 +1511,135 @@ class _CalculatorScreenState extends State<CalculatorScreen>
                             ),
                           ),
 
-                            const SizedBox(height: 15),
-                            if (_resultText.isNotEmpty)
-                              Text(
-                                _resultText,
-                                style: TextStyle(
-                                  color: _isInputValid
-                                      ? TTColors.textWhite
-                                      : Colors.red,
-                                  fontSize: 18,
-                                  fontFamily: 'Cairo',
-                                ),
+                          const SizedBox(height: 15),
+                          if (_resultText.isNotEmpty)
+                            Text(
+                              _resultText,
+                              style: TextStyle(
+                                color: _isInputValid
+                                    ? TTColors.textWhite
+                                    : Colors.red,
+                                fontSize: 18,
+                                fontFamily: 'Cairo',
                               ),
-                            // إظهار خانة كود الخصم دائماً عندما يكون العرض مفعّلاً
-                            if (widget.showRamadanPromo)
-                              GlassCard(
-                                margin: const EdgeInsets.symmetric(vertical: 10),
-                                padding: const EdgeInsets.all(14),
-                                borderColor: TTColors.goldAccent.withAlpha(160),
-                                child: Column(
-                                  children: [
-                                    const Text(
-                                      "✨ عروض رمضان الذهبية ✨",
-                                      style: TextStyle(
-                                        color: TTColors.goldAccent,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        fontFamily: 'Cairo',
-                                      ),
+                            ),
+                          // إظهار خانة كود الخصم دائماً عندما يكون العرض مفعّلاً
+                          if (widget.showRamadanPromo)
+                            GlassCard(
+                              margin: const EdgeInsets.symmetric(vertical: 10),
+                              padding: const EdgeInsets.all(14),
+                              borderColor: TTColors.goldAccent.withAlpha(160),
+                              child: Column(
+                                children: [
+                                  const Text(
+                                    "✨ عروض رمضان الذهبية ✨",
+                                    style: TextStyle(
+                                      color: TTColors.goldAccent,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
                                     ),
-                                    if (!_isDiscountActive) ...[
-                                      const SizedBox(height: 10),
+                                  ),
+                                  if (!_isDiscountActive) ...[
+                                    const SizedBox(height: 10),
 
-                                      TextField(
-                                        controller: _promoCtrl,
-                                        decoration: const InputDecoration(
-                                          labelText: "الكود الذهبي",
-                                          prefixIcon: Icon(
-                                            Icons.vpn_key,
-                                            color: Color(0xFFFFD700),
-                                          ),
-                                        ),
-                                      ),
-
-                                      const SizedBox(height: 10),
-
-                                      ElevatedButton(
-                                        onPressed: _activatePromo,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor:
-                                              const Color(0xFFFFD700),
-                                          foregroundColor: Colors.black,
-                                        ),
-                                        child: const Text("تفعيل"),
-                                      ),
-
-                                      const SizedBox(height: 10),
-
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: OutlinedButton.icon(
-                                          onPressed: _requestRamadanCode,
-                                          icon:
-                                              const Icon(Icons.card_giftcard),
-                                          label: const Text(
-                                            "اضغط لطلب كود رمضان الخاص بك",
-                                            textAlign: TextAlign.center,
-                                          ),
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor:
-                                                const Color(0xFFFFD700),
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 12,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ] else
-                                      const Text(
-                                        "✅ تم التفعيل!",
-                                        style: TextStyle(
+                                    TextField(
+                                      controller: _promoCtrl,
+                                      decoration: const InputDecoration(
+                                        labelText: "الكود الذهبي",
+                                        prefixIcon: Icon(
+                                          Icons.vpn_key,
                                           color: Color(0xFFFFD700),
                                         ),
                                       ),
-                                  ],
-                                ),
-                              ),
+                                    ),
 
-                            const SizedBox(height: 20),
-                            TextButton.icon(
-                              onPressed: () {
-                                setState(() {
-                                  _isPointsMode = !_isPointsMode;
-                                  _inputCtrl.clear();
-                                  _resultText = "";
-                                });
-                              },
-                              icon: const Icon(Icons.swap_vert),
-                              label: const Text("تبديل النمط"),
+                                    const SizedBox(height: 10),
+
+                                    ElevatedButton(
+                                      onPressed: _activatePromo,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xFFFFD700,
+                                        ),
+                                        foregroundColor: Colors.black,
+                                      ),
+                                      child: const Text("تفعيل"),
+                                    ),
+
+                                    const SizedBox(height: 10),
+
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        onPressed: _requestRamadanCode,
+                                        icon: const Icon(Icons.card_giftcard),
+                                        label: const Text(
+                                          "اضغط لطلب كود رمضان الخاص بك",
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: const Color(
+                                            0xFFFFD700,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ] else
+                                    const Text(
+                                      "✅ تم التفعيل!",
+                                      style: TextStyle(
+                                        color: Color(0xFFFFD700),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
 
-                            const SizedBox(height: 20),
+                          const SizedBox(height: 20),
+                          TextButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _isPointsMode = !_isPointsMode;
+                                _inputCtrl.clear();
+                                _resultText = "";
+                              });
+                            },
+                            icon: const Icon(Icons.swap_vert),
+                            label: const Text("تبديل النمط"),
+                          ),
 
-                            const SizedBox(height: 14),
+                          const SizedBox(height: 20),
 
-                            ElevatedButton(
-                              onPressed:
-                                  _isInputValid ? _showPaymentDialog : null,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: TTColors.primaryCyan,
-                                foregroundColor: Colors.black,
-                                minimumSize: const Size(double.infinity, 50),
-                              ),
-                              child: const Text(
-                                "طلب الشحن",
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontFamily: 'Cairo',
-                                ),
+                          const SizedBox(height: 14),
+
+                          ElevatedButton(
+                            onPressed: _isInputValid
+                                ? _showPaymentDialog
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: TTColors.primaryCyan,
+                              foregroundColor: Colors.black,
+                              minimumSize: const Size(double.infinity, 50),
+                            ),
+                            child: const Text(
+                              "طلب الشحن",
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontFamily: 'Cairo',
                               ),
                             ),
+                          ),
                         ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -1607,10 +1732,12 @@ class _CalculatorScreenState extends State<CalculatorScreen>
   Widget _buildCompactMenuBody() {
     final brightness = Theme.of(context).brightness;
     final bool isDark = brightness == Brightness.dark;
-    final Color cardTint =
-        TTColors.cardBgFor(brightness).withValues(alpha: isDark ? 0.9 : 0.85);
-    final Color accent =
-        isDark ? const Color(0xFF5FE0C9) : const Color(0xFF52D6C2);
+    final Color cardTint = TTColors.cardBgFor(
+      brightness,
+    ).withValues(alpha: isDark ? 0.9 : 0.85);
+    final Color accent = isDark
+        ? const Color(0xFF5FE0C9)
+        : const Color(0xFF52D6C2);
 
     final items = [
       _MenuItem(
@@ -1654,7 +1781,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
               arguments: widget.whatsapp,
             );
           },
-      ),
+        ),
       _MenuItem(
         title: "شحن ألعاب",
         icon: Icons.sports_esports,
@@ -1710,8 +1837,11 @@ class _CalculatorScreenState extends State<CalculatorScreen>
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                trailing:
-                    Icon(Icons.chevron_left, color: TTColors.textGray, size: 20),
+                trailing: Icon(
+                  Icons.chevron_left,
+                  color: TTColors.textGray,
+                  size: 20,
+                ),
                 onTap: item.onTap,
               ),
             ),
@@ -1734,10 +1864,8 @@ class _CalculatorScreenState extends State<CalculatorScreen>
                     width: 28,
                     height: 28,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const Icon(
-                      Icons.flash_on,
-                      color: Colors.black,
-                    ),
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.flash_on, color: Colors.black),
                   ),
                 ),
               ),
@@ -1803,27 +1931,18 @@ class _CalculatorScreenState extends State<CalculatorScreen>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _webBtn(
-                "طلباتي",
-                () => _openOrders(),
-              ),
+              _webBtn("طلباتي", () => _openOrders()),
               _webBtn(
                 "شحن عملات تيك توك",
                 () => Navigator.pushNamed(context, '/'),
               ),
-              _webBtn(
-                "ترويج فيديو تيك توك",
-                _openPromoDialog,
-              ),
+              _webBtn("ترويج فيديو تيك توك", _openPromoDialog),
               _webBtn("شحن ألعاب", _showOtherPackagesSheet),
               _webBtn(
                 "سياسة الخصوصية",
                 () => Navigator.pushNamed(context, '/privacy'),
               ),
-              _webBtn(
-                "حسابي",
-                () => Navigator.pushNamed(context, '/account'),
-              ),
+              _webBtn("حسابي", () => Navigator.pushNamed(context, '/account')),
               if (_isRamadanMode)
                 _webBtn(
                   "أكواد خصم رمضان",
