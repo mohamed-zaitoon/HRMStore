@@ -1213,14 +1213,10 @@ class _CalculatorScreenState extends State<CalculatorScreen>
         Timestamp.fromDate(DateTime.now().subtract(const Duration(hours: 24)));
 
     Future<int> _countCancelled(Query<Map<String, dynamic>> base) async {
+      // The query already filters by status and timestamp.
+      // We can just return the number of documents found.
       final snap = await base.get();
-      return snap.docs.where((d) {
-        final data = d.data();
-        if ((data['status'] ?? '') != 'cancelled') return false;
-        final ts = data['cancelled_at'];
-        if (ts is! Timestamp) return false;
-        return ts.toDate().isAfter(since.toDate());
-      }).length;
+      return snap.docs.length;
     }
 
     try {
@@ -1229,7 +1225,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
           .where('user_whatsapp', isEqualTo: widget.whatsapp)
           .where('status', isEqualTo: 'cancelled')
           .where('cancelled_at', isGreaterThanOrEqualTo: since)
-          .limit(50);
+          .limit(5);
       final count = await _countCancelled(base);
       if (count >= 5) {
         _showCustomToast(

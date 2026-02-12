@@ -1,12 +1,7 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:crypto/crypto.dart';
 import 'package:hrmstoreapp/core/app_info.dart';
 import 'package:hrmstoreapp/core/tt_colors.dart';
 import '../../widgets/glass_app_bar.dart';

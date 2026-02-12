@@ -36,8 +36,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _menuIconController;
   String _statusFilter = 'all';
-  int _refreshToken = 0;
-  Timer? _autoRefreshTimer;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _ordersStream;
 
   String _statusLabel(String status) {
     switch (status) {
@@ -65,10 +64,22 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
       duration: const Duration(milliseconds: 220),
       reverseDuration: const Duration(milliseconds: 180),
     );
-    _autoRefreshTimer =
-        Timer.periodic(const Duration(seconds: 15), (_) => setState(() {
-              _refreshToken++;
-            }));
+    _ordersStream = _getStream();
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _getStream() {
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+        .collection('orders')
+        .orderBy('created_at', descending: true);
+
+    if (_statusFilter != 'all') {
+      query = query.where('status', isEqualTo: _statusFilter);
+    }
+
+    // ملاحظة: هذا الاستعلام قد يتطلب إنشاء فهرس مركب في Firestore.
+    // (e.g., status ASC, created_at DESC).
+    // ستظهر رسالة خطأ في الـ console مع رابط لإنشاء الفهرس تلقائياً إذا لزم الأمر.
+    return query.snapshots();
   }
 
   // EN: Releases resources.
@@ -76,7 +87,6 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
   @override
   void dispose() {
     _menuIconController.dispose();
-    _autoRefreshTimer?.cancel();
     super.dispose();
   }
 
@@ -335,11 +345,8 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
       },
       child: Scaffold(
         appBar: isSmallMobile ? _buildMobileAppBar() : _buildWebAppBar(),
-        body: StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('orders')
-              .orderBy('created_at', descending: true)
-              .snapshots(),
+        body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _ordersStream,
           builder: (c, s) {
             if (s.hasError) {
               return const Center(child: Text("حدث خطأ في جلب البيانات"));
@@ -360,12 +367,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
               'rejected',
             ];
 
-            final filteredDocs = s.data!.docs.where((doc) {
-              if (_statusFilter == 'all') return true;
-              final data = doc.data() as Map<String, dynamic>;
-              return data['status'] == _statusFilter;
-            }).toList();
-
+            final docs = s.data!.docs;
             final widgets = <Widget>[
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -386,35 +388,34 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                         selected: selected,
                         selectedColor: TTColors.primaryCyan.withAlpha(120),
                         onSelected: (_) {
-                          setState(() => _statusFilter = status);
+                          setState(() {
+                            _statusFilter = status;
+                            _ordersStream = _getStream();
+                          });
                         },
                       ),
                     );
                   }).toList(),
                 ),
               ),
-              const SizedBox(height: 8),
-              if (filteredDocs.isEmpty)
+              if (docs.isEmpty)
                 const Padding(
                   padding: EdgeInsets.all(32),
                   child: Center(child: Text("لا توجد طلبات شحن")),
                 )
               else
-                ...filteredDocs.map((doc) {
+                ...docs.map((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   return _AdminOrderCard(
                     id: doc.id,
-                    data: data,
-                    refreshToken: _refreshToken,
+                    data: data
                   );
                 }),
             ];
 
             return RefreshIndicator(
-              onRefresh: () async {
-                setState(() => _refreshToken++);
-                await Future.delayed(const Duration(milliseconds: 250));
-              },
+              onRefresh: () async =>
+                  Future.delayed(const Duration(milliseconds: 500)),
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(12),
@@ -431,14 +432,12 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
 class _AdminOrderCard extends StatefulWidget {
   final String id;
   final Map<String, dynamic> data;
-  final int refreshToken;
 
   // EN: Creates AdminOrderCard.
   // AR: ينشئ AdminOrderCard.
   const _AdminOrderCard({
     required this.id,
     required this.data,
-    required this.refreshToken,
   });
 
   // EN: Creates state object.

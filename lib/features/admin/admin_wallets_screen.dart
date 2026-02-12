@@ -149,9 +149,9 @@ class AdminWalletsScreen extends StatelessWidget {
                         await Clipboard.setData(
                           ClipboardData(text: item.number),
                         );
-                        if (ctx.mounted) {
+                        if (c.mounted) {
                           TopSnackBar.show(
-                            ctx,
+                            c,
                             'تم نسخ رقم المحفظة',
                             backgroundColor: Colors.green,
                             textColor: Colors.white,

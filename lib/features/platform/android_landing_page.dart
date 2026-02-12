@@ -28,9 +28,6 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
   String _latestVersion = "";
   final List<_ApkAsset> _apkAssets = [];
 
-  final String _scheme = "hrmstoreapp";
-  final String _host = "open";
-
   // EN: Initializes widget state.
   // AR: تهيّئ حالة الودجت.
   @override
@@ -38,17 +35,6 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
     super.initState();
 
     _fetchLatestApks();
-  }
-
-  // EN: Opens App Directly.
-  // AR: تفتح App Directly.
-  void _openAppDirectly() {
-    final uri = Uri.parse("$_scheme://$_host");
-
-    launchUrl(
-      uri,
-      mode: LaunchMode.externalApplication,
-    ).catchError((_) => false);
   }
 
   // EN: Fetches Latest Apks.
@@ -126,25 +112,6 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
               ),
 
               const SizedBox(height: 30),
-
-              ElevatedButton.icon(
-                onPressed: _openAppDirectly,
-                icon: const Icon(Icons.open_in_new, color: Colors.white),
-                label: const Text(
-                  "فتح التطبيق (إذا كان مثبتاً)",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontFamily: 'Cairo',
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: TTColors.primaryPink,
-                  minimumSize: const Size(double.infinity, 55),
-                ),
-              ),
-
-              const SizedBox(height: 20),
 
               if (_isLoading)
                 const CircularProgressIndicator(color: TTColors.primaryCyan)

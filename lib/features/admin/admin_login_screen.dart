@@ -141,14 +141,15 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
           .replaceAll(RegExp(r'[^0-9+]'), '')
           .trim();
 
-      if (storedPassword != password) {
+      if (storedPassword != password ||
+          (storedWhatsapp.isNotEmpty && storedWhatsapp != whatsappInput)) {
         setState(() => _error = "بيانات الدخول غير صحيحة");
         return;
       }
 
-      if (storedWhatsapp.isNotEmpty && storedWhatsapp != whatsappInput) {
-        setState(() => _error = "بيانات الدخول غير صحيحة");
-        return;
+      // إذا كان الأدمن ليس لديه رقم واتساب مسجل، وادخل رقم جديد، نحفظه له
+      if (storedWhatsapp.isEmpty && whatsappInput.isNotEmpty) {
+        await doc.reference.update({'whatsapp': whatsappInput});
       }
 
       final String adminId = doc.id;
@@ -180,19 +181,17 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       }, SetOptions(merge: true));
 
       // 6️⃣ حفظ بيانات الجلسة محلياً في SharedPreferences
-      final savedWhatsapp =
-          whatsappInput.isNotEmpty ? whatsappInput : storedWhatsapp;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('admin_id', adminId);
       await prefs.setString('admin_username', username);
-      await prefs.setString('admin_whatsapp', savedWhatsapp);
+      await prefs.setString('admin_whatsapp', whatsappInput);
       await prefs.setString('admin_expiry', expiryDate.toIso8601String());
 
       // 7️⃣ تشغيل لستَنر الطلبات والأكواد (local notifications)
       NotificationService.listenToAdminOrders();
       NotificationService.listenToAdminRamadanCodes();
       await OneSignalService.registerUser(
-        whatsapp: savedWhatsapp,
+        whatsapp: whatsappInput,
         isAdmin: true,
         requestPermission: true,
       );

@@ -92,7 +92,6 @@ class _UserDataEntryScreenState extends State<UserDataEntryScreen> {
       setState(() => _isCheckingLogin = false);
       if (!_hasSavedUser) {
         await _showConsentInfoDialog();
-        _navigateToHomeIfNeeded();
       }
     }
   }
@@ -212,15 +211,6 @@ class _UserDataEntryScreenState extends State<UserDataEntryScreen> {
           ),
         );
       },
-    );
-  }
-
-  void _navigateToHomeIfNeeded() {
-    if (!mounted || _hasSavedUser) return;
-    Navigator.pushReplacementNamed(
-      context,
-      '/home',
-      arguments: {'name': '', 'whatsapp': '', 'tiktok': ''},
     );
   }
 

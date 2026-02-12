@@ -50,7 +50,8 @@ class UpdateManager {
       final bool allowBeta = rc.getBool('allow_beta_updates');
       final bool allowAlpha = rc.getBool('allow_alpha_updates');
 
-      final ghRes = await http.get(Uri.parse(_githubApi));
+      final ghRes =
+          await http.get(Uri.parse(_githubApi)).timeout(const Duration(seconds: 15));
       if (ghRes.statusCode != 200) {
         if (manual && context.mounted) Navigator.pop(context);
         return;

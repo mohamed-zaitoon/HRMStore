@@ -1,12 +1,10 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 import com.android.build.api.dsl.ApplicationExtension
-import com.android.build.api.variant.FilterConfiguration
-import com.android.build.gradle.BaseExtension
 import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.FileInputStream
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     id("com.android.application")
@@ -57,10 +55,10 @@ configure<ApplicationExtension>{
             dimension = "default"
             applicationIdSuffix = ".admin"
             resValue("string", "app_name", "HRM Store (Admin)")
-            minSdk = 35
+            minSdk = 36
             // Fixed admin version
-            versionName = "2.3"
-            versionCode = 230
+            versionName = "2.4"
+            versionCode = 240
         }
     }
 
@@ -138,4 +136,8 @@ dependencies {
     implementation("com.github.mohamed-zaitoon:apputilx:1.3.0")
     implementation("com.onesignal:OneSignal:5.1.20")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+}
+
+tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions.jvmTarget.set(JvmTarget.JVM_21)
 }
