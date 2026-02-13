@@ -46,6 +46,26 @@ android/app/src/main/cpp/native-lib.cpp
 ios/Runner/GoogleService-Info.plist
 **/firebase_app_id_file.json
 **/firebase_options.dart
+.firebaserc
+firebase.json
+firebase-debug.log
+firebase-debug.*.log
+
+# Sensitive Firebase-backed code (not for public GitHub pushes)
+lib/main.dart
+lib/main_admin.dart
+lib/features/admin/
+lib/features/auth/
+lib/features/calculator/calculator_screen.dart
+lib/features/orders/
+lib/services/access_control_service.dart
+lib/services/admin_session_service.dart
+lib/services/app_check_service.dart
+lib/services/availability_service.dart
+lib/services/cancel_limit_service.dart
+lib/services/onesignal_service.dart
+lib/services/receipt_storage_service.dart
+lib/services/update_manager.dart
 
 # Generated icons / fastlane / tooling
 ios/fastlane/report.xml
