@@ -17,6 +17,7 @@ import '../../core/constants.dart';
 import '../../core/tt_colors.dart';
 import '../../core/app_info.dart';
 import '../../models/game_package.dart';
+import '../../services/cancel_limit_service.dart';
 import '../../services/receipt_storage_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/onesignal_service.dart';
@@ -1328,36 +1329,23 @@ class _CalculatorScreenState extends State<CalculatorScreen>
   }
 
   Future<bool> _checkCancelLimit() async {
-    final since = Timestamp.fromDate(
-      DateTime.now().subtract(const Duration(hours: 24)),
-    );
-
-    Future<int> _countCancelled(Query<Map<String, dynamic>> base) async {
-      // The query already filters by status and timestamp.
-      // We can just return the number of documents found.
-      final snap = await base.get();
-      return snap.docs.length;
-    }
-
     try {
-      final base = FirebaseFirestore.instance
-          .collection('orders')
-          .where('user_whatsapp', isEqualTo: widget.whatsapp)
-          .where('status', isEqualTo: 'cancelled')
-          .where('cancelled_at', isGreaterThanOrEqualTo: since)
-          .limit(5);
-      final count = await _countCancelled(base);
-      if (count >= 5) {
+      final prefs = await SharedPreferences.getInstance();
+      final uid = (prefs.getString('user_uid') ?? '').trim();
+      final decision = await CancelLimitService.checkCanCreateOrder(
+        whatsapp: widget.whatsapp,
+        uid: uid.isEmpty ? null : uid,
+      );
+
+      if (!decision.allowed) {
         _showCustomToast(
-          "تم إلغاء 5 طلبات خلال آخر 24 ساعة. الرجاء الانتظار 24 ساعة قبل إنشاء طلب جديد.",
+          "تم إلغاء ${decision.cancellationsInLast24Hours} طلبات خلال آخر 24 ساعة. الرجاء الانتظار 24 ساعة قبل إنشاء طلب جديد.",
           color: Colors.orange,
         );
         return false;
       }
     } catch (e) {
-      debugPrint(
-        "cancel limit check failed: $e",
-      ); // TODO: أنشئ فهرس مركب: user_whatsapp Asc, cancelled_at Desc, status Asc
+      debugPrint("cancel limit check failed: $e");
       // السماح بالمتابعة حتى لا نحظر المستخدم بسبب فهرس/شبكة
       return true;
     }

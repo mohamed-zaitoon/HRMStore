@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:math';
@@ -12,6 +13,7 @@ import 'dart:async';
 import '../../core/order_status.dart';
 import '../../core/tt_colors.dart';
 import '../../models/game_package.dart';
+import '../../services/cancel_limit_service.dart';
 import '../../services/receipt_storage_service.dart';
 import '../../widgets/top_snackbar.dart';
 import '../../widgets/glass_app_bar.dart';
@@ -726,6 +728,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
         'cancelled_by': 'user',
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+      await _registerCancellationForCurrentUser();
       if (mounted) {
         TopSnackBar.show(
           context,
@@ -745,6 +748,19 @@ class _OrdersScreenState extends State<OrdersScreen> {
           icon: Icons.error_outline,
         );
       }
+    }
+  }
+
+  Future<void> _registerCancellationForCurrentUser() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final uid = (prefs.getString('user_uid') ?? '').trim();
+      await CancelLimitService.registerCancellation(
+        whatsapp: widget.whatsapp,
+        uid: uid.isEmpty ? null : uid,
+      );
+    } catch (e) {
+      debugPrint('cancel counter update failed: $e');
     }
   }
 
