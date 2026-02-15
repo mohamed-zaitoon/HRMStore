@@ -118,6 +118,26 @@ External IDs are role‑scoped for user devices:
 - Firebase CLI
 - Node.js 22 (for Cloud Functions)
 
+### Safe Public Setup (Without Secrets)
+
+Use the template files and keep real credentials local:
+
+- Android Firebase: copy `android/app/google-services.json.example` to `android/app/google-services.json`
+- iOS Firebase: copy `ios/Runner/GoogleService-Info.plist.example` to `ios/Runner/GoogleService-Info.plist`
+- Android signing: copy `android/app/key.properties.example` to `android/app/key.properties`
+- Functions env: copy `functions/.env.example` to `functions/.env.<project-id>`
+- Firebase options: run `flutterfire configure` to generate `lib/firebase_options.dart`
+
+Example commands:
+
+```bash
+cp android/app/google-services.json.example android/app/google-services.json
+cp ios/Runner/GoogleService-Info.plist.example ios/Runner/GoogleService-Info.plist
+cp android/app/key.properties.example android/app/key.properties
+cp functions/.env.example functions/.env.your-project-id
+flutterfire configure
+```
+
 ## Deployment
 
 - Functions deployment via Firebase CLI

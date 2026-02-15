@@ -1,0 +1,4 @@
+store_file=release-key.jks
+store_password=CHANGE_ME
+key_alias=release
+key_password=CHANGE_ME

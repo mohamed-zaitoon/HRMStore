@@ -28,6 +28,7 @@ Thumbs.db
 # Firebase / keys / secrets
 android/app/google-services.json
 android/app/src/*/google-services.json
+!android/app/google-services.json.example
 android/app/src/*/key.properties
 android/app/release-key.jks
 android/app/debug.keystore
@@ -44,12 +45,16 @@ android/app/src/main/cpp/native-lib.cpp
 *.jks
 *.keystore
 ios/Runner/GoogleService-Info.plist
+!ios/Runner/GoogleService-Info.plist.example
 **/firebase_app_id_file.json
 **/firebase_options.dart
+!lib/firebase_options.dart.example
 .firebaserc
 firebase.json
 firebase-debug.log
 firebase-debug.*.log
+functions/.env*
+!functions/.env.example
 
 # Sensitive Firebase-backed code (not for public GitHub pushes)
 lib/main.dart
@@ -82,7 +87,8 @@ android/app/src/main/res/mipmap-*/ic_launcher_round.png
 *.lock
 
 # Firebase Functions (إن وُجد)
-functions/
-function/
+functions/*
+!functions/.gitignore
+!functions/.env.example
 lib/services/remote_config_service.dart
 debug-info/
