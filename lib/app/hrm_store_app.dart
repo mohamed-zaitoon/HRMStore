@@ -1,8 +1,7 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'
-    show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:dynamic_color/dynamic_color.dart';
@@ -245,10 +244,6 @@ class HrmStoreApp extends StatelessWidget {
 
               builder: (context, child) {
                 final content = child ?? const SizedBox.shrink();
-
-                if (kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-                  return const AndroidLandingPage();
-                }
 
                 final brightness = Theme.of(context).brightness;
                 final background = TTColors.backgroundFor(brightness);
