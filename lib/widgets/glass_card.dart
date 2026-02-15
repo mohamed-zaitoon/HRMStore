@@ -1,7 +1,5 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 class GlassCard extends StatelessWidget {
@@ -26,45 +24,28 @@ class GlassCard extends StatelessWidget {
     this.tint,
   });
 
-  // EN: Builds a glassmorphism card.
-  // AR: تبني بطاقة زجاجية.
+  // EN: Builds a Material card.
+  // AR: تبني بطاقة Material.
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final Color base =
-        brightness == Brightness.dark ? Colors.black : Colors.white;
-    final Color fill = tint ??
-        base.withValues(alpha: brightness == Brightness.dark ? 0.32 : 0.7);
-    final Color border = borderColor ??
-        (brightness == Brightness.dark ? Colors.white : Colors.black)
-            .withValues(alpha: 0.08);
+    final colorScheme = Theme.of(context).colorScheme;
+    final Color fill = tint ?? Theme.of(context).cardColor;
+    final Color border = borderColor ?? colorScheme.outline.withAlpha(48);
+    final double elevationValue = (blur / 10).clamp(1, 4).toDouble();
 
     return Padding(
       padding: margin,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-          child: Container(
-            decoration: BoxDecoration(
-              color: fill,
-              borderRadius: BorderRadius.circular(radius),
-              border: Border.all(color: border, width: 1),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  fill.withValues(alpha: 0.9),
-                  fill.withValues(alpha: 0.75),
-                ],
-              ),
-            ),
-            child: Padding(
-              padding: padding,
-              child: child,
-            ),
-          ),
+      child: Card(
+        margin: EdgeInsets.zero,
+        elevation: elevationValue,
+        shadowColor: Colors.black.withAlpha(28),
+        surfaceTintColor: colorScheme.primary.withAlpha(16),
+        color: fill,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radius),
+          side: BorderSide(color: border),
         ),
+        child: Padding(padding: padding, child: child),
       ),
     );
   }

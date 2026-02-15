@@ -14,7 +14,6 @@ import '../services/theme_service.dart';
 import '../widgets/connection_blocker.dart';
 import '../widgets/access_blocker.dart';
 import '../widgets/availability_blocker.dart';
-import '../widgets/snow_background.dart';
 
 import '../features/calculator/calculator_screen.dart';
 import '../features/orders/orders_screen.dart';
@@ -31,6 +30,7 @@ import '../features/admin/admin_availability_screen.dart';
 import '../features/admin/admin_game_packages_screen.dart';
 import '../features/admin/admin_users_screen.dart';
 import '../features/admin/admin_wallets_screen.dart';
+import '../features/admin/admin_route_guard.dart';
 
 import '../features/platform/android_landing_page.dart';
 import '../features/orders/ramadan_codes_screen.dart';
@@ -44,11 +44,8 @@ class HrmStoreApp extends StatelessWidget {
 
   // EN: Creates HrmStoreApp.
   // AR: ينشئ HrmStoreApp.
-  HrmStoreApp({
-    super.key,
-    required this.prefs,
-    required this.isAdminApp,
-  }) : _titleObserver = _WebTitleObserver(isAdminApp: isAdminApp);
+  HrmStoreApp({super.key, required this.prefs, required this.isAdminApp})
+    : _titleObserver = _WebTitleObserver(isAdminApp: isAdminApp);
 
   // EN: Handles Generate Route.
   // AR: تتعامل مع Generate Route.
@@ -158,35 +155,44 @@ class HrmStoreApp extends StatelessWidget {
         return MaterialPageRoute(builder: (_) => const AdminLoginScreen());
 
       case '/admin/orders':
-        return MaterialPageRoute(builder: (_) => const AdminOrdersScreen());
+        return MaterialPageRoute(
+          builder: (_) => const AdminRouteGuard(child: AdminOrdersScreen()),
+        );
 
       case '/admin/codes':
-        return MaterialPageRoute(builder: (_) => const AdminPromoCodesScreen());
+        return MaterialPageRoute(
+          builder: (_) => const AdminRouteGuard(child: AdminPromoCodesScreen()),
+        );
 
       case '/admin/requests':
         return MaterialPageRoute(
-          builder: (_) => const AdminCodeRequestsScreen(),
+          builder: (_) =>
+              const AdminRouteGuard(child: AdminCodeRequestsScreen()),
         );
 
       case '/admin/prices':
-        return MaterialPageRoute(builder: (_) => const AdminPricesScreen());
+        return MaterialPageRoute(
+          builder: (_) => const AdminRouteGuard(child: AdminPricesScreen()),
+        );
 
       case '/admin/availability':
         return MaterialPageRoute(
-          builder: (_) => const AdminAvailabilityScreen(),
+          builder: (_) =>
+              const AdminRouteGuard(child: AdminAvailabilityScreen()),
         );
 
       case '/admin/games':
         return MaterialPageRoute(
-          builder: (_) => const AdminGamePackagesScreen(),
+          builder: (_) =>
+              const AdminRouteGuard(child: AdminGamePackagesScreen()),
         );
       case '/admin/users':
         return MaterialPageRoute(
-          builder: (_) => const AdminUsersScreen(),
+          builder: (_) => const AdminRouteGuard(child: AdminUsersScreen()),
         );
       case '/admin/wallets':
         return MaterialPageRoute(
-          builder: (_) => const AdminWalletsScreen(),
+          builder: (_) => const AdminRouteGuard(child: AdminWalletsScreen()),
         );
 
       default:
@@ -221,8 +227,9 @@ class HrmStoreApp extends StatelessWidget {
               title: AppInfo.appName,
               debugShowCheckedModeBanner: false,
               navigatorKey: AppNavigator.key,
-              initialRoute:
-                  kIsWeb ? (Uri.base.path.isEmpty ? '/' : Uri.base.path) : '/',
+              initialRoute: kIsWeb
+                  ? (Uri.base.path.isEmpty ? '/' : Uri.base.path)
+                  : '/',
               theme: _buildTheme(Brightness.light, lightDynamic),
               darkTheme: _buildTheme(Brightness.dark, darkDynamic),
               themeMode: mode,
@@ -248,13 +255,16 @@ class HrmStoreApp extends StatelessWidget {
                 final bool isDark = brightness == Brightness.dark;
                 final overlayStyle = SystemUiOverlayStyle(
                   statusBarColor: background,
-                  statusBarIconBrightness:
-                      isDark ? Brightness.light : Brightness.dark,
-                  statusBarBrightness:
-                      isDark ? Brightness.dark : Brightness.light,
+                  statusBarIconBrightness: isDark
+                      ? Brightness.light
+                      : Brightness.dark,
+                  statusBarBrightness: isDark
+                      ? Brightness.dark
+                      : Brightness.light,
                   systemNavigationBarColor: background,
-                  systemNavigationBarIconBrightness:
-                      isDark ? Brightness.light : Brightness.dark,
+                  systemNavigationBarIconBrightness: isDark
+                      ? Brightness.light
+                      : Brightness.dark,
                 );
                 SystemChrome.setSystemUIOverlayStyle(overlayStyle);
 
@@ -270,19 +280,7 @@ class HrmStoreApp extends StatelessWidget {
 
                 return AnnotatedRegion<SystemUiOverlayStyle>(
                   value: overlayStyle,
-                  child: Stack(
-                    children: [
-                      const SnowBackground(),
-                      // نجعل المحتوى فوق الخلفية
-                      Theme(
-                        data: Theme.of(context).copyWith(
-                          scaffoldBackgroundColor: Colors.transparent,
-                          canvasColor: Colors.transparent,
-                        ),
-                        child: gated,
-                      ),
-                    ],
-                  ),
+                  child: gated,
                 );
               },
             );
@@ -295,77 +293,83 @@ class HrmStoreApp extends StatelessWidget {
   // EN: Builds Theme.
   // AR: تبني Theme.
   ThemeData _buildTheme(Brightness brightness, ColorScheme? dynamicScheme) {
+    dynamicScheme; // نحافظ على التوقيع مع تعطيل الاعتماد على Dynamic Color
     final base = ThemeData(brightness: brightness, useMaterial3: true);
-    final background = TTColors.backgroundFor(brightness);
-    final cardBg = TTColors.cardBgFor(brightness);
+    final bool isDark = brightness == Brightness.dark;
     final text = TTColors.textFor(brightness);
     final textMuted = TTColors.textMutedFor(brightness);
+    final background = TTColors.backgroundFor(brightness);
+    final cardBg = TTColors.cardBgFor(brightness);
 
     final colorScheme =
-        (dynamicScheme ??
-                (brightness == Brightness.dark
-                    ? ColorScheme.dark(
-                        primary: TTColors.primaryCyan,
-                        secondary: TTColors.primaryPink,
-                        surface: cardBg,
-                        onPrimary: Colors.black,
-                        onSecondary: Colors.white,
-                        onSurface: text,
-                      )
-                    : ColorScheme.light(
-                        primary: TTColors.primaryCyan,
-                        secondary: TTColors.primaryPink,
-                        surface: cardBg,
-                        onPrimary: Colors.black,
-                        onSecondary: Colors.white,
-                        onSurface: text,
-                      )))
-            .copyWith(
-              primary: TTColors.primaryCyan,
-              secondary: TTColors.primaryPink,
-            );
+        ColorScheme.fromSeed(
+          seedColor: TTColors.primaryCyan,
+          brightness: brightness,
+        ).copyWith(
+          primary: TTColors.primaryCyan,
+          onPrimary: Colors.black,
+          secondary: TTColors.primaryPink,
+          onSecondary: Colors.white,
+          tertiary: isDark ? const Color(0xFFD7DEEA) : const Color(0xFF39445A),
+          onTertiary: isDark ? Colors.black : Colors.white,
+          surface: cardBg,
+          onSurface: text,
+          error: const Color(0xFFE53935),
+          onError: Colors.white,
+        );
 
     return base.copyWith(
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: Colors.transparent,
-      primaryColor: TTColors.primaryCyan,
+      scaffoldBackgroundColor: background,
+      canvasColor: background,
+      primaryColor: colorScheme.primary,
+      splashFactory: InkSparkle.splashFactory,
       appBarTheme: AppBarTheme(
         backgroundColor: background,
-        foregroundColor: text,
+        foregroundColor: colorScheme.onSurface,
         elevation: 0,
+        scrolledUnderElevation: 2,
         centerTitle: true,
-        surfaceTintColor: Colors.transparent,
-        iconTheme: IconThemeData(color: text),
+        shadowColor: Colors.black.withAlpha(
+          brightness == Brightness.dark ? 80 : 32,
+        ),
+        iconTheme: IconThemeData(color: colorScheme.onSurface),
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: background,
-          statusBarIconBrightness:
-              brightness == Brightness.dark ? Brightness.light : Brightness.dark,
-          statusBarBrightness:
-              brightness == Brightness.dark ? Brightness.dark : Brightness.light,
+          statusBarIconBrightness: brightness == Brightness.dark
+              ? Brightness.light
+              : Brightness.dark,
+          statusBarBrightness: brightness == Brightness.dark
+              ? Brightness.dark
+              : Brightness.light,
         ),
         titleTextStyle: TextStyle(
           fontFamily: 'Cairo',
           fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: text,
+          fontWeight: FontWeight.w800,
+          color: colorScheme.onSurface,
         ),
       ),
       cardTheme: CardThemeData(
         color: cardBg,
-        elevation: 0,
+        elevation: isDark ? 1 : 1.5,
+        shadowColor: Colors.black.withAlpha(
+          brightness == Brightness.dark ? 65 : 28,
+        ),
+        surfaceTintColor: colorScheme.primary.withAlpha(isDark ? 30 : 18),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(20),
           side: BorderSide(
             color: brightness == Brightness.dark
                 ? Colors.white12
-                : Colors.black12,
+                : Colors.black.withAlpha(18),
           ),
         ),
       ),
       cardColor: cardBg,
       dividerColor: brightness == Brightness.dark
           ? Colors.white12
-          : Colors.black12,
+          : Colors.black.withAlpha(18),
       textTheme: base.textTheme
           .apply(fontFamily: 'Cairo', bodyColor: text, displayColor: text)
           .copyWith(
@@ -379,6 +383,14 @@ class HrmStoreApp extends StatelessWidget {
       iconTheme: IconThemeData(color: text),
       listTileTheme: ListTileThemeData(textColor: text, iconColor: text),
       inputDecorationTheme: base.inputDecorationTheme.copyWith(
+        filled: true,
+        fillColor: brightness == Brightness.dark
+            ? const Color(0xFF1A1F2B)
+            : Colors.white,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 14,
+        ),
         labelStyle: TextStyle(
           color: textMuted,
           fontSize: 14,
@@ -396,56 +408,117 @@ class HrmStoreApp extends StatelessWidget {
           fontSize: 14,
           fontFamily: 'Cairo',
         ),
-        enabledBorder: UnderlineInputBorder(
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(
             color: brightness == Brightness.dark
-                ? Colors.white24
-                : Colors.black12,
+                ? Colors.white30
+                : Colors.black26,
           ),
         ),
-        focusedBorder: const UnderlineInputBorder(
-          borderSide: BorderSide(color: TTColors.primaryCyan, width: 1.4),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(
+            color: brightness == Brightness.dark
+                ? Colors.white30
+                : Colors.black26,
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: colorScheme.primary, width: 1.6),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Colors.redAccent, width: 1.2),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Colors.redAccent, width: 1.6),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: TTColors.primaryPink,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          backgroundColor: colorScheme.secondary,
+          foregroundColor: colorScheme.onSecondary,
+          elevation: isDark ? 1 : 2,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
           ),
           textStyle: const TextStyle(
             fontFamily: 'Cairo',
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w800,
+            fontSize: 15,
           ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: text,
-          textStyle: const TextStyle(
-            fontFamily: 'Cairo',
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: text,
-          side: const BorderSide(color: TTColors.primaryPink, width: 1.2),
+          foregroundColor: colorScheme.primary,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
           textStyle: const TextStyle(
             fontFamily: 'Cairo',
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: TTColors.primaryPink,
-        foregroundColor: Colors.white,
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: isDark ? colorScheme.primary : colorScheme.secondary,
+          side: BorderSide(
+            color: (isDark ? colorScheme.primary : colorScheme.secondary)
+                .withAlpha(150),
+            width: 1.2,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          textStyle: const TextStyle(
+            fontFamily: 'Cairo',
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      chipTheme: base.chipTheme.copyWith(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        side: BorderSide(color: colorScheme.outline.withAlpha(60)),
+        selectedColor: colorScheme.secondary.withAlpha(45),
+        labelStyle: TextStyle(
+          color: colorScheme.onSurface,
+          fontFamily: 'Cairo',
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: cardBg,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: brightness == Brightness.dark
+            ? const Color(0xFF151A24)
+            : const Color(0xFF111827),
+        contentTextStyle: const TextStyle(
+          color: Colors.white,
+          fontFamily: 'Cairo',
+          fontWeight: FontWeight.w600,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: colorScheme.primary,
+        foregroundColor: colorScheme.onPrimary,
       ),
     );
   }

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../core/tt_colors.dart';
 import '../services/access_control_service.dart';
+import '../services/integrity_service.dart';
 
 class AccessBlocker extends StatefulWidget {
   final Widget child;
@@ -30,9 +31,19 @@ class _AccessBlockerState extends State<AccessBlocker> {
 
   Future<void> _checkAccess() async {
     final decision = await AccessControlService.checkAccess();
+    var resolvedDecision = decision;
+    if (decision.allowed) {
+      final integrityOk = await IntegrityService.verify();
+      if (!integrityOk) {
+        resolvedDecision = const AccessDecision(
+          allowed: false,
+          reason: 'integrity',
+        );
+      }
+    }
     if (!mounted) return;
     setState(() {
-      _decision = decision;
+      _decision = resolvedDecision;
       _checking = false;
     });
   }
@@ -62,11 +73,7 @@ class _AccessBlockerState extends State<AccessBlocker> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
-                  Icons.block,
-                  size: 64,
-                  color: TTColors.primaryPink,
-                ),
+                const Icon(Icons.block, size: 64, color: TTColors.primaryPink),
                 const SizedBox(height: 16),
                 const Text(
                   "الموقع/التطبيق غير متاح",
@@ -79,7 +86,9 @@ class _AccessBlockerState extends State<AccessBlocker> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  "يرجى التأكد أن موقعك غير محظور.",
+                  _decision.reason == 'integrity'
+                      ? "تم اكتشاف نسخة غير موثوقة من التطبيق. استخدم النسخة الرسمية فقط."
+                      : "يرجى التأكد أن موقعك غير محظور.",
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: TTColors.textGray,

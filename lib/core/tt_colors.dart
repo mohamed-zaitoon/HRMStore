@@ -9,45 +9,35 @@ class TTColors {
   static const Color primaryPink = Color(0xFFFE2C55);
   static const Color goldAccent = Color(0xFFFFD700);
 
-  static const Color _darkBackground = Color(0xFF000000);
-  static const Color _darkCard = Color(0xFF121212);
-  static const Color _darkText = Color(0xFFFFFFFF);
-  static const Color _darkTextMuted = Color(0xFFA7A7A7);
+  static const Color _darkBackground = Color(0xFF0A0B10);
+  static const Color _darkCard = Color(0xFF141722);
+  static const Color _darkText = Color(0xFFF6F8FC);
+  static const Color _darkTextMuted = Color(0xFFA8B0BF);
 
-  static const Color _lightBackground = Color(0xFFFFFFFF);
-  static const Color _lightCard = Color(0xFFF7F7F7);
-  static const Color _lightText = Color(0xFF0F0F0F);
-  static const Color _lightTextMuted = Color(0xFF5E5E5E);
-
-  // EN: Gets dynamic scheme for brightness.
-  // AR: تجلب المخطط الديناميكي للسطوع.
-  static ColorScheme? _schemeFor(Brightness brightness) {
-    return ThemeService.schemeFor(brightness);
-  }
+  static const Color _lightBackground = Color(0xFFF6F8FC);
+  static const Color _lightCard = Color(0xFFFFFFFF);
+  static const Color _lightText = Color(0xFF10131A);
+  static const Color _lightTextMuted = Color(0xFF5B6575);
 
   // EN: Gets background color for brightness.
   // AR: تجلب لون الخلفية حسب السطوع.
   static Color backgroundFor(Brightness brightness) =>
-      _schemeFor(brightness)?.surface ??
-      (brightness == Brightness.dark ? _darkBackground : _lightBackground);
+      brightness == Brightness.dark ? _darkBackground : _lightBackground;
 
   // EN: Gets card background color for brightness.
   // AR: تجلب لون البطاقات حسب السطوع.
   static Color cardBgFor(Brightness brightness) =>
-      _schemeFor(brightness)?.surface ??
-      (brightness == Brightness.dark ? _darkCard : _lightCard);
+      brightness == Brightness.dark ? _darkCard : _lightCard;
 
   // EN: Gets text color for brightness.
   // AR: تجلب لون النص حسب السطوع.
   static Color textFor(Brightness brightness) =>
-      _schemeFor(brightness)?.onSurface ??
-      (brightness == Brightness.dark ? _darkText : _lightText);
+      brightness == Brightness.dark ? _darkText : _lightText;
 
   // EN: Gets muted text color for brightness.
   // AR: تجلب لون النص الخافت حسب السطوع.
   static Color textMutedFor(Brightness brightness) =>
-      _schemeFor(brightness)?.onSurfaceVariant ??
-      (brightness == Brightness.dark ? _darkTextMuted : _lightTextMuted);
+      brightness == Brightness.dark ? _darkTextMuted : _lightTextMuted;
 
   // EN: Handles is Dark.
   // AR: تتعامل مع is Dark.

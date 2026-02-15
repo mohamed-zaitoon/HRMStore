@@ -1,7 +1,5 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 class GlassBottomSheet extends StatelessWidget {
@@ -22,57 +20,46 @@ class GlassBottomSheet extends StatelessWidget {
     this.showHandle = true,
   });
 
-  // EN: Builds a glassmorphism bottom sheet container.
-  // AR: تبني حاوية قائمة زجاجية شفافة.
+  // EN: Builds a Material bottom sheet container.
+  // AR: تبني حاوية قائمة بنمط Material.
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final Color base = brightness == Brightness.dark
-        ? Colors.black
-        : Colors.white;
-    final Color tint = base.withValues(
-      alpha: brightness == Brightness.dark ? 0.35 : 0.7,
-    );
-    final Color borderColor =
-        (brightness == Brightness.dark ? Colors.white : Colors.black)
-            .withValues(alpha: 0.08);
+    final colorScheme = Theme.of(context).colorScheme;
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final double elevationValue = (blur / 3).clamp(8, 20).toDouble();
+    final Color borderColor = colorScheme.outline.withAlpha(isDark ? 90 : 45);
 
     return Padding(
       padding: margin,
-      child: ClipRRect(
+      child: Material(
+        elevation: elevationValue,
+        shadowColor: Colors.black.withAlpha(isDark ? 110 : 46),
+        color: Theme.of(context).cardColor,
+        surfaceTintColor: colorScheme.primary.withAlpha(16),
         borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-          child: Container(
-            decoration: BoxDecoration(
-              color: tint,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: borderColor),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [tint.withValues(alpha: 0.9), tint.withValues(alpha: 0.75)],
-              ),
-            ),
-            child: Padding(
-              padding: padding,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (showHandle) ...[
-                    Container(
-                      width: 42,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: borderColor.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: borderColor),
+          ),
+          child: Padding(
+            padding: padding,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (showHandle) ...[
+                  Container(
+                    width: 42,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: borderColor,
+                      borderRadius: BorderRadius.circular(999),
                     ),
-                  ],
-                  child,
+                  ),
                 ],
-              ),
+                child,
+              ],
             ),
           ),
         ),

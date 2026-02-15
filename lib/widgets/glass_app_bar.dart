@@ -1,7 +1,5 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../core/tt_colors.dart';
@@ -35,20 +33,13 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Size get preferredSize => Size.fromHeight(height);
 
-  // EN: Builds a glassmorphism app bar.
-  // AR: تبني شريط علوي زجاجي.
+  // EN: Builds a Material app bar.
+  // AR: تبني شريط علوي بنمط Material.
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final Color base = brightness == Brightness.dark
-        ? Colors.black
-        : Colors.white;
-    final Color tint = base.withValues(
-      alpha: brightness == Brightness.dark ? 0.35 : 0.7,
-    );
-    final Color borderColor =
-        (brightness == Brightness.dark ? Colors.white : Colors.black)
-            .withValues(alpha: 0.08);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final bool isDark = theme.brightness == Brightness.dark;
 
     return AppBar(
       title: title,
@@ -58,20 +49,16 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
       automaticallyImplyLeading: automaticallyImplyLeading,
       toolbarHeight: height,
       titleSpacing: titleSpacing,
-      backgroundColor: Colors.transparent,
+      backgroundColor: colorScheme.surface,
+      foregroundColor: colorScheme.onSurface,
       elevation: 0,
-      surfaceTintColor: Colors.transparent,
+      scrolledUnderElevation: (blur / 7).clamp(1, 4).toDouble(),
+      shadowColor: Colors.black.withAlpha(isDark ? 90 : 36),
+      surfaceTintColor: colorScheme.primary.withAlpha(16),
       iconTheme: IconThemeData(color: TTColors.textWhite),
-      flexibleSpace: ClipRRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-          child: Container(
-            decoration: BoxDecoration(
-              color: tint,
-              border: Border(bottom: BorderSide(color: borderColor, width: 1)),
-            ),
-          ),
-        ),
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Container(height: 1, color: colorScheme.outline.withAlpha(40)),
       ),
     );
   }
