@@ -5,19 +5,24 @@ import 'package:flutter/material.dart';
 import '../services/theme_service.dart';
 
 class TTColors {
-  static const Color primaryCyan = Color(0xFF25F4EE);
-  static const Color primaryPink = Color(0xFFFE2C55);
-  static const Color goldAccent = Color(0xFFFFD700);
+  static const Color brandBlue = Color(0xFF4B5563);
+  static const Color brandEmerald = Color(0xFF374151);
+  static const Color brandGold = Color(0xFFF59E0B);
 
-  static const Color _darkBackground = Color(0xFF0A0B10);
-  static const Color _darkCard = Color(0xFF141722);
-  static const Color _darkText = Color(0xFFF6F8FC);
-  static const Color _darkTextMuted = Color(0xFFA8B0BF);
+  // المحافظة على الأسماء القديمة لتجنّب كسر الاستدعاءات في المشروع.
+  static const Color primaryCyan = brandBlue;
+  static const Color primaryPink = brandEmerald;
+  static const Color goldAccent = brandGold;
 
-  static const Color _lightBackground = Color(0xFFF6F8FC);
+  static const Color _darkBackground = Color(0xFF0F1115);
+  static const Color _darkCard = Color(0xFF171A20);
+  static const Color _darkText = Color(0xFFF3F4F6);
+  static const Color _darkTextMuted = Color(0xFF9CA3AF);
+
+  static const Color _lightBackground = Color(0xFFFFFFFF);
   static const Color _lightCard = Color(0xFFFFFFFF);
-  static const Color _lightText = Color(0xFF10131A);
-  static const Color _lightTextMuted = Color(0xFF5B6575);
+  static const Color _lightText = Color(0xFF111827);
+  static const Color _lightTextMuted = Color(0xFF6B7280);
 
   // EN: Gets background color for brightness.
   // AR: تجلب لون الخلفية حسب السطوع.
@@ -38,6 +43,13 @@ class TTColors {
   // AR: تجلب لون النص الخافت حسب السطوع.
   static Color textMutedFor(Brightness brightness) =>
       brightness == Brightness.dark ? _darkTextMuted : _lightTextMuted;
+
+  // EN: Gets gradient colors for branded app background.
+  // AR: تجلب ألوان التدرج لخلفية التطبيق.
+  static List<Color> backgroundGradientFor(Brightness brightness) =>
+      brightness == Brightness.dark
+      ? const [Color(0xFF0F1115), Color(0xFF15181F), Color(0xFF1A1E26)]
+      : const [Color(0xFFFFFFFF), Color(0xFFFAFAFA), Color(0xFFF2F4F7)];
 
   // EN: Handles is Dark.
   // AR: تتعامل مع is Dark.

@@ -2,8 +2,6 @@
 
 import 'package:flutter/material.dart';
 
-import '../core/tt_colors.dart';
-
 class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Widget? title;
   final List<Widget>? actions;
@@ -55,7 +53,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
       scrolledUnderElevation: (blur / 7).clamp(1, 4).toDouble(),
       shadowColor: Colors.black.withAlpha(isDark ? 90 : 36),
       surfaceTintColor: colorScheme.primary.withAlpha(16),
-      iconTheme: IconThemeData(color: TTColors.textWhite),
+      iconTheme: IconThemeData(color: colorScheme.onSurface),
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1),
         child: Container(height: 1, color: colorScheme.outline.withAlpha(40)),

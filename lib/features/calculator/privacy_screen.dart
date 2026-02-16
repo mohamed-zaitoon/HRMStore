@@ -12,7 +12,6 @@ class PrivacyScreen extends StatelessWidget {
   // AR: ينشئ PrivacyScreen.
   const PrivacyScreen({super.key});
 
-
   // EN: Sends Email.
   // AR: ترسل Email.
   Future<void> _sendEmail() async {
@@ -108,7 +107,7 @@ class PrivacyScreen extends StatelessWidget {
                   const SizedBox(height: 10),
 
                   Text(
-                    "إذا كان لديك أي أسئلة حول سياسة الخصوصية أو تحتاج إلى مساعدة، يرجى التواصل معنا عبر البريد الإلكتروني:",
+                    "إذا كان لديك أي أسئلة حول سياسة الخصوصية أو تحتاج إلى مساعدة، اضغط للتواصل معانا.",
                     style: TextStyle(
                       color: TTColors.textGray,
                       fontFamily: 'Cairo',
@@ -133,13 +132,13 @@ class PrivacyScreen extends StatelessWidget {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.email, color: TTColors.goldAccent),
+                          Icon(Icons.support_agent, color: TTColors.goldAccent),
 
                           const SizedBox(width: 10),
 
                           Expanded(
                             child: Text(
-                              "contact@mohamedzaitoon.com",
+                              "اضغط للتواصل معانا",
                               style: TextStyle(
                                 color: TTColors.textWhite,
                                 fontFamily: 'Cairo',

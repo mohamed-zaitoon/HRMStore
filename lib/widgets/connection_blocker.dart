@@ -136,8 +136,10 @@ class _ConnectionBlockerState extends State<ConnectionBlocker> {
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: TTColors.primaryCyan,
-                        foregroundColor: Colors.black,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Theme.of(
+                          context,
+                        ).colorScheme.onPrimary,
                         minimumSize: const Size(200, 50),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(30),

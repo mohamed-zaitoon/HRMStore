@@ -18,8 +18,8 @@ class GlassCard extends StatelessWidget {
     required this.child,
     this.margin = const EdgeInsets.symmetric(vertical: 10),
     this.padding = const EdgeInsets.all(18),
-    this.blur = 18,
-    this.radius = 18,
+    this.blur = 20,
+    this.radius = 22,
     this.borderColor,
     this.tint,
   });
@@ -28,18 +28,20 @@ class GlassCard extends StatelessWidget {
   // AR: تبني بطاقة Material.
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
     final Color fill = tint ?? Theme.of(context).cardColor;
-    final Color border = borderColor ?? colorScheme.outline.withAlpha(48);
-    final double elevationValue = (blur / 10).clamp(1, 4).toDouble();
+    final Color border =
+        borderColor ?? colorScheme.outlineVariant.withAlpha(isDark ? 180 : 210);
+    final double elevationValue = (blur / 9).clamp(1.2, 4.2).toDouble();
 
     return Padding(
       padding: margin,
       child: Card(
         margin: EdgeInsets.zero,
         elevation: elevationValue,
-        shadowColor: Colors.black.withAlpha(28),
-        surfaceTintColor: colorScheme.primary.withAlpha(16),
+        shadowColor: Colors.black.withAlpha(isDark ? 90 : 28),
+        surfaceTintColor: colorScheme.primary.withAlpha(isDark ? 24 : 12),
         color: fill,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radius),

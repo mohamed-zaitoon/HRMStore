@@ -157,16 +157,16 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
                       ),
                       mode: LaunchMode.externalApplication,
                     ),
-                    icon: const Icon(Icons.public, color: Colors.white),
+                    icon: const Icon(Icons.public),
                     label: const Text(
                       "الذهاب لصفحة التحميل",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontFamily: 'Cairo',
-                      ),
+                      style: TextStyle(fontFamily: 'Cairo'),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: TTColors.primaryPink,
+                      backgroundColor: Theme.of(context).colorScheme.secondary,
+                      foregroundColor: Theme.of(
+                        context,
+                      ).colorScheme.onSecondary,
                       minimumSize: const Size(double.infinity, 55),
                     ),
                   ),

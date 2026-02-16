@@ -289,99 +289,121 @@ class HrmStoreApp extends StatelessWidget {
   // AR: تبني Theme.
   ThemeData _buildTheme(Brightness brightness, ColorScheme? dynamicScheme) {
     dynamicScheme; // نحافظ على التوقيع مع تعطيل الاعتماد على Dynamic Color
-    final base = ThemeData(brightness: brightness, useMaterial3: true);
     final bool isDark = brightness == Brightness.dark;
     final text = TTColors.textFor(brightness);
     final textMuted = TTColors.textMutedFor(brightness);
     final background = TTColors.backgroundFor(brightness);
     final cardBg = TTColors.cardBgFor(brightness);
+    final primary = isDark ? const Color(0xFFE5E7EB) : const Color(0xFF111827);
+    final onPrimary = isDark ? const Color(0xFF111827) : Colors.white;
+    final secondary = isDark
+        ? const Color(0xFF9CA3AF)
+        : const Color(0xFF374151);
+    final onSecondary = isDark ? const Color(0xFF111827) : Colors.white;
+    final outline = isDark ? const Color(0xFF3F4653) : const Color(0xFFD1D5DB);
+    final outlineVariant = isDark
+        ? const Color(0xFF2A2F39)
+        : const Color(0xFFE5E7EB);
+
+    final base = ThemeData(
+      brightness: brightness,
+      useMaterial3: true,
+      fontFamily: 'Cairo',
+      splashFactory: InkSparkle.splashFactory,
+    );
 
     final colorScheme =
         ColorScheme.fromSeed(
-          seedColor: TTColors.primaryCyan,
+          seedColor: primary,
           brightness: brightness,
         ).copyWith(
-          primary: TTColors.primaryCyan,
-          onPrimary: Colors.black,
-          secondary: TTColors.primaryPink,
-          onSecondary: Colors.white,
-          tertiary: isDark ? const Color(0xFFD7DEEA) : const Color(0xFF39445A),
-          onTertiary: isDark ? Colors.black : Colors.white,
+          primary: primary,
+          onPrimary: onPrimary,
+          secondary: secondary,
+          onSecondary: onSecondary,
+          tertiary: TTColors.goldAccent,
+          onTertiary: const Color(0xFF2A1700),
           surface: cardBg,
           onSurface: text,
-          error: const Color(0xFFE53935),
+          outline: outline,
+          outlineVariant: outlineVariant,
+          error: const Color(0xFFDC2626),
           onError: Colors.white,
+          shadow: Colors.black.withAlpha(isDark ? 180 : 36),
+          scrim: Colors.black.withAlpha(136),
         );
+
+    final textTheme = base.textTheme
+        .apply(fontFamily: 'Cairo', bodyColor: text, displayColor: text)
+        .copyWith(
+          titleLarge: base.textTheme.titleLarge?.copyWith(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+          ),
+          titleMedium: base.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+          bodyLarge: base.textTheme.bodyLarge?.copyWith(fontSize: 16),
+          bodyMedium: base.textTheme.bodyMedium?.copyWith(fontSize: 15),
+          bodySmall: base.textTheme.bodySmall?.copyWith(
+            color: textMuted,
+            fontSize: 13,
+          ),
+        );
+
+    final fieldBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: BorderSide(color: isDark ? Colors.white24 : outline),
+    );
+    final buttonShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+    );
 
     return base.copyWith(
       colorScheme: colorScheme,
       scaffoldBackgroundColor: background,
       canvasColor: background,
       primaryColor: colorScheme.primary,
-      splashFactory: InkSparkle.splashFactory,
+      textTheme: textTheme,
+      dividerTheme: DividerThemeData(
+        color: colorScheme.outlineVariant.withAlpha(isDark ? 170 : 210),
+        thickness: 1,
+      ),
       appBarTheme: AppBarTheme(
-        backgroundColor: background,
+        backgroundColor: colorScheme.surface.withAlpha(isDark ? 240 : 248),
         foregroundColor: colorScheme.onSurface,
         elevation: 0,
         scrolledUnderElevation: 2,
         centerTitle: true,
-        shadowColor: Colors.black.withAlpha(
-          brightness == Brightness.dark ? 80 : 32,
-        ),
+        shadowColor: Colors.black.withAlpha(isDark ? 110 : 24),
+        surfaceTintColor: colorScheme.primary.withAlpha(isDark ? 34 : 18),
         iconTheme: IconThemeData(color: colorScheme.onSurface),
+        titleTextStyle: textTheme.titleLarge?.copyWith(fontSize: 20),
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: background,
-          statusBarIconBrightness: brightness == Brightness.dark
-              ? Brightness.light
-              : Brightness.dark,
-          statusBarBrightness: brightness == Brightness.dark
-              ? Brightness.dark
-              : Brightness.light,
-        ),
-        titleTextStyle: TextStyle(
-          fontFamily: 'Cairo',
-          fontSize: 20,
-          fontWeight: FontWeight.w800,
-          color: colorScheme.onSurface,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        color: cardBg,
-        elevation: isDark ? 1 : 1.5,
-        shadowColor: Colors.black.withAlpha(
-          brightness == Brightness.dark ? 65 : 28,
-        ),
-        surfaceTintColor: colorScheme.primary.withAlpha(isDark ? 30 : 18),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(
-            color: brightness == Brightness.dark
-                ? Colors.white12
-                : Colors.black.withAlpha(18),
-          ),
+          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+          statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
         ),
       ),
       cardColor: cardBg,
-      dividerColor: brightness == Brightness.dark
-          ? Colors.white12
-          : Colors.black.withAlpha(18),
-      textTheme: base.textTheme
-          .apply(fontFamily: 'Cairo', bodyColor: text, displayColor: text)
-          .copyWith(
-            bodyMedium: base.textTheme.bodyMedium?.copyWith(fontSize: 15),
-            bodyLarge: base.textTheme.bodyLarge?.copyWith(fontSize: 17),
-            titleLarge: base.textTheme.titleLarge?.copyWith(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-      iconTheme: IconThemeData(color: text),
-      listTileTheme: ListTileThemeData(textColor: text, iconColor: text),
-      inputDecorationTheme: base.inputDecorationTheme.copyWith(
+      cardTheme: CardThemeData(
+        color: cardBg,
+        elevation: isDark ? 1.5 : 2,
+        shadowColor: Colors.black.withAlpha(isDark ? 96 : 22),
+        surfaceTintColor: colorScheme.primary.withAlpha(isDark ? 28 : 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: colorScheme.outlineVariant.withAlpha(155)),
+        ),
+      ),
+      listTileTheme: ListTileThemeData(
+        textColor: colorScheme.onSurface,
+        iconColor: colorScheme.primary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: brightness == Brightness.dark
-            ? const Color(0xFF1A1F2B)
-            : Colors.white,
+        fillColor: isDark ? const Color(0xFF1D2129) : const Color(0xFFFAFAFA),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
           vertical: 14,
@@ -389,131 +411,209 @@ class HrmStoreApp extends StatelessWidget {
         labelStyle: TextStyle(
           color: textMuted,
           fontSize: 14,
-          fontFamily: 'Cairo',
-        ),
-        floatingLabelStyle: TextStyle(
-          color: text,
-          fontFamily: 'Cairo',
           fontWeight: FontWeight.w600,
         ),
-        hintStyle: TextStyle(
-          color: brightness == Brightness.dark
-              ? Colors.white38
-              : Colors.black38,
-          fontSize: 14,
-          fontFamily: 'Cairo',
+        floatingLabelStyle: TextStyle(
+          color: colorScheme.primary,
+          fontWeight: FontWeight.w700,
         ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: brightness == Brightness.dark
-                ? Colors.white30
-                : Colors.black26,
-          ),
+        hintStyle: TextStyle(color: textMuted.withAlpha(178), fontSize: 14),
+        border: fieldBorder,
+        enabledBorder: fieldBorder,
+        disabledBorder: fieldBorder.copyWith(
+          borderSide: BorderSide(color: colorScheme.outline.withAlpha(120)),
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: brightness == Brightness.dark
-                ? Colors.white30
-                : Colors.black26,
-          ),
+        focusedBorder: fieldBorder.copyWith(
+          borderSide: BorderSide(color: colorScheme.primary, width: 1.7),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.primary, width: 1.6),
+        errorBorder: fieldBorder.copyWith(
+          borderSide: BorderSide(color: colorScheme.error, width: 1.2),
         ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Colors.redAccent, width: 1.2),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Colors.redAccent, width: 1.6),
+        focusedErrorBorder: fieldBorder.copyWith(
+          borderSide: BorderSide(color: colorScheme.error, width: 1.7),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: colorScheme.secondary,
-          foregroundColor: colorScheme.onSecondary,
-          elevation: isDark ? 1 : 2,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size.fromHeight(50)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           ),
-          textStyle: const TextStyle(
-            fontFamily: 'Cairo',
-            fontWeight: FontWeight.w800,
-            fontSize: 15,
+          shape: WidgetStatePropertyAll(buttonShape),
+          textStyle: const WidgetStatePropertyAll(
+            TextStyle(
+              fontFamily: 'Cairo',
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+          elevation: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.disabled)) return 0;
+            if (states.contains(WidgetState.pressed)) return 1;
+            return isDark ? 1.6 : 2.6;
+          }),
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.disabled)) {
+              return colorScheme.primary.withAlpha(120);
+            }
+            return colorScheme.primary;
+          }),
+          foregroundColor: WidgetStatePropertyAll(colorScheme.onPrimary),
+          overlayColor: WidgetStateProperty.resolveWith((states) {
+            final pressedOverlay = colorScheme.onPrimary.withAlpha(
+              isDark ? 20 : 26,
+            );
+            final hoverOverlay = colorScheme.onPrimary.withAlpha(
+              isDark ? 12 : 16,
+            );
+            if (states.contains(WidgetState.pressed)) {
+              return pressedOverlay;
+            }
+            if (states.contains(WidgetState.hovered) ||
+                states.contains(WidgetState.focused)) {
+              return hoverOverlay;
+            }
+            return null;
+          }),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size.fromHeight(50)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          ),
+          shape: WidgetStatePropertyAll(buttonShape),
+          textStyle: const WidgetStatePropertyAll(
+            TextStyle(
+              fontFamily: 'Cairo',
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.disabled)) {
+              return colorScheme.secondary.withAlpha(120);
+            }
+            return colorScheme.secondary;
+          }),
+          foregroundColor: WidgetStatePropertyAll(colorScheme.onSecondary),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size.fromHeight(50)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          ),
+          shape: WidgetStatePropertyAll(buttonShape),
+          textStyle: const WidgetStatePropertyAll(
+            TextStyle(
+              fontFamily: 'Cairo',
+              fontWeight: FontWeight.w700,
+              fontSize: 14.5,
+            ),
+          ),
+          foregroundColor: WidgetStatePropertyAll(colorScheme.primary),
+          side: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.disabled)) {
+              return BorderSide(
+                color: colorScheme.outline.withAlpha(110),
+                width: 1.1,
+              );
+            }
+            if (states.contains(WidgetState.pressed)) {
+              return BorderSide(color: colorScheme.primary, width: 1.5);
+            }
+            return BorderSide(
+              color: colorScheme.primary.withAlpha(170),
+              width: 1.2,
+            );
+          }),
+          overlayColor: WidgetStatePropertyAll(
+            colorScheme.primary.withAlpha(isDark ? 28 : 20),
           ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: colorScheme.primary,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size(0, 44)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           ),
-          textStyle: const TextStyle(
-            fontFamily: 'Cairo',
-            fontWeight: FontWeight.w700,
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          foregroundColor: WidgetStatePropertyAll(colorScheme.primary),
+          textStyle: const WidgetStatePropertyAll(
+            TextStyle(
+              fontFamily: 'Cairo',
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+            ),
           ),
         ),
       ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: isDark ? colorScheme.primary : colorScheme.secondary,
-          side: BorderSide(
-            color: (isDark ? colorScheme.primary : colorScheme.secondary)
-                .withAlpha(150),
-            width: 1.2,
+      iconTheme: IconThemeData(color: colorScheme.onSurface),
+      iconButtonTheme: IconButtonThemeData(
+        style: ButtonStyle(
+          foregroundColor: WidgetStatePropertyAll(colorScheme.primary),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          textStyle: const TextStyle(
-            fontFamily: 'Cairo',
-            fontWeight: FontWeight.w700,
+          padding: const WidgetStatePropertyAll(EdgeInsets.all(10)),
+          overlayColor: WidgetStatePropertyAll(
+            colorScheme.primary.withAlpha(isDark ? 28 : 18),
           ),
         ),
       ),
       chipTheme: base.chipTheme.copyWith(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-        side: BorderSide(color: colorScheme.outline.withAlpha(60)),
-        selectedColor: colorScheme.secondary.withAlpha(45),
+        side: BorderSide(color: colorScheme.outline.withAlpha(140)),
+        selectedColor: colorScheme.secondary.withAlpha(isDark ? 90 : 52),
+        disabledColor: colorScheme.outlineVariant.withAlpha(80),
         labelStyle: TextStyle(
           color: colorScheme.onSurface,
           fontFamily: 'Cairo',
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
         ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: cardBg,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      ),
+      // ignore: deprecated_member_use
+      buttonBarTheme: const ButtonBarThemeData(
+        layoutBehavior: ButtonBarLayoutBehavior.padded,
+        buttonPadding: EdgeInsets.symmetric(horizontal: 4),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: cardBg,
+        surfaceTintColor: colorScheme.primary.withAlpha(isDark ? 22 : 14),
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: brightness == Brightness.dark
-            ? const Color(0xFF151A24)
+        backgroundColor: isDark
+            ? const Color(0xFF1F2937)
             : const Color(0xFF111827),
         contentTextStyle: const TextStyle(
           color: Colors.white,
           fontFamily: 'Cairo',
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
-        backgroundColor: colorScheme.primary,
-        foregroundColor: colorScheme.onPrimary,
+        backgroundColor: colorScheme.secondary,
+        foregroundColor: colorScheme.onSecondary,
+        elevation: isDark ? 1 : 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: colorScheme.primary,
       ),
     );
   }

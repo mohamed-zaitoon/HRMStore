@@ -11,7 +11,7 @@
 
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0F1115">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF">
   <!-- Extra safeguard: force upgrading any http resources to https in browser -->
   <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
@@ -167,16 +167,77 @@
       });
     };
   </script>
+  <style id="hrmstore-shell-theme">
+    :root {
+      color-scheme: light dark;
+      --shell-bg:
+        radial-gradient(900px 440px at 8% -10%, rgba(17,24,39,0.10), transparent 55%),
+        radial-gradient(860px 420px at 98% 105%, rgba(75,85,99,0.10), transparent 52%),
+        #FFFFFF;
+      --noscript-fg: #111827;
+      --noscript-bg: rgba(255,255,255,0.92);
+      --noscript-border: rgba(17,24,39,0.10);
+      --noscript-link: #111827;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--shell-bg);
+    }
+
+    .hrmstore-noscript {
+      max-width: 760px;
+      margin: 24px auto;
+      font-family: 'Cairo', sans-serif;
+      color: var(--noscript-fg);
+      background: var(--noscript-bg);
+      border: 1px solid var(--noscript-border);
+      border-radius: 18px;
+      padding: 18px 20px;
+    }
+
+    .hrmstore-noscript h1 {
+      margin: 0 0 12px;
+    }
+
+    .hrmstore-noscript p {
+      margin: 0 0 10px;
+    }
+
+    .hrmstore-noscript p:last-child {
+      margin: 0;
+    }
+
+    .hrmstore-noscript a {
+      color: var(--noscript-link);
+      text-decoration-thickness: 1.5px;
+      text-underline-offset: 2px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --shell-bg:
+          radial-gradient(900px 440px at 8% -10%, rgba(255,255,255,0.08), transparent 55%),
+          radial-gradient(860px 420px at 98% 105%, rgba(156,163,175,0.14), transparent 52%),
+          #0F1115;
+        --noscript-fg: #F3F4F6;
+        --noscript-bg: rgba(23,26,32,0.90);
+        --noscript-border: rgba(156,163,175,0.24);
+        --noscript-link: #E5E7EB;
+      }
+    }
+  </style>
 </head>
 
 <body>
   <noscript>
-    <div style="max-width: 760px; margin: 24px auto; font-family: Arial, sans-serif; color: #111;">
-      <h1 style="margin: 0 0 12px;">HRM Store</h1>
-      <p style="margin: 0 0 10px;">
+    <div class="hrmstore-noscript">
+      <h1>HRM Store</h1>
+      <p>
         HRM Store منصة موثوقة لشحن خدمات تيك توك والألعاب ومتابعة الطلبات بسهولة وأمان.
       </p>
-      <p style="margin: 0;">
+      <p>
         <a href="/privacy">سياسة الخصوصية</a>
       </p>
     </div>

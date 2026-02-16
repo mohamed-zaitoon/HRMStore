@@ -109,7 +109,12 @@ class _AccessBlockerState extends State<AccessBlocker> {
                       ElevatedButton(
                         onPressed: () => SystemNavigator.pop(),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: TTColors.primaryPink,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.secondary,
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onSecondary,
                         ),
                         child: const Text("خروج"),
                       ),

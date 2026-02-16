@@ -5,26 +5,47 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=Edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0F1115">
   <title>سياسة الخصوصية | HRM Store</title>
   <meta name="description" content="سياسة الخصوصية الخاصة بـ HRM Store لحماية بياناتك أثناء شحن خدمات تيك توك والألعاب.">
   <link rel="canonical" href="https://hrmstore.mohamedzaitoon.com/privacy">
   <style>
     :root {
-      --bg-start: #0b132b;
-      --bg-end: #1c2541;
-      --card: #111827cc;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --accent: #22e0d2;
-      --border: rgba(255,255,255,0.1);
+      --bg-start: #ffffff;
+      --bg-end: #f2f4f7;
+      --bg-spark-1: rgba(17, 24, 39, 0.10);
+      --bg-spark-2: rgba(75, 85, 99, 0.10);
+      --card: rgba(255, 255, 255, 0.92);
+      --text: #111827;
+      --muted: #4b5563;
+      --accent: #111827;
+      --border: rgba(17, 24, 39, 0.10);
+      --pill-bg: rgba(17, 24, 39, 0.08);
+      --shadow: rgba(17, 24, 39, 0.14);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-start: #0f1115;
+        --bg-end: #1a1f27;
+        --bg-spark-1: rgba(255, 255, 255, 0.08);
+        --bg-spark-2: rgba(156, 163, 175, 0.14);
+        --card: rgba(23, 27, 35, 0.80);
+        --text: #f3f4f6;
+        --muted: #9ca3af;
+        --accent: #e5e7eb;
+        --border: rgba(255, 255, 255, 0.12);
+        --pill-bg: rgba(255, 255, 255, 0.10);
+        --shadow: rgba(0, 0, 0, 0.35);
+      }
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
       font-family: "Cairo", "Segoe UI", Arial, sans-serif;
-      background: radial-gradient(circle at 20% 20%, rgba(34,224,210,0.08), transparent 35%),
-                  radial-gradient(circle at 80% 10%, rgba(248,113,113,0.10), transparent 40%),
+      background: radial-gradient(circle at 20% 20%, var(--bg-spark-1), transparent 35%),
+                  radial-gradient(circle at 80% 10%, var(--bg-spark-2), transparent 40%),
                   linear-gradient(135deg, var(--bg-start), var(--bg-end));
       color: var(--text);
       padding: 28px 18px 40px;
@@ -38,7 +59,7 @@
       border: 1px solid var(--border);
       border-radius: 22px;
       padding: 28px;
-      box-shadow: 0 18px 60px rgba(0,0,0,0.35);
+      box-shadow: 0 18px 60px var(--shadow);
       backdrop-filter: blur(10px);
       line-height: 1.7;
     }
@@ -56,7 +77,7 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      background: rgba(34,224,210,0.12);
+      background: var(--pill-bg);
       color: var(--accent);
       padding: 8px 14px;
       border-radius: 999px;
@@ -78,7 +99,7 @@
       gap: 10px;
       padding: 12px 14px;
       border-radius: 12px;
-      background: rgba(34,224,210,0.08);
+      background: rgba(255,255,255,0.08);
       border: 1px solid var(--border);
       color: var(--text);
       text-decoration: none;
@@ -121,9 +142,9 @@
     <p>نحتفظ بالحق في تعديل سياسة الخصوصية في أي وقت. سيتم إشعار المستخدمين بأي تغييرات جوهرية عبر التطبيق.</p>
 
     <h2>التواصل</h2>
-    <p>إذا كان لديك أي أسئلة حول سياسة الخصوصية أو تحتاج إلى مساعدة، يرجى التواصل معنا عبر البريد الإلكتروني:</p>
+    <p>إذا كان لديك أي أسئلة حول سياسة الخصوصية أو تحتاج إلى مساعدة، اضغط للتواصل معانا.</p>
     <a class="contact" href="mailto:contact@mohamedzaitoon.com">
-      <span>contact@mohamedzaitoon.com</span>
+      <span>اضغط للتواصل معانا</span>
     </a>
 
     <div class="footer">© 2026 Mohamed Zaitoon. جميع الحقوق محفوظة.</div>
