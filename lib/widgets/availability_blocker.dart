@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:universal_html/html.dart' as html;
 
 import '../core/tt_colors.dart';
 import '../services/availability_service.dart';
@@ -12,6 +14,25 @@ class AvailabilityBlocker extends StatelessWidget {
   // EN: Creates AvailabilityBlocker.
   // AR: ينشئ AvailabilityBlocker.
   const AvailabilityBlocker({super.key, required this.child});
+
+  Future<void> _handleAcknowledge(BuildContext context) async {
+    final latestDecision = await AvailabilityService.checkNow();
+    if (!context.mounted) return;
+
+    if (latestDecision.allowed) {
+      if (kIsWeb) {
+        html.window.location.reload();
+      }
+      return;
+    }
+
+    if (kIsWeb) {
+      html.window.location.reload();
+      return;
+    }
+
+    await SystemNavigator.pop();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,11 +103,10 @@ class AvailabilityBlocker extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    if (!kIsWeb)
-                      OutlinedButton(
-                        onPressed: () => Navigator.of(context).maybePop(),
-                        child: const Text("حسنا"),
-                      ),
+                    OutlinedButton(
+                      onPressed: () => _handleAcknowledge(context),
+                      child: const Text("حسنا"),
+                    ),
                   ],
                 ),
               ),
