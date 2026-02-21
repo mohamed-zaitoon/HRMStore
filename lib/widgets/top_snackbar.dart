@@ -13,7 +13,7 @@ class TopSnackBar {
     Color? backgroundColor,
     Color? textColor,
     IconData? icon,
-    Duration duration = const Duration(seconds: 3),
+    Duration? duration = const Duration(seconds: 3),
   }) {
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
@@ -64,6 +64,15 @@ class TopSnackBar {
     _activeEntry = entry;
     overlay.insert(entry);
   }
+
+  // EN: Dismisses current top snack bar if visible.
+  // AR: تغلق الإشعار العلوي الحالي إن كان ظاهرًا.
+  static void dismiss() {
+    if (_activeEntry?.mounted ?? false) {
+      _activeEntry?.remove();
+    }
+    _activeEntry = null;
+  }
 }
 
 class _TopSnackBarEntry extends StatefulWidget {
@@ -73,7 +82,7 @@ class _TopSnackBarEntry extends StatefulWidget {
   final Color accentColor;
   final bool isDarkMode;
   final IconData? icon;
-  final Duration duration;
+  final Duration? duration;
   final VoidCallback onClose;
 
   // EN: Creates TopSnackBarEntry.
@@ -124,10 +133,13 @@ class _TopSnackBarEntryState extends State<_TopSnackBarEntry>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
     _controller.forward();
 
-    Future.delayed(widget.duration, () {
-      if (!mounted || _closed) return;
-      _dismiss();
-    });
+    final duration = widget.duration;
+    if (duration != null) {
+      Future.delayed(duration, () {
+        if (!mounted || _closed) return;
+        _dismiss();
+      });
+    }
   }
 
   // EN: Disposes animation resources.

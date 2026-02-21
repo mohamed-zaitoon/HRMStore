@@ -18,11 +18,7 @@ class ReceiptUploader extends StatefulWidget {
 
   // EN: Creates ReceiptUploader.
   // AR: ينشئ ReceiptUploader.
-  const ReceiptUploader({
-    super.key,
-    required this.onUploaded,
-    this.whatsapp,
-  });
+  const ReceiptUploader({super.key, required this.onUploaded, this.whatsapp});
 
   // EN: Creates state object.
   // AR: تنشئ كائن الحالة.
@@ -33,6 +29,12 @@ class ReceiptUploader extends StatefulWidget {
 class _ReceiptUploaderState extends State<ReceiptUploader> {
   bool _uploading = false;
   String? _uploadedUrl;
+
+  String get _uploadButtonLabel {
+    if (_uploading) return 'جاري الرفع...';
+    if (_uploadedUrl != null) return 'تم الرفع بنجاح';
+    return 'رفع صورة الإيصال';
+  }
 
   // EN: Handles pick And Upload.
   // AR: تتعامل مع pick And Upload.
@@ -104,13 +106,23 @@ class _ReceiptUploaderState extends State<ReceiptUploader> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.upload),
+                : Icon(
+                    _uploadedUrl == null ? Icons.upload : Icons.check_circle,
+                  ),
             label: Text(
-              _uploadedUrl == null ? 'رفع صورة الإيصال' : 'إعادة رفع صورة',
+              _uploadButtonLabel,
               style: const TextStyle(fontFamily: 'Cairo'),
             ),
           ),
         ),
+        if (_uploadedUrl != null && !_uploading)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'اضغط مرة أخرى إذا أردت إعادة الرفع',
+              style: TextStyle(color: TTColors.textGray, fontFamily: 'Cairo'),
+            ),
+          ),
       ],
     );
   }
