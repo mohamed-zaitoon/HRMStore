@@ -54,7 +54,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     if (kIsWeb) {
       setPageTitle(AppInfo.appName);
       setMetaDescription(
-        'لوحة تحكم الأدمن لإدارة طلبات شحن نقاط تيك توك، مراجعة إيصالات الدفع، واعتماد أكواد رمضان.',
+        'لوحة تحكم الأدمن لإدارة طلبات شحن نقاط تيك توك، مراجعة إيصالات الدفع، واعتماد أكواد الخصم.',
       );
     }
     _checkExistingSession(); // 👈 أول ما الشاشة تفتح: نحاول نعمل auto-login

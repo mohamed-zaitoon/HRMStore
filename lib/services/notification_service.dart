@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -482,7 +483,7 @@ class NotificationService {
 
             if (promoCode.isNotEmpty) {
               _showInAppNotification(
-                'تم إرسال كود رمضان: $promoCode',
+                _promoCodeSentMessage(promoCode),
                 color: Colors.green,
                 icon: Icons.card_giftcard,
               );
@@ -543,7 +544,7 @@ class NotificationService {
             if (!_isAfterLastSeen(eventAt, lastSeen)) continue;
             await _writeLastSeen(scopeKey, eventAt);
             _showInAppNotification(
-              'تم إرسال كود رمضان: $promoCode',
+              _promoCodeSentMessage(promoCode),
               color: Colors.green,
               icon: Icons.card_giftcard,
             );
@@ -624,9 +625,7 @@ class NotificationService {
 
             final name = (data['name'] ?? '').toString().trim();
             _showInAppNotification(
-              name.isNotEmpty
-                  ? 'طلب كود رمضان جديد من $name'
-                  : 'طلب كود رمضان جديد',
+              _newPromoCodeRequestMessage(name: name),
               color: Colors.amber,
               icon: Icons.card_giftcard_rounded,
             );
@@ -664,9 +663,7 @@ class NotificationService {
             await _writeLastSeen(_adminCodesLastSeenKey, createdAt);
             final name = (data['name'] ?? '').toString().trim();
             _showInAppNotification(
-              name.isNotEmpty
-                  ? 'طلب كود رمضان جديد من $name'
-                  : 'طلب كود رمضان جديد',
+              _newPromoCodeRequestMessage(name: name),
               color: Colors.amber,
               icon: Icons.card_giftcard_rounded,
             );
@@ -839,6 +836,33 @@ class NotificationService {
 
   static String _promoCodeFrom(Map<String, dynamic> data) {
     return (data['promo_code'] ?? '').toString().trim();
+  }
+
+  static String _promoSeasonLabel() {
+    try {
+      if (RemoteConfigService.instance.isRamadan) return 'رمضان';
+    } catch (_) {}
+    try {
+      if (FirebaseRemoteConfig.instance.getBool('is_eid')) return 'العيد';
+    } catch (_) {}
+    return '';
+  }
+
+  static String _promoCodeSentMessage(String promoCode) {
+    final season = _promoSeasonLabel();
+    if (season.isNotEmpty) {
+      return 'تم إرسال كود $season: $promoCode';
+    }
+    return 'تم إرسال كود الخصم: $promoCode';
+  }
+
+  static String _newPromoCodeRequestMessage({required String name}) {
+    final season = _promoSeasonLabel();
+    final codeLabel = season.isNotEmpty ? 'كود $season' : 'كود الخصم';
+    if (name.isNotEmpty) {
+      return 'طلب $codeLabel جديد من $name';
+    }
+    return 'طلب $codeLabel جديد';
   }
 
   static void _showUserOrderStatusNotification({required String status}) {

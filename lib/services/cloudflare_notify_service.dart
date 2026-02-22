@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
 
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -115,7 +116,7 @@ class CloudflareNotifyService {
       if (tiktok.trim().isNotEmpty) 'تيك توك: ${tiktok.trim()}',
     ].join(' - ');
     return _send(
-      title: 'طلب كود رمضان جديد',
+      title: _newPromoCodeRequestTitle(),
       message: body,
       data: <String, dynamic>{
         'type': 'ramadan_code_request',
@@ -138,7 +139,7 @@ class CloudflareNotifyService {
     final safeCode = promoCode.trim();
 
     return _send(
-      title: 'تم ارسال كود رمضان لك 🎁',
+      title: _promoCodeSentTitle(),
       message: 'كودك: $safeCode',
       data: <String, dynamic>{
         'type': 'promo_code_sent',
@@ -230,6 +231,32 @@ class CloudflareNotifyService {
       }
       return false;
     }
+  }
+
+  static String _promoSeasonLabel() {
+    try {
+      if (RemoteConfigService.instance.isRamadan) return 'رمضان';
+    } catch (_) {}
+    try {
+      if (FirebaseRemoteConfig.instance.getBool('is_eid')) return 'العيد';
+    } catch (_) {}
+    return '';
+  }
+
+  static String _newPromoCodeRequestTitle() {
+    final season = _promoSeasonLabel();
+    if (season.isNotEmpty) {
+      return 'طلب كود $season جديد';
+    }
+    return 'طلب كود خصم جديد';
+  }
+
+  static String _promoCodeSentTitle() {
+    final season = _promoSeasonLabel();
+    if (season.isNotEmpty) {
+      return 'تم ارسال كود $season لك 🎁';
+    }
+    return 'تم ارسال كود الخصم لك 🎁';
   }
 
   static String get _workerUrl {

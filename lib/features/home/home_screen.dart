@@ -122,6 +122,7 @@ class _HomeScreenState extends State<HomeScreen>
   double _offer5 = 0;
   double _offer50 = 0;
   bool _isRamadanMode = false;
+  bool _isEidMode = false;
   int _balancePoints = 0;
   bool _isBalanceTopupOrder = false;
   DocumentReference<Map<String, dynamic>>? _userDocRef;
@@ -130,6 +131,43 @@ class _HomeScreenState extends State<HomeScreen>
   _balancePointsByUidSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   _balancePointsByWhatsappSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _pricesSub;
+
+  bool get _isSeasonalPromoEnabled => _isRamadanMode || _isEidMode;
+
+  String get _seasonLabel {
+    if (_isRamadanMode) return 'رمضان';
+    if (_isEidMode) return 'العيد';
+    return '';
+  }
+
+  String get _seasonalPromoTitle {
+    final season = _seasonLabel;
+    return season.isEmpty ? 'أكواد الخصم' : 'أكواد خصم $season';
+  }
+
+  String get _seasonalOfferTitle {
+    final season = _seasonLabel;
+    if (season.isEmpty) return '✨ عروضنا الذهبية ✨';
+    return '✨ عروض $season الذهبية ✨';
+  }
+
+  String get _seasonalRequestCta {
+    final season = _seasonLabel;
+    if (season.isEmpty) return 'اضغط لطلب كود الخصم الخاص بك';
+    return 'اضغط لطلب كود $season الخاص بك';
+  }
+
+  void _updateWebMetaDescription() {
+    if (!kIsWeb) return;
+    final season = _seasonLabel;
+    final seasonalText = season.isEmpty
+        ? 'عروض خاصة وكود خصم حصري'
+        : 'عروض $season وكود خصم حصري';
+    setMetaDescription(
+      'احسب سعر شحن نقاط تيك توك حسب عدد النقاط أو المبلغ، $seasonalText لمستخدمي الموقع والتطبيق.',
+    );
+  }
 
   // EN: Initializes widget state.
   // AR: تهيّئ حالة الودجت.
@@ -138,10 +176,7 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     if (kIsWeb) {
       setPageTitle(AppInfo.appName);
-
-      setMetaDescription(
-        'احسب سعر شحن نقاط تيك توك حسب عدد النقاط أو المبلغ، عروض خاصة ورمضان كود خصم حصري لمستخدمي الموقع والتطبيق.',
-      );
+      _updateWebMetaDescription();
     }
 
     _nameCtrl = TextEditingController(text: widget.name);
@@ -171,6 +206,7 @@ class _HomeScreenState extends State<HomeScreen>
     _balancePointsSub?.cancel();
     _balancePointsByUidSub?.cancel();
     _balancePointsByWhatsappSub?.cancel();
+    _pricesSub?.cancel();
     _inputCtrl.dispose();
     _promoCtrl.dispose();
     _nameCtrl.dispose();
@@ -628,6 +664,25 @@ class _HomeScreenState extends State<HomeScreen>
   // EN: Fetches Data.
   // AR: تجلب Data.
   Future<void> _fetchData() async {
+    await _refreshRemoteConfigValues();
+
+    await _pricesSub?.cancel();
+    _pricesSub = FirebaseFirestore.instance
+        .collection('prices')
+        .orderBy('min')
+        .snapshots()
+        .listen((snap) {
+          if (!mounted) return;
+          setState(() {
+            _prices = snap.docs.map((d) => d.data()).toList();
+          });
+          _maybePrefillPoints();
+          if (_inputCtrl.text.isNotEmpty) _recompute(_inputCtrl.text);
+          _maybeAutolaunchPayment();
+        });
+  }
+
+  Future<void> _refreshRemoteConfigValues() async {
     try {
       final rc = FirebaseRemoteConfig.instance;
       await rc.setConfigSettings(
@@ -649,24 +704,41 @@ class _HomeScreenState extends State<HomeScreen>
         _offer5 = rc.getDouble('offer5');
         _offer50 = rc.getDouble('offer50');
         _isRamadanMode = rc.getBool('is_ramadan');
+        _isEidMode = rc.getBool('is_eid');
       });
+      _updateWebMetaDescription();
     } catch (e) {
       debugPrint("RemoteConfig error: $e");
     }
+  }
 
-    FirebaseFirestore.instance
-        .collection('prices')
-        .orderBy('min')
-        .snapshots()
-        .listen((snap) {
-          if (!mounted) return;
-          setState(() {
-            _prices = snap.docs.map((d) => d.data()).toList();
-          });
-          _maybePrefillPoints();
-          if (_inputCtrl.text.isNotEmpty) _recompute(_inputCtrl.text);
-          _maybeAutolaunchPayment();
+  Future<void> _handlePageSwipeRefresh() async {
+    await _refreshRemoteConfigValues();
+    await _refreshBalancePoints(forceServer: true);
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('prices')
+          .orderBy('min')
+          .get(const GetOptions(source: Source.server));
+      if (mounted) {
+        setState(() {
+          _prices = snap.docs.map((d) => d.data()).toList();
         });
+      }
+    } catch (_) {
+      // إذا فشل جلب السيرفر نكتفي بالداتا الحالية من الاستماع اللحظي.
+    }
+    _maybePrefillPoints();
+    if (_inputCtrl.text.isNotEmpty) _recompute(_inputCtrl.text);
+  }
+
+  Widget _wrapWithSwipeRefresh(Widget child) {
+    return RefreshIndicator(
+      onRefresh: _handlePageSwipeRefresh,
+      color: TTColors.primaryCyan,
+      backgroundColor: TTColors.cardBg,
+      child: child,
+    );
   }
 
   void _maybePrefillPoints() {
@@ -2640,22 +2712,27 @@ class _HomeScreenState extends State<HomeScreen>
                   );
                 }
 
-                return Center(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      12,
-                      16,
-                      kIsWeb ? webContentBottomPadding : 24,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: 540,
-                        minHeight: minHeight > 0 ? minHeight : 0,
-                      ),
-                      child: Center(child: menuBody),
-                    ),
+                final compactScrollView = SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    12,
+                    16,
+                    kIsWeb ? webContentBottomPadding : 24,
                   ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: 540,
+                      minHeight: minHeight > 0 ? minHeight : 0,
+                    ),
+                    child: Center(child: menuBody),
+                  ),
+                );
+
+                return Center(
+                  child: !kIsWeb
+                      ? _wrapWithSwipeRefresh(compactScrollView)
+                      : compactScrollView,
                 );
               },
             )
@@ -2696,200 +2773,421 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             )
           else
-            SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                isLargeWeb ? 20 : 0,
-                20,
-                kIsWeb ? webContentBottomPadding : 0,
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight:
-                      MediaQuery.of(context).size.height -
-                      appBarHeight -
-                      (kIsWeb ? (20 + webContentBottomPadding) : 0),
-                ),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: isLargeWeb ? webMaxWidth : mobileMaxWidth,
-                    ),
-                    child: GlassCard(
-                      margin: EdgeInsets.zero,
-                      padding: const EdgeInsets.all(26),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(height: 20),
-                          Text(
-                            AppInfo.appName,
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: TTColors.textWhite,
-                              fontFamily: 'Cairo',
+            (!kIsWeb && widget.forceTikTokCharge)
+                ? _wrapWithSwipeRefresh(
+                    SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                        20,
+                        isLargeWeb ? 20 : 0,
+                        20,
+                        kIsWeb ? webContentBottomPadding : 0,
+                      ),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight:
+                              MediaQuery.of(context).size.height -
+                              appBarHeight -
+                              (kIsWeb ? (20 + webContentBottomPadding) : 0),
+                        ),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: isLargeWeb
+                                  ? webMaxWidth
+                                  : mobileMaxWidth,
                             ),
-                          ),
-
-                          const SizedBox(height: 30),
-
-                          TextField(
-                            controller: _tiktokCtrl,
-                            decoration: const InputDecoration(
-                              labelText: "يوزر تيك توك",
-                            ),
-                          ),
-
-                          const SizedBox(height: 12),
-
-                          TextField(
-                            controller: _inputCtrl,
-                            onChanged: _recompute,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            decoration: InputDecoration(
-                              labelText: _isPointsMode
-                                  ? "ادخل عدد النقاط المطلوب"
-                                  : "ادخل المبلغ الذي معك",
-                            ),
-                          ),
-
-                          const SizedBox(height: 15),
-                          if (_resultText.isNotEmpty)
-                            Text(
-                              _resultText,
-                              style: TextStyle(
-                                color: _isInputValid
-                                    ? TTColors.textWhite
-                                    : Colors.red,
-                                fontSize: 18,
-                                fontFamily: 'Cairo',
-                              ),
-                            ),
-                          // إظهار خانة كود الخصم دائماً عندما يكون العرض مفعّلاً
-                          if (widget.showRamadanPromo)
-                            GlassCard(
-                              margin: const EdgeInsets.symmetric(vertical: 10),
-                              padding: const EdgeInsets.all(14),
-                              borderColor: TTColors.goldAccent.withAlpha(160),
+                            child: GlassCard(
+                              margin: EdgeInsets.zero,
+                              padding: const EdgeInsets.all(26),
                               child: Column(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Text(
-                                    "✨ عروض رمضان الذهبية ✨",
+                                  const SizedBox(height: 20),
+                                  Text(
+                                    AppInfo.appName,
                                     style: TextStyle(
-                                      color: TTColors.goldAccent,
-                                      fontSize: 16,
+                                      fontSize: 22,
                                       fontWeight: FontWeight.bold,
+                                      color: TTColors.textWhite,
                                       fontFamily: 'Cairo',
                                     ),
                                   ),
-                                  if (!_isDiscountActive) ...[
-                                    const SizedBox(height: 10),
 
-                                    TextField(
-                                      controller: _promoCtrl,
-                                      decoration: const InputDecoration(
-                                        labelText: "الكود الذهبي",
-                                        prefixIcon: Icon(
-                                          Icons.vpn_key,
-                                          color: Color(0xFFFFD700),
-                                        ),
-                                      ),
+                                  const SizedBox(height: 30),
+
+                                  TextField(
+                                    controller: _tiktokCtrl,
+                                    decoration: const InputDecoration(
+                                      labelText: "يوزر تيك توك",
                                     ),
+                                  ),
 
-                                    const SizedBox(height: 10),
+                                  const SizedBox(height: 12),
 
-                                    ElevatedButton(
-                                      onPressed: _activatePromo,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(
-                                          0xFFFFD700,
-                                        ),
-                                        foregroundColor: Colors.black,
-                                      ),
-                                      child: const Text("تفعيل"),
+                                  TextField(
+                                    controller: _inputCtrl,
+                                    onChanged: _recompute,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    decoration: InputDecoration(
+                                      labelText: _isPointsMode
+                                          ? "ادخل عدد النقاط المطلوب"
+                                          : "ادخل المبلغ الذي معك",
                                     ),
+                                  ),
 
-                                    const SizedBox(height: 10),
-
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton.icon(
-                                        onPressed: _requestRamadanCode,
-                                        icon: const Icon(Icons.card_giftcard),
-                                        label: const Text(
-                                          "اضغط لطلب كود رمضان الخاص بك",
-                                          textAlign: TextAlign.center,
-                                        ),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: const Color(
-                                            0xFFFFD700,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 12,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ] else
-                                    const Text(
-                                      "✅ تم التفعيل!",
+                                  const SizedBox(height: 15),
+                                  if (_resultText.isNotEmpty)
+                                    Text(
+                                      _resultText,
                                       style: TextStyle(
-                                        color: Color(0xFFFFD700),
+                                        color: _isInputValid
+                                            ? TTColors.textWhite
+                                            : Colors.red,
+                                        fontSize: 18,
+                                        fontFamily: 'Cairo',
                                       ),
                                     ),
+                                  // إظهار خانة كود الخصم دائماً عندما يكون العرض مفعّلاً
+                                  if (widget.showRamadanPromo &&
+                                      _isSeasonalPromoEnabled)
+                                    GlassCard(
+                                      margin: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                      ),
+                                      padding: const EdgeInsets.all(14),
+                                      borderColor: TTColors.goldAccent
+                                          .withAlpha(160),
+                                      child: Column(
+                                        children: [
+                                          Text(
+                                            _seasonalOfferTitle,
+                                            style: TextStyle(
+                                              color: TTColors.goldAccent,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          ),
+                                          if (!_isDiscountActive) ...[
+                                            const SizedBox(height: 10),
+
+                                            TextField(
+                                              controller: _promoCtrl,
+                                              decoration: const InputDecoration(
+                                                labelText: "الكود الذهبي",
+                                                prefixIcon: Icon(
+                                                  Icons.vpn_key,
+                                                  color: Color(0xFFFFD700),
+                                                ),
+                                              ),
+                                            ),
+
+                                            const SizedBox(height: 10),
+
+                                            ElevatedButton(
+                                              onPressed: _activatePromo,
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(
+                                                  0xFFFFD700,
+                                                ),
+                                                foregroundColor: Colors.black,
+                                              ),
+                                              child: const Text("تفعيل"),
+                                            ),
+
+                                            const SizedBox(height: 10),
+
+                                            SizedBox(
+                                              width: double.infinity,
+                                              child: OutlinedButton.icon(
+                                                onPressed: _requestRamadanCode,
+                                                icon: const Icon(
+                                                  Icons.card_giftcard,
+                                                ),
+                                                label: Text(
+                                                  _seasonalRequestCta,
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: const Color(
+                                                    0xFFFFD700,
+                                                  ),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        vertical: 12,
+                                                      ),
+                                                ),
+                                              ),
+                                            ),
+                                          ] else
+                                            const Text(
+                                              "✅ تم التفعيل!",
+                                              style: TextStyle(
+                                                color: Color(0xFFFFD700),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+
+                                  const SizedBox(height: 20),
+                                  TextButton.icon(
+                                    onPressed: () {
+                                      setState(() {
+                                        _isPointsMode = !_isPointsMode;
+                                        _inputCtrl.clear();
+                                        _resultText = "";
+                                      });
+                                    },
+                                    icon: const Icon(Icons.swap_vert),
+                                    label: const Text("تبديل النمط"),
+                                  ),
+
+                                  const SizedBox(height: 20),
+
+                                  const SizedBox(height: 14),
+
+                                  ElevatedButton(
+                                    onPressed: _isInputValid
+                                        ? _startCheckoutFlow
+                                        : null,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                      foregroundColor: Theme.of(
+                                        context,
+                                      ).colorScheme.onPrimary,
+                                      minimumSize: const Size(
+                                        double.infinity,
+                                        50,
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      "طلب الشحن",
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontFamily: 'Cairo',
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
-
-                          const SizedBox(height: 20),
-                          TextButton.icon(
-                            onPressed: () {
-                              setState(() {
-                                _isPointsMode = !_isPointsMode;
-                                _inputCtrl.clear();
-                                _resultText = "";
-                              });
-                            },
-                            icon: const Icon(Icons.swap_vert),
-                            label: const Text("تبديل النمط"),
                           ),
+                        ),
+                      ),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      20,
+                      isLargeWeb ? 20 : 0,
+                      20,
+                      kIsWeb ? webContentBottomPadding : 0,
+                    ),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight:
+                            MediaQuery.of(context).size.height -
+                            appBarHeight -
+                            (kIsWeb ? (20 + webContentBottomPadding) : 0),
+                      ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: isLargeWeb ? webMaxWidth : mobileMaxWidth,
+                          ),
+                          child: GlassCard(
+                            margin: EdgeInsets.zero,
+                            padding: const EdgeInsets.all(26),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SizedBox(height: 20),
+                                Text(
+                                  AppInfo.appName,
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: TTColors.textWhite,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
 
-                          const SizedBox(height: 20),
+                                const SizedBox(height: 30),
 
-                          const SizedBox(height: 14),
+                                TextField(
+                                  controller: _tiktokCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: "يوزر تيك توك",
+                                  ),
+                                ),
 
-                          ElevatedButton(
-                            onPressed: _isInputValid
-                                ? _startCheckoutFlow
-                                : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Theme.of(
-                                context,
-                              ).colorScheme.primary,
-                              foregroundColor: Theme.of(
-                                context,
-                              ).colorScheme.onPrimary,
-                              minimumSize: const Size(double.infinity, 50),
-                            ),
-                            child: const Text(
-                              "طلب الشحن",
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontFamily: 'Cairo',
-                              ),
+                                const SizedBox(height: 12),
+
+                                TextField(
+                                  controller: _inputCtrl,
+                                  onChanged: _recompute,
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  decoration: InputDecoration(
+                                    labelText: _isPointsMode
+                                        ? "ادخل عدد النقاط المطلوب"
+                                        : "ادخل المبلغ الذي معك",
+                                  ),
+                                ),
+
+                                const SizedBox(height: 15),
+                                if (_resultText.isNotEmpty)
+                                  Text(
+                                    _resultText,
+                                    style: TextStyle(
+                                      color: _isInputValid
+                                          ? TTColors.textWhite
+                                          : Colors.red,
+                                      fontSize: 18,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  ),
+                                // إظهار خانة كود الخصم دائماً عندما يكون العرض مفعّلاً
+                                if (widget.showRamadanPromo &&
+                                    _isSeasonalPromoEnabled)
+                                  GlassCard(
+                                    margin: const EdgeInsets.symmetric(
+                                      vertical: 10,
+                                    ),
+                                    padding: const EdgeInsets.all(14),
+                                    borderColor: TTColors.goldAccent.withAlpha(
+                                      160,
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Text(
+                                          _seasonalOfferTitle,
+                                          style: TextStyle(
+                                            color: TTColors.goldAccent,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                        ),
+                                        if (!_isDiscountActive) ...[
+                                          const SizedBox(height: 10),
+
+                                          TextField(
+                                            controller: _promoCtrl,
+                                            decoration: const InputDecoration(
+                                              labelText: "الكود الذهبي",
+                                              prefixIcon: Icon(
+                                                Icons.vpn_key,
+                                                color: Color(0xFFFFD700),
+                                              ),
+                                            ),
+                                          ),
+
+                                          const SizedBox(height: 10),
+
+                                          ElevatedButton(
+                                            onPressed: _activatePromo,
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(
+                                                0xFFFFD700,
+                                              ),
+                                              foregroundColor: Colors.black,
+                                            ),
+                                            child: const Text("تفعيل"),
+                                          ),
+
+                                          const SizedBox(height: 10),
+
+                                          SizedBox(
+                                            width: double.infinity,
+                                            child: OutlinedButton.icon(
+                                              onPressed: _requestRamadanCode,
+                                              icon: const Icon(
+                                                Icons.card_giftcard,
+                                              ),
+                                              label: Text(
+                                                _seasonalRequestCta,
+                                                textAlign: TextAlign.center,
+                                              ),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: const Color(
+                                                  0xFFFFD700,
+                                                ),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 12,
+                                                    ),
+                                              ),
+                                            ),
+                                          ),
+                                        ] else
+                                          const Text(
+                                            "✅ تم التفعيل!",
+                                            style: TextStyle(
+                                              color: Color(0xFFFFD700),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+
+                                const SizedBox(height: 20),
+                                TextButton.icon(
+                                  onPressed: () {
+                                    setState(() {
+                                      _isPointsMode = !_isPointsMode;
+                                      _inputCtrl.clear();
+                                      _resultText = "";
+                                    });
+                                  },
+                                  icon: const Icon(Icons.swap_vert),
+                                  label: const Text("تبديل النمط"),
+                                ),
+
+                                const SizedBox(height: 20),
+
+                                const SizedBox(height: 14),
+
+                                ElevatedButton(
+                                  onPressed: _isInputValid
+                                      ? _startCheckoutFlow
+                                      : null,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                    foregroundColor: Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimary,
+                                    minimumSize: const Size(
+                                      double.infinity,
+                                      50,
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    "طلب الشحن",
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-            ),
           if (showWebSocialDock)
             Align(
               alignment: Alignment.bottomCenter,
@@ -3057,9 +3355,9 @@ class _HomeScreenState extends State<HomeScreen>
         icon: Icons.campaign,
         onTap: _openPromoDialog,
       ),
-      if (_isRamadanMode)
+      if (_isSeasonalPromoEnabled)
         _MenuItem(
-          title: "أكواد خصم رمضان",
+          title: _seasonalPromoTitle,
           icon: Icons.card_giftcard,
           onTap: () {
             Navigator.pushNamed(
@@ -3180,9 +3478,9 @@ class _HomeScreenState extends State<HomeScreen>
                 () => Navigator.pushNamed(context, '/privacy'),
               ),
               _webBtn("حسابي", () => Navigator.pushNamed(context, '/account')),
-              if (_isRamadanMode)
+              if (_isSeasonalPromoEnabled)
                 _webBtn(
-                  "أكواد خصم رمضان",
+                  _seasonalPromoTitle,
                   () => Navigator.pushNamed(
                     context,
                     '/code_requests',
