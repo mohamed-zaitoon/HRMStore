@@ -1,0 +1,3282 @@
+// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
+
+import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:firebase_remote_config/firebase_remote_config.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../core/constants.dart';
+import '../../core/tt_colors.dart';
+import '../../core/app_info.dart';
+import '../../models/game_package.dart';
+import '../../services/cancel_limit_service.dart';
+import '../../services/cloudflare_notify_service.dart';
+import '../../services/remote_config_service.dart';
+import '../../services/receipt_storage_service.dart';
+import '../../services/notification_service.dart';
+import '../../services/theme_service.dart';
+import '../../services/update_manager.dart';
+import '../../utils/html_meta.dart';
+import '../../widgets/snow_background.dart';
+import '../../widgets/theme_mode_sheet.dart';
+import '../../widgets/glass_bottom_sheet.dart';
+import '../../widgets/glass_app_bar.dart';
+import '../../widgets/glass_card.dart';
+import '../../utils/url_sanitizer.dart';
+import '../../widgets/top_snackbar.dart';
+
+const MethodChannel _androidChannel = MethodChannel('tt_android_info');
+
+// EN: Handles read File Bytes From Content Uri.
+// AR: تتعامل مع read File Bytes From Content Uri.
+Future<Uint8List?> _readFileBytesFromContentUri(String uri) async {
+  try {
+    final dynamic result = await _androidChannel.invokeMethod(
+      'readFileAsBytes',
+      {'uri': uri},
+    );
+    if (result == null) return null;
+    if (result is Uint8List) return result;
+    if (result is List<int>) return Uint8List.fromList(List<int>.from(result));
+    return null;
+  } catch (e) {
+    debugPrint('readFileBytesFromContentUri error: $e');
+    return null;
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  final String name;
+  final String whatsapp;
+  final String tiktok;
+  final bool forceTikTokCharge;
+  final bool showRamadanPromo;
+  final bool showGamesOnly;
+  final int? prefillPoints;
+  final bool autolaunchPayment;
+
+  // EN: Creates HomeScreen.
+  // AR: ينشئ HomeScreen.
+  const HomeScreen({
+    super.key,
+    required this.name,
+    required this.whatsapp,
+    required this.tiktok,
+    this.forceTikTokCharge = false,
+    this.showRamadanPromo = true,
+    this.showGamesOnly = false,
+    this.prefillPoints,
+    this.autolaunchPayment = false,
+  });
+
+  // EN: Creates state object.
+  // AR: تنشئ كائن الحالة.
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  static const double _dialogActionsSpacing = 12;
+
+  bool _isPointsMode = true;
+  bool _isDiscountActive = false;
+  bool _isInputValid = false;
+  static const int _minPoints = 250;
+  static const int _maxPoints = 130000;
+  static const int _walletTransferLimitEg = 30000;
+  static const String _tiktokChargeModeLink = 'link';
+  static const String _tiktokChargeModeQr = 'qr';
+  static const String _tiktokChargeModeUserPass = 'username_password';
+
+  String _resultText = "";
+  int? _pointsValue;
+  int? _priceValue;
+  GamePackage? _selectedPackage;
+  String? _selectedGameId;
+  String? _promoLink;
+  String _tiktokChargeMode = _tiktokChargeModeLink;
+  String? _tiktokPasswordForOrder;
+
+  final _inputCtrl = TextEditingController();
+  final _promoCtrl = TextEditingController();
+  late TextEditingController _nameCtrl;
+  final _tiktokCtrl = TextEditingController();
+  List<Map<String, dynamic>> _prices = [];
+
+  String _walletNumber = "";
+  String _instapayLink = "";
+  String _binanceId = "";
+  double _usdtPrice = 0;
+  double _offer5 = 0;
+  double _offer50 = 0;
+  bool _isRamadanMode = false;
+  int _balancePoints = 0;
+  bool _isBalanceTopupOrder = false;
+  DocumentReference<Map<String, dynamic>>? _userDocRef;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _balancePointsSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _balancePointsByUidSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _balancePointsByWhatsappSub;
+
+  // EN: Initializes widget state.
+  // AR: تهيّئ حالة الودجت.
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      setPageTitle(AppInfo.appName);
+
+      setMetaDescription(
+        'احسب سعر شحن نقاط تيك توك حسب عدد النقاط أو المبلغ، عروض خاصة ورمضان كود خصم حصري لمستخدمي الموقع والتطبيق.',
+      );
+    }
+
+    _nameCtrl = TextEditingController(text: widget.name);
+    _tiktokCtrl.text = widget.tiktok;
+
+    if (widget.whatsapp.isNotEmpty) {
+      NotificationService.listenToUserOrders(widget.whatsapp);
+      NotificationService.listenToUserRamadanCodes(widget.whatsapp);
+      unawaited(NotificationService.initUserNotifications(widget.whatsapp));
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!kIsWeb) {
+        UpdateManager.check(context);
+      }
+    });
+
+    _loadTiktokFromProfile();
+    _initializeBalancePoints();
+    _fetchData();
+  }
+
+  // EN: Releases resources.
+  // AR: تفرّغ الموارد.
+  @override
+  void dispose() {
+    _balancePointsSub?.cancel();
+    _balancePointsByUidSub?.cancel();
+    _balancePointsByWhatsappSub?.cancel();
+    _inputCtrl.dispose();
+    _promoCtrl.dispose();
+    _nameCtrl.dispose();
+    _tiktokCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadTiktokFromProfile() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedTiktok = (prefs.getString('user_tiktok') ?? '').trim();
+      if (savedTiktok.isNotEmpty) {
+        setState(() => _tiktokCtrl.text = savedTiktok);
+        return;
+      }
+
+      final uid = (prefs.getString('user_uid') ?? '').trim();
+      final whatsapp = widget.whatsapp.trim().isNotEmpty
+          ? widget.whatsapp.trim()
+          : (prefs.getString('user_whatsapp') ?? '').trim();
+
+      final users = FirebaseFirestore.instance.collection('users');
+      DocumentSnapshot<Map<String, dynamic>>? snap;
+      if (uid.isNotEmpty) {
+        snap = await users.doc(uid).get();
+        if (!snap.exists) {
+          final q = await users.where('uid', isEqualTo: uid).limit(1).get();
+          if (q.docs.isNotEmpty) snap = q.docs.first;
+        }
+      }
+      snap ??= await users.doc(whatsapp).get();
+
+      final data = snap.data();
+      final remoteTiktok = (data?['tiktok'] ?? data?['username'] ?? '')
+          .toString()
+          .trim();
+      if (remoteTiktok.isNotEmpty) {
+        setState(() => _tiktokCtrl.text = remoteTiktok);
+        prefs.setString('user_tiktok', remoteTiktok);
+      }
+    } catch (_) {
+      // نتجاهل أي خطأ في المزامنة الصامتة
+    }
+  }
+
+  // EN: Handles try Get Android Sdk Int.
+  // AR: تتعامل مع try Get Android Sdk Int.
+  Future<int?> _tryGetAndroidSdkInt() async {
+    try {
+      final sdk = await _androidChannel.invokeMethod<int>('getSdkInt');
+      return sdk;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // EN: Shows Custom Toast.
+  // AR: تعرض Custom Toast.
+  void _showCustomToast(
+    String msg, {
+    Color color = TTColors.primaryCyan,
+    Duration? duration = const Duration(seconds: 3),
+  }) {
+    if (!mounted) return;
+
+    IconData? icon;
+    if (color == Colors.green) {
+      icon = Icons.check_circle;
+    } else if (color == Colors.red) {
+      icon = Icons.error;
+    } else if (color == Colors.orange) {
+      icon = Icons.warning_amber_rounded;
+    }
+
+    TopSnackBar.show(
+      context,
+      msg,
+      backgroundColor: color,
+      textColor: Colors.white,
+      icon: icon,
+      duration: duration,
+    );
+  }
+
+  Future<bool> _verifyReceiptAvailableForAdmin({
+    required String orderId,
+    required String receiptPath,
+  }) async {
+    for (var i = 0; i < 7; i++) {
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('orders')
+            .doc(orderId)
+            .get(const GetOptions(source: Source.server));
+
+        final data = snap.data();
+        final savedPath = (data?['receipt_path'] ?? '').toString().trim();
+        final savedUrl = (data?['receipt_url'] ?? '').toString().trim();
+        final savedStatus = (data?['status'] ?? '').toString().trim();
+
+        if (savedPath == receiptPath &&
+            savedUrl.isNotEmpty &&
+            savedStatus == 'pending_review') {
+          return true;
+        }
+      } catch (_) {}
+
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+    }
+
+    return false;
+  }
+
+  Future<T?> _showBlurDialog<T>({
+    required WidgetBuilder builder,
+    bool barrierDismissible = false,
+    String barrierLabel = 'Dialog',
+  }) {
+    return showGeneralDialog<T>(
+      context: context,
+      barrierDismissible: barrierDismissible,
+      barrierLabel: barrierLabel,
+      barrierColor: Colors.black.withAlpha(96),
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (_, routeAnimation, secondaryAnimation) =>
+          const SizedBox.shrink(),
+      transitionBuilder: (_, animation, routeAnimation, secondaryAnimation) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        final blur = Tween<double>(begin: 0, end: 8).animate(curved);
+
+        return BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: blur.value, sigmaY: blur.value),
+          child: FadeTransition(
+            opacity: curved,
+            child: SafeArea(child: Builder(builder: builder)),
+          ),
+        );
+      },
+    );
+  }
+
+  bool _ensureTiktokHandle() {
+    if (_isGameOrder || _isPromoOrder || _isBalanceTopupOrder) return true;
+    final tiktok = _tiktokCtrl.text.trim();
+    if (tiktok.isEmpty) {
+      // حاول استخدام القيمة المحفوظة سابقاً
+      SharedPreferences.getInstance().then((p) {
+        final saved = (p.getString('user_tiktok') ?? '').trim();
+        if (saved.isEmpty) {
+          _showCustomToast("يوزر تيك توك مطلوب", color: Colors.orange);
+        } else {
+          _tiktokCtrl.text = saved;
+        }
+      });
+      return false;
+    }
+    SharedPreferences.getInstance().then((p) {
+      p.setString('user_tiktok', tiktok);
+      _syncTiktokToFirestore(tiktok, p);
+    });
+    return true;
+  }
+
+  Future<void> _syncTiktokToFirestore(
+    String handle,
+    SharedPreferences? prefs,
+  ) async {
+    if (handle.isEmpty) return;
+    try {
+      final p = prefs ?? await SharedPreferences.getInstance();
+      final uid = p.getString('user_uid') ?? '';
+      final whatsapp = p.getString('user_whatsapp') ?? widget.whatsapp;
+      final users = FirebaseFirestore.instance.collection('users');
+
+      DocumentReference<Map<String, dynamic>>? ref;
+      if (uid.isNotEmpty) {
+        ref = users.doc(uid);
+        final doc = await ref.get();
+        if (!doc.exists) {
+          // fallback to query by uid field
+          final q = await users.where('uid', isEqualTo: uid).limit(1).get();
+          if (q.docs.isNotEmpty) ref = q.docs.first.reference;
+        }
+      }
+      ref ??= users.doc(whatsapp);
+
+      await ref.set({
+        'tiktok': handle,
+        'username': handle,
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {
+      // تجاهل أي خطأ غير حرج في المزامنة
+    }
+  }
+
+  String _normalizeWhatsapp(String value) {
+    return value.replaceAll(RegExp(r'[^0-9+]'), '').trim();
+  }
+
+  int _toInt(dynamic raw) {
+    if (raw is int) return raw;
+    if (raw is double) return raw.round();
+    if (raw is num) return raw.toInt();
+    final text = (raw ?? '').toString().trim();
+    return int.tryParse(text) ?? 0;
+  }
+
+  Future<DocumentReference<Map<String, dynamic>>?> _resolveUserDocRef() async {
+    if (_userDocRef != null) return _userDocRef;
+
+    final prefs = await SharedPreferences.getInstance();
+    final users = FirebaseFirestore.instance.collection('users');
+    final uid = (prefs.getString('user_uid') ?? '').trim();
+    final fallbackWhatsapp = (prefs.getString('user_whatsapp') ?? '').trim();
+    final whatsapp = _normalizeWhatsapp(
+      widget.whatsapp.trim().isNotEmpty ? widget.whatsapp : fallbackWhatsapp,
+    );
+
+    if (uid.isNotEmpty) {
+      final direct = users.doc(uid);
+      final directSnap = await direct.get();
+      if (directSnap.exists) {
+        _userDocRef = direct;
+        return _userDocRef;
+      }
+      final byUid = await users.where('uid', isEqualTo: uid).limit(1).get();
+      if (byUid.docs.isNotEmpty) {
+        _userDocRef = byUid.docs.first.reference;
+        return _userDocRef;
+      }
+    }
+
+    if (whatsapp.isNotEmpty) {
+      final byWhatsapp = await users
+          .where('whatsapp', isEqualTo: whatsapp)
+          .limit(1)
+          .get();
+      if (byWhatsapp.docs.isNotEmpty) {
+        _userDocRef = byWhatsapp.docs.first.reference;
+        return _userDocRef;
+      }
+
+      _userDocRef = users.doc(uid.isNotEmpty ? uid : whatsapp);
+      return _userDocRef;
+    }
+
+    return null;
+  }
+
+  Future<void> _initializeBalancePoints() async {
+    await _refreshBalancePoints(forceServer: false);
+    await _startBalancePointsListener();
+  }
+
+  void _applyBalancePointsFromRaw(dynamic rawPoints) {
+    if (!mounted) return;
+    final safePoints = _toInt(rawPoints);
+    final normalized = safePoints < 0 ? 0 : safePoints;
+    if (_balancePoints != normalized) {
+      setState(() => _balancePoints = normalized);
+    }
+  }
+
+  Future<void> _bindBalanceDocListener(
+    DocumentReference<Map<String, dynamic>> ref,
+  ) async {
+    await _balancePointsSub?.cancel();
+    _balancePointsSub = ref.snapshots().listen(
+      (snap) {
+        _applyBalancePointsFromRaw(snap.data()?['balance_points']);
+      },
+      onError: (_) {
+        // نتجاهل أخطاء الاستماع اللحظي
+      },
+    );
+  }
+
+  Future<void> _startBalancePointsListener() async {
+    await _balancePointsSub?.cancel();
+    await _balancePointsByUidSub?.cancel();
+    await _balancePointsByWhatsappSub?.cancel();
+    final ref = await _resolveUserDocRef();
+    if (ref != null) {
+      _userDocRef = ref;
+      await _bindBalanceDocListener(ref);
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final uid = (prefs.getString('user_uid') ?? '').trim();
+    final fallbackWhatsapp = (prefs.getString('user_whatsapp') ?? '').trim();
+    final whatsapp = _normalizeWhatsapp(
+      widget.whatsapp.trim().isNotEmpty ? widget.whatsapp : fallbackWhatsapp,
+    );
+    final users = FirebaseFirestore.instance.collection('users');
+
+    if (uid.isNotEmpty) {
+      _balancePointsByUidSub = users
+          .where('uid', isEqualTo: uid)
+          .limit(1)
+          .snapshots()
+          .listen((snap) {
+            if (snap.docs.isEmpty) return;
+            final doc = snap.docs.first;
+            _applyBalancePointsFromRaw(doc.data()['balance_points']);
+            final candidateRef = doc.reference;
+            if (_userDocRef?.path != candidateRef.path) {
+              _userDocRef = candidateRef;
+              unawaited(_bindBalanceDocListener(candidateRef));
+            }
+          });
+    }
+
+    if (whatsapp.isNotEmpty) {
+      _balancePointsByWhatsappSub = users
+          .where('whatsapp', isEqualTo: whatsapp)
+          .limit(1)
+          .snapshots()
+          .listen((snap) {
+            if (snap.docs.isEmpty) return;
+            final doc = snap.docs.first;
+            _applyBalancePointsFromRaw(doc.data()['balance_points']);
+            final candidateRef = doc.reference;
+            if (_userDocRef?.path != candidateRef.path) {
+              _userDocRef = candidateRef;
+              unawaited(_bindBalanceDocListener(candidateRef));
+            }
+          });
+    }
+  }
+
+  Future<void> _refreshBalancePoints({bool forceServer = true}) async {
+    try {
+      final ref = await _resolveUserDocRef();
+      if (ref == null) return;
+
+      await ref.set({
+        'balance_points': FieldValue.increment(0),
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      DocumentSnapshot<Map<String, dynamic>> snap;
+      if (forceServer) {
+        snap = await ref.get(const GetOptions(source: Source.server));
+      } else {
+        snap = await ref.get();
+      }
+
+      final points = _toInt(snap.data()?['balance_points']);
+      if (!mounted) return;
+      setState(() => _balancePoints = points < 0 ? 0 : points);
+    } catch (_) {
+      // نتجاهل أي خطأ في تحديث الرصيد
+    }
+  }
+
+  Future<bool> _createOrderWithOptionalPoints({
+    required Map<String, dynamic> payload,
+    int pointsToDeduct = 0,
+    String? orderId,
+  }) async {
+    final orders = FirebaseFirestore.instance.collection('orders');
+
+    if (pointsToDeduct <= 0) {
+      try {
+        late final DocumentReference<Map<String, dynamic>> createdOrderRef;
+        if (orderId == null || orderId.trim().isEmpty) {
+          createdOrderRef = await orders.add(payload);
+        } else {
+          createdOrderRef = orders.doc(orderId);
+          await createdOrderRef.set(payload, SetOptions(merge: true));
+        }
+        unawaited(
+          CloudflareNotifyService.notifyAdminsNewOrder(
+            orderId: createdOrderRef.id,
+            order: payload,
+          ),
+        );
+        return true;
+      } catch (_) {
+        _showCustomToast("تعذر إنشاء الطلب، حاول مجددًا", color: Colors.red);
+        return false;
+      }
+    }
+
+    final userRef = await _resolveUserDocRef();
+    if (userRef == null) {
+      _showCustomToast("تعذر الوصول إلى رصيد النقاط", color: Colors.red);
+      return false;
+    }
+
+    try {
+      final orderRef = (orderId == null || orderId.trim().isEmpty)
+          ? orders.doc()
+          : orders.doc(orderId);
+
+      int nextBalance = _balancePoints;
+
+      await FirebaseFirestore.instance.runTransaction((tx) async {
+        final userSnap = await tx.get(userRef);
+        final current = _toInt(userSnap.data()?['balance_points']);
+        if (current < pointsToDeduct) {
+          throw StateError('insufficient-points');
+        }
+
+        nextBalance = current - pointsToDeduct;
+
+        tx.set(orderRef, payload, SetOptions(merge: true));
+        tx.set(userRef, {
+          'balance_points': nextBalance,
+          'updated_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      });
+
+      if (mounted) {
+        setState(() => _balancePoints = nextBalance);
+      }
+      unawaited(
+        CloudflareNotifyService.notifyAdminsNewOrder(
+          orderId: orderRef.id,
+          order: payload,
+        ),
+      );
+      return true;
+    } on StateError catch (e) {
+      if (e.message == 'insufficient-points') {
+        await _refreshBalancePoints(forceServer: true);
+        _showCustomToast(
+          "رصيد النقاط غير كافٍ. حدّث الرصيد ثم حاول مرة أخرى.",
+          color: Colors.orange,
+        );
+        return false;
+      }
+      _showCustomToast("تعذر إنشاء الطلب، حاول مجددًا", color: Colors.red);
+      return false;
+    } catch (_) {
+      _showCustomToast("تعذر إنشاء الطلب، حاول مجددًا", color: Colors.red);
+      return false;
+    }
+  }
+
+  void _resetCheckoutMeta() {
+    setState(() {
+      _promoLink = null;
+      _tiktokChargeMode = _tiktokChargeModeLink;
+      _tiktokPasswordForOrder = null;
+      _isBalanceTopupOrder = false;
+    });
+  }
+
+  // EN: Fetches Data.
+  // AR: تجلب Data.
+  Future<void> _fetchData() async {
+    try {
+      final rc = FirebaseRemoteConfig.instance;
+      await rc.setConfigSettings(
+        RemoteConfigSettings(
+          fetchTimeout: const Duration(minutes: 1),
+          minimumFetchInterval: Duration.zero,
+        ),
+      );
+      await rc.fetchAndActivate();
+      final rcUsdtPrice = rc.getDouble('usdt_price');
+      final parsedUsdtFromString = double.tryParse(rc.getString('usdt_price'));
+      setState(() {
+        _walletNumber = rc.getString('wallet_number');
+        _instapayLink = rc.getString('instapay_link');
+        _binanceId = rc.getString('binance_id');
+        _usdtPrice = rcUsdtPrice > 0
+            ? rcUsdtPrice
+            : (parsedUsdtFromString ?? 0);
+        _offer5 = rc.getDouble('offer5');
+        _offer50 = rc.getDouble('offer50');
+        _isRamadanMode = rc.getBool('is_ramadan');
+      });
+    } catch (e) {
+      debugPrint("RemoteConfig error: $e");
+    }
+
+    FirebaseFirestore.instance
+        .collection('prices')
+        .orderBy('min')
+        .snapshots()
+        .listen((snap) {
+          if (!mounted) return;
+          setState(() {
+            _prices = snap.docs.map((d) => d.data()).toList();
+          });
+          _maybePrefillPoints();
+          if (_inputCtrl.text.isNotEmpty) _recompute(_inputCtrl.text);
+          _maybeAutolaunchPayment();
+        });
+  }
+
+  void _maybePrefillPoints() {
+    if (widget.prefillPoints != null &&
+        widget.prefillPoints! > 0 &&
+        _inputCtrl.text.isEmpty) {
+      _inputCtrl.text = widget.prefillPoints!.toString();
+      _recompute(_inputCtrl.text);
+    }
+  }
+
+  Future<void> _maybeAutolaunchPayment() async {
+    if (!widget.autolaunchPayment) return;
+    if (!_isInputValid) return;
+    // حد الإلغاء 5 خلال 24 ساعة
+    final ok = await _checkCancelLimit();
+    if (!ok) return;
+    await _startCheckoutFlow();
+  }
+
+  // EN: Handles activate Promo.
+  // AR: تتعامل مع activate Promo.
+  Future<void> _activatePromo() async {
+    final String code = _promoCtrl.text.trim().toUpperCase().replaceAll(
+      "-",
+      "",
+    );
+    if (code.isEmpty) {
+      _showCustomToast("الرجاء كتابة الكود", color: Colors.orange);
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('promo_codes')
+          .doc(code);
+      final doc = await docRef.get();
+
+      if (!mounted) return;
+      if (Navigator.canPop(context)) Navigator.pop(context);
+
+      if (!doc.exists) {
+        _showCustomToast("الكود غير صحيح ❌", color: Colors.red);
+        return;
+      }
+      if (doc.data()!['is_used'] == true) {
+        _showCustomToast("تم استخدامه من قبل 🚫", color: Colors.red);
+        return;
+      }
+
+      await docRef.update({'is_used': true});
+      if (!mounted) return;
+      setState(() => _isDiscountActive = true);
+
+      if (_inputCtrl.text.isNotEmpty) _recompute(_inputCtrl.text);
+
+      _showCustomToast("تم التفعيل! 🎉", color: Colors.green);
+    } catch (e) {
+      if (!mounted) return;
+      if (Navigator.canPop(context)) Navigator.pop(context);
+
+      _showCustomToast("خطأ في التحقق", color: Colors.red);
+    }
+  }
+
+  // EN: Requests Ramadan Code.
+  // AR: تطلب Ramadan Code.
+  Future<void> _requestRamadanCode() async {
+    final tiktokHandle = _tiktokCtrl.text.trim();
+    if (_nameCtrl.text.isEmpty ||
+        widget.whatsapp.isEmpty ||
+        tiktokHandle.isEmpty) {
+      _showCustomToast("البيانات ناقصة", color: Colors.red);
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final existing = await FirebaseFirestore.instance
+          .collection('code_requests')
+          .where('whatsapp', isEqualTo: widget.whatsapp)
+          .where('status', isEqualTo: 'pending')
+          .get();
+
+      if (!mounted) return;
+      if (existing.docs.isNotEmpty) {
+        if (Navigator.canPop(context)) Navigator.pop(context);
+
+        _showCustomToast("لديك طلب قيد الانتظار", color: Colors.orange);
+        return;
+      }
+
+      final reqRef = await FirebaseFirestore.instance
+          .collection('code_requests')
+          .add({
+            'name': _nameCtrl.text,
+            'whatsapp': widget.whatsapp,
+            'tiktok': tiktokHandle,
+            'status': 'pending',
+            'created_at': FieldValue.serverTimestamp(),
+          });
+      unawaited(
+        CloudflareNotifyService.notifyAdminsCodeRequest(
+          requestId: reqRef.id,
+          name: _nameCtrl.text,
+          whatsapp: widget.whatsapp,
+          tiktok: tiktokHandle,
+        ),
+      );
+
+      if (!mounted) return;
+      if (Navigator.canPop(context)) Navigator.pop(context);
+
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: TTColors.cardBg,
+          title: const Text(
+            "تم إرسال الطلب",
+            style: TextStyle(color: TTColors.goldAccent),
+          ),
+          content: Text(
+            "سيتم مراجعة طلبك، تابع قسم الأكواد.",
+            style: TextStyle(color: TTColors.textWhite),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("حسناً"),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      if (Navigator.canPop(context)) Navigator.pop(context);
+
+      _showCustomToast("خطأ في الطلب", color: Colors.red);
+    }
+  }
+
+  // EN: Calculates calculate.
+  // AR: تحسب calculate.
+  void _recompute(String val) {
+    _isInputValid = false;
+    _resultText = "";
+    _pointsValue = null;
+    _priceValue = null;
+    _selectedPackage = null;
+    _selectedGameId = null;
+    _isBalanceTopupOrder = false;
+
+    if (val.isEmpty || _prices.isEmpty) {
+      setState(() {});
+      return;
+    }
+
+    final double inputVal = double.tryParse(val) ?? 0;
+
+    if (_isPointsMode) {
+      if (inputVal < _minPoints || inputVal > _maxPoints) {
+        _resultText = "النقاط من $_minPoints إلى $_maxPoints";
+        setState(() {});
+        return;
+      }
+
+      final rule = _prices.firstWhere(
+        (r) => inputVal >= r['min'] && inputVal <= r['max'],
+        orElse: () => _prices.last,
+      );
+
+      double rate = rule['pricePer1000'].toDouble();
+
+      if (_isDiscountActive) {
+        if (inputVal >= 50000) {
+          rate = _offer50 > 0 ? _offer50 : rate;
+        } else if (inputVal >= 2000) {
+          rate = _offer5 > 0 ? _offer5 : rate;
+        }
+      }
+
+      _priceValue = ((inputVal / 1000) * rate).ceil();
+      _pointsValue = inputVal.round();
+      _resultText = "السعر: $_priceValue جنيه";
+      _isInputValid = true;
+    } else {
+      int bestPoints = 0;
+      bool foundTier = false;
+
+      final reversedPrices = _prices.reversed.toList();
+      for (var rule in reversedPrices) {
+        double rate = rule['pricePer1000'].toDouble();
+
+        if (_isDiscountActive) {
+          if (rule['min'] >= 50000) {
+            rate = _offer50 > 0 ? _offer50 : rate;
+          } else if (rule['min'] >= 2000) {
+            rate = _offer5 > 0 ? _offer5 : rate;
+          }
+        }
+
+        int potentialPoints = ((inputVal * 1000) / rate).floor();
+
+        if (potentialPoints >= rule['min']) {
+          bestPoints = potentialPoints;
+          foundTier = true;
+          break;
+        }
+      }
+
+      if (!foundTier) {
+        double rate = _prices.first['pricePer1000'].toDouble();
+        bestPoints = ((inputVal * 1000) / rate).floor();
+      }
+
+      if (bestPoints < _minPoints || bestPoints > _maxPoints) {
+        _resultText = "المبلغ خارج النطاق";
+        _pointsValue = bestPoints;
+        _priceValue = inputVal.floor();
+        setState(() {});
+        return;
+      }
+
+      _pointsValue = bestPoints;
+      _priceValue = inputVal.floor();
+      _resultText = "النقاط: $bestPoints نقطة";
+      _isInputValid = true;
+    }
+
+    setState(() {});
+  }
+
+  bool get _isGameOrder => _selectedPackage != null;
+  bool get _isPromoOrder => (_promoLink ?? '').isNotEmpty;
+
+  String _gameOrderTitle(GamePackage pkg) {
+    final gameName = GamePackage.gameLabel(pkg.game);
+    return "$gameName - ${pkg.label}";
+  }
+
+  IconData _gameIcon(String game) {
+    switch (game) {
+      case 'pubg':
+        return Icons.sports_esports;
+      case 'freefire':
+        return Icons.local_fire_department;
+      case 'cod':
+        return Icons.shield;
+      default:
+        return Icons.videogame_asset;
+    }
+  }
+
+  Widget _buildGamePackagesList({BuildContext? closeContext}) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('game_packages')
+          .where('enabled', isEqualTo: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              "حدث خطأ أثناء تحميل الباقات",
+              style: TextStyle(color: TTColors.textGray),
+            ),
+          );
+        }
+
+        if (!snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(
+              child: CircularProgressIndicator(color: TTColors.primaryCyan),
+            ),
+          );
+        }
+
+        final packages =
+            snapshot.data!.docs.map((d) => GamePackage.fromDoc(d)).toList()
+              ..sort((a, b) {
+                final order = {'pubg': 0, 'freefire': 1, 'cod': 2};
+                final g1 = order[a.game] ?? 9;
+                final g2 = order[b.game] ?? 9;
+                if (g1 != g2) return g1.compareTo(g2);
+                return a.sort.compareTo(b.sort);
+              });
+
+        if (packages.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              "لا توجد باقات حالياً",
+              style: TextStyle(color: TTColors.textGray),
+            ),
+          );
+        }
+
+        final Map<String, List<GamePackage>> grouped = {};
+        for (final pkg in packages) {
+          grouped.putIfAbsent(pkg.game, () => []).add(pkg);
+        }
+
+        final games = GamePackage.gameOrder()
+            .where((g) => grouped[g]?.isNotEmpty ?? false)
+            .toList();
+
+        return ExpansionPanelList.radio(
+          expandedHeaderPadding: EdgeInsets.zero,
+          children: games.map((game) {
+            final gamePackages = grouped[game] ?? const [];
+            return ExpansionPanelRadio(
+              value: game,
+              canTapOnHeader: true,
+              headerBuilder: (context, isExpanded) {
+                return ListTile(
+                  leading: Icon(_gameIcon(game)),
+                  title: Text(
+                    GamePackage.gameLabel(game),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                );
+              },
+              body: Column(
+                children: gamePackages
+                    .map(
+                      (pkg) => ListTile(
+                        leading: const Icon(Icons.local_offer_outlined),
+                        title: Text(pkg.label),
+                        subtitle: Text(
+                          "السعر: ${pkg.price} جنيه",
+                          style: TextStyle(color: TTColors.textGray),
+                        ),
+                        onTap: () async {
+                          if (closeContext != null &&
+                              Navigator.canPop(closeContext)) {
+                            Navigator.pop(closeContext);
+                          }
+                          await _handleGamePackageSelected(pkg);
+                        },
+                      ),
+                    )
+                    .toList(),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Future<void> _showOtherPackagesSheet() async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: GlassBottomSheet(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildGamePackagesList(closeContext: ctx),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _handleGamePackageSelected(GamePackage pkg) async {
+    await NotificationService.requestPermission();
+    final id = await _promptGameId(pkg);
+    if (id == null || id.isEmpty) return;
+
+    setState(() {
+      _isBalanceTopupOrder = false;
+      _selectedPackage = pkg;
+      _selectedGameId = id;
+      _priceValue = pkg.price;
+      _isInputValid = true;
+    });
+
+    _startCheckoutFlow();
+  }
+
+  Future<String?> _promptGameId(GamePackage pkg) async {
+    final controller = TextEditingController();
+    String? result;
+
+    await _showBlurDialog<void>(
+      barrierLabel: 'game-id-dialog',
+      builder: (ctx) => AlertDialog(
+        backgroundColor: TTColors.cardBg,
+        title: Text(_gameOrderTitle(pkg)),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(labelText: "ادخل الـ ID"),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("إلغاء"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+          ElevatedButton(
+            onPressed: () {
+              result = controller.text.trim();
+              Navigator.pop(ctx);
+            },
+            child: const Text("متابعة"),
+          ),
+        ],
+      ),
+    );
+
+    return result;
+  }
+
+  Future<void> _startCheckoutFlow() async {
+    if (!_isInputValid && !_isGameOrder && !_isPromoOrder) return;
+
+    if (_isGameOrder || _isPromoOrder || _isBalanceTopupOrder) {
+      _tiktokChargeMode = _tiktokChargeModeLink;
+      _tiktokPasswordForOrder = null;
+      await _refreshBalancePoints(forceServer: true);
+      _openPaymentDialogSafely();
+      return;
+    }
+
+    if (!_ensureTiktokHandle()) return;
+
+    final selectedMode = await _showTiktokChargeModeDialog();
+    if (!mounted || selectedMode == null) return;
+
+    if (selectedMode == _tiktokChargeModeLink ||
+        selectedMode == _tiktokChargeModeQr) {
+      setState(() {
+        _tiktokChargeMode = selectedMode;
+        _tiktokPasswordForOrder = null;
+      });
+      await _refreshBalancePoints(forceServer: true);
+      _openPaymentDialogSafely();
+      return;
+    }
+
+    final password = await _showTiktokPasswordDialog();
+    if (!mounted || password == null) return;
+
+    setState(() {
+      _tiktokChargeMode = _tiktokChargeModeUserPass;
+      _tiktokPasswordForOrder = password;
+    });
+
+    await _refreshBalancePoints(forceServer: true);
+    _openPaymentDialogSafely();
+  }
+
+  void _openPaymentDialogSafely() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _showPaymentDialog();
+    });
+  }
+
+  Future<String?> _showTiktokChargeModeDialog() async {
+    return _showBlurDialog<String>(
+      barrierLabel: 'tiktok-charge-mode-dialog',
+      builder: (ctx) => AlertDialog(
+        backgroundColor: TTColors.cardBg,
+        actionsOverflowButtonSpacing: _dialogActionsSpacing,
+        title: const Text("اختيار طريقة الشحن"),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "اختار طريقة شحن عملات تيك توك قبل اختيار وسيلة الدفع.",
+              style: TextStyle(fontFamily: 'Cairo'),
+            ),
+            SizedBox(height: 8),
+            Text(
+              "تنبيه: في حالة اختيار يوزر + باسورد يجب أن يكون التحقق بخطوتين مغلق.",
+              style: TextStyle(
+                color: Colors.orangeAccent,
+                fontFamily: 'Cairo',
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("إلغاء"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+          OutlinedButton(
+            onPressed: () {
+              Navigator.pop(ctx, _tiktokChargeModeLink);
+            },
+            child: const Text("الشحن بلينك"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+          OutlinedButton(
+            onPressed: () {
+              Navigator.pop(ctx, _tiktokChargeModeQr);
+            },
+            child: const Text("الشحن بـ QR"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx, _tiktokChargeModeUserPass);
+            },
+            child: const Text("يوزر + باسورد"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _showTiktokPasswordDialog() async {
+    String typedPass = '';
+    String? errorText;
+    bool obscure = true;
+
+    return _showBlurDialog<String>(
+      barrierLabel: 'tiktok-password-dialog',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: TTColors.cardBg,
+          title: const Text("ادخل باسورد تيك توك"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "تنبيه: لازم يكون التحقق بخطوتين (2FA) مقفول على حساب تيك توك قبل المتابعة.",
+                style: TextStyle(
+                  color: Colors.orangeAccent,
+                  fontFamily: 'Cairo',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                autofocus: true,
+                obscureText: obscure,
+                onChanged: (v) => typedPass = v,
+                decoration: InputDecoration(
+                  labelText: "باسورد تيك توك",
+                  errorText: errorText,
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscure ? Icons.visibility : Icons.visibility_off,
+                      size: 20,
+                    ),
+                    onPressed: () {
+                      setDialogState(() => obscure = !obscure);
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("إلغاء"),
+            ),
+            const SizedBox(width: _dialogActionsSpacing),
+            ElevatedButton(
+              onPressed: () {
+                final pass = typedPass.trim();
+                if (pass.isEmpty) {
+                  setDialogState(() {
+                    errorText = "اكتب الباسورد للمتابعة";
+                  });
+                  return;
+                }
+                Navigator.pop(ctx, pass);
+              },
+              child: const Text("متابعة"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // EN: Shows Payment Dialog.
+  // AR: تعرض Payment Dialog.
+  void _showPaymentDialog() {
+    if (!_isInputValid && !_isGameOrder && !_isPromoOrder) return;
+    if (!_isPromoOrder && !_isBalanceTopupOrder && !_ensureTiktokHandle()) {
+      return;
+    }
+
+    final int totalAmount = _priceValue ?? 0;
+    if (totalAmount <= 0) {
+      _showCustomToast(
+        "حدد قيمة صحيحة قبل اختيار وسيلة الدفع",
+        color: Colors.orange,
+      );
+      return;
+    }
+
+    int pointsDiscount = 0;
+    final supportWhatsappDigits = _normalizeWhatsappDigits(
+      RemoteConfigService.instance.adminWhatsapp.trim(),
+    );
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: "Pay",
+      barrierColor: Colors.black.withAlpha(96),
+      pageBuilder: (_, routeAnimation, secondaryAnimation) => const SizedBox(),
+      transitionBuilder: (ctx, anim, routeAnimation, secondaryAnimation) {
+        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOut);
+        final blur = Tween<double>(begin: 0, end: 8).animate(curved);
+        return BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: blur.value, sigmaY: blur.value),
+          child: SlideTransition(
+            position: Tween(
+              begin: const Offset(0, -1),
+              end: Offset.zero,
+            ).animate(curved),
+            child: SafeArea(
+              child: Center(
+                child: Material(
+                  color: Colors.transparent,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: StatefulBuilder(
+                        builder: (ctx, setDialogState) {
+                          final canUsePointsFeatures = !_isBalanceTopupOrder;
+                          final maxDiscount = canUsePointsFeatures
+                              ? math.min(_balancePoints, totalAmount)
+                              : 0;
+                          if (pointsDiscount > maxDiscount) {
+                            pointsDiscount = maxDiscount;
+                          }
+                          final payableAmount = math.max(
+                            0,
+                            totalAmount - pointsDiscount,
+                          );
+                          final hideWalletForLargeAmount =
+                              payableAmount > _walletTransferLimitEg;
+                          final canPayFullyByPoints =
+                              canUsePointsFeatures &&
+                              _balancePoints >= totalAmount;
+
+                          return GlassCard(
+                            margin: EdgeInsets.zero,
+                            padding: const EdgeInsets.all(24),
+                            borderColor: TTColors.primaryCyan.withAlpha(140),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  "وسيلة الدفع",
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+
+                                const SizedBox(height: 10),
+
+                                Text(
+                                  _isBalanceTopupOrder
+                                      ? "شحن الرصيد (اختياري)"
+                                      : "إجمالي الطلب: $totalAmount جنيه",
+                                  style: const TextStyle(
+                                    color: TTColors.goldAccent,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+
+                                if (_isGameOrder) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _gameOrderTitle(_selectedPackage!),
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: TTColors.textWhite,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  if ((_selectedGameId ?? '').isNotEmpty)
+                                    Text(
+                                      "ID: $_selectedGameId",
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: TTColors.textGray,
+                                      ),
+                                    ),
+                                ],
+
+                                if (_isBalanceTopupOrder) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    "قيمة الشحن: $totalAmount جنيه = $totalAmount نقطة",
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: TTColors.textWhite,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  ),
+                                ] else ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    "رصيدك $_balancePoints 🪙",
+                                    style: TextStyle(
+                                      color: TTColors.textGray,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  ),
+                                  if (maxDiscount > 0)
+                                    TextButton.icon(
+                                      onPressed: () {
+                                        setDialogState(() {
+                                          pointsDiscount = pointsDiscount == 0
+                                              ? maxDiscount
+                                              : 0;
+                                        });
+                                      },
+                                      icon: Icon(
+                                        pointsDiscount > 0
+                                            ? Icons.remove_circle_outline
+                                            : Icons.discount_outlined,
+                                      ),
+                                      label: Text(
+                                        pointsDiscount > 0
+                                            ? "إلغاء خصم النقاط"
+                                            : "استخدام $maxDiscount نقطة كخصم (اختياري)",
+                                        style: const TextStyle(
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                    ),
+                                  if (maxDiscount <= 0)
+                                    Text(
+                                      "لا يوجد رصيد نقاط متاح للخصم حالياً",
+                                      style: TextStyle(
+                                        color: TTColors.textGray,
+                                        fontSize: 12,
+                                        fontFamily: 'Cairo',
+                                      ),
+                                    ),
+                                  if (pointsDiscount > 0)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        "خصم النقاط: -$pointsDiscount جنيه\nالمبلغ المطلوب الآن: $payableAmount جنيه",
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          color: TTColors.goldAccent,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                    ),
+                                ],
+
+                                const SizedBox(height: 18),
+
+                                if (canPayFullyByPoints)
+                                  Column(
+                                    children: [
+                                      _payOption(
+                                        "الدفع من رصيد النقاط",
+                                        Icons.stars_rounded,
+                                        TTColors.goldAccent,
+                                        () => _processPointsPayment(
+                                          totalAmount: totalAmount,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                    ],
+                                  ),
+
+                                if (payableAmount > 0) ...[
+                                  if (hideWalletForLargeAmount) ...[
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange.withAlpha(24),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: Colors.orange.withAlpha(110),
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.info_outline,
+                                                color: Colors.orange,
+                                                size: 18,
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  "للطلبات الأعلى من 30000 جنيه تم إخفاء الدفع بالمحفظة.",
+                                                  style: TextStyle(
+                                                    fontFamily: 'Cairo',
+                                                    fontWeight: FontWeight.w700,
+                                                    color: TTColors.textWhite,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            "يمكنك التحويل عبر Binance أو InstaPay، أو التواصل معنا عبر واتساب.",
+                                            style: TextStyle(
+                                              fontFamily: 'Cairo',
+                                              color: TTColors.textGray,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          if (supportWhatsappDigits.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 8,
+                                              ),
+                                              child: TextButton.icon(
+                                                onPressed: _openSupportWhatsapp,
+                                                icon: const Icon(
+                                                  Icons.chat_rounded,
+                                                ),
+                                                label: Text(
+                                                  "تواصل واتساب: $supportWhatsappDigits",
+                                                  style: const TextStyle(
+                                                    fontFamily: 'Cairo',
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                  ] else ...[
+                                    _payOption(
+                                      "فودافون كاش / محفظة",
+                                      Icons.account_balance_wallet,
+                                      Colors.orange,
+                                      () => _processWalletOrder(
+                                        payableAmount: payableAmount,
+                                        pointsDiscount: pointsDiscount,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                  ],
+
+                                  _payOption(
+                                    "InstaPay",
+                                    Icons.qr_code,
+                                    Colors.purpleAccent,
+                                    () => _processInstaPay(
+                                      payableAmount: payableAmount,
+                                      pointsDiscount: pointsDiscount,
+                                    ),
+                                  ),
+
+                                  const SizedBox(height: 10),
+
+                                  _payOptionWithLeading(
+                                    "Binance Pay",
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: Image.asset(
+                                        'assets/icon/binance_logo.png',
+                                        width: 22,
+                                        height: 22,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                    () => _processBinancePay(
+                                      payableAmount: payableAmount,
+                                      pointsDiscount: pointsDiscount,
+                                    ),
+                                  ),
+                                ],
+
+                                const SizedBox(height: 12),
+
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    icon: const Icon(Icons.close),
+                                    label: const Text("إلغاء"),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // EN: Handles pay Option.
+  // AR: تتعامل مع pay Option.
+  Widget _payOption(String t, IconData i, Color c, VoidCallback tap) {
+    return ListTile(
+      leading: Icon(i, color: c),
+      title: Text(t, style: const TextStyle(fontFamily: 'Cairo')),
+      onTap: tap,
+      tileColor: TTColors.cardBg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    );
+  }
+
+  Widget _payOptionWithLeading(String t, Widget leading, VoidCallback tap) {
+    return ListTile(
+      leading: leading,
+      title: Text(t, style: const TextStyle(fontFamily: 'Cairo')),
+      onTap: tap,
+      tileColor: TTColors.cardBg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    );
+  }
+
+  String _normalizeWhatsappDigits(String value) {
+    if (value.isEmpty) return '';
+    final normalized = StringBuffer();
+    for (final rune in value.runes) {
+      if (rune >= 0x0660 && rune <= 0x0669) {
+        normalized.writeCharCode(0x30 + (rune - 0x0660));
+        continue;
+      }
+      if (rune >= 0x06F0 && rune <= 0x06F9) {
+        normalized.writeCharCode(0x30 + (rune - 0x06F0));
+        continue;
+      }
+      normalized.writeCharCode(rune);
+    }
+    return normalized.toString().replaceAll(RegExp(r'[^0-9]'), '').trim();
+  }
+
+  Uri? _supportWhatsappUri() {
+    final raw = RemoteConfigService.instance.adminWhatsapp.trim();
+    final digits = _normalizeWhatsappDigits(raw);
+    if (digits.isEmpty) return null;
+    final text = Uri.encodeComponent(
+      'مرحبًا، لدي طلب بقيمة أعلى من 30000 جنيه وأحتاج المساعدة في طريقة الدفع.',
+    );
+    return Uri.parse('https://wa.me/$digits?text=$text');
+  }
+
+  Future<void> _openSupportWhatsapp() async {
+    final uri = _supportWhatsappUri();
+    if (uri == null) {
+      _showCustomToast(
+        "رقم واتساب الدعم غير متاح حالياً",
+        color: Colors.orange,
+      );
+      return;
+    }
+    try {
+      final opened = await launchUrl(uri);
+      if (!opened) {
+        _showCustomToast("تعذر فتح واتساب حالياً", color: Colors.orange);
+      }
+    } catch (_) {
+      _showCustomToast("تعذر فتح واتساب حالياً", color: Colors.orange);
+    }
+  }
+
+  String _formatUsdtAmount(double amount) => amount.toStringAsFixed(2);
+
+  double? _computeOrderUsdtAmount({required int egpAmount}) {
+    if (egpAmount <= 0 || _usdtPrice <= 0) return null;
+    return egpAmount / _usdtPrice;
+  }
+
+  Map<String, dynamic> _buildOrderPayload({
+    required String method,
+    required String status,
+    String? receiptUrl,
+    String? receiptPath,
+    String? paymentTarget,
+    String? binanceId,
+    String? usdtAmount,
+    double? usdtPrice,
+    int? priceOverride,
+    int pointsDiscount = 0,
+    int pointsPaid = 0,
+  }) {
+    final totalPriceValue = _priceValue ?? 0;
+    final payablePrice = (priceOverride ?? totalPriceValue).clamp(0, 100000000);
+    final tiktokHandle = _tiktokCtrl.text.trim();
+    final data = <String, dynamic>{
+      'name': _nameCtrl.text,
+      'user_whatsapp': widget.whatsapp,
+      'user_tiktok': tiktokHandle,
+      'price': payablePrice.toString(),
+      'original_price': totalPriceValue.toString(),
+      'method': method,
+      'wallet_number': paymentTarget ?? _walletNumber,
+      if (binanceId != null && binanceId.trim().isNotEmpty)
+        'binance_id': binanceId.trim(),
+      if (usdtAmount != null && usdtAmount.trim().isNotEmpty)
+        'usdt_amount': usdtAmount.trim(),
+      if (usdtPrice != null && usdtPrice > 0) 'usdt_price': usdtPrice,
+      if (pointsDiscount > 0) 'points_discount': pointsDiscount,
+      if (pointsPaid > 0) 'points_paid': pointsPaid,
+      if (pointsDiscount > 0 || pointsPaid > 0)
+        'points_used_total': pointsDiscount + pointsPaid,
+      'status': status,
+      'receipt_url': receiptUrl,
+      'receipt_path': receiptPath,
+      if (receiptUrl != null)
+        'receipt_expires_at': Timestamp.fromDate(
+          DateTime.now().add(const Duration(minutes: 30)),
+        ),
+      'created_at': FieldValue.serverTimestamp(),
+    };
+
+    if (_isBalanceTopupOrder) {
+      data['product_type'] = 'balance_topup';
+      data['balance_points_requested'] = totalPriceValue;
+      data['points'] = totalPriceValue.toString();
+      data['topup_optional'] = true;
+    } else if (_isGameOrder && _selectedPackage != null) {
+      data['product_type'] = 'game';
+      data['game'] = _selectedPackage!.game;
+      data['package_label'] = _selectedPackage!.label;
+      data['package_quantity'] = _selectedPackage!.quantity;
+      data['game_id'] = _selectedGameId ?? '';
+    } else if (_isPromoOrder) {
+      data['product_type'] = 'tiktok_promo';
+      data['video_link'] = _promoLink;
+    } else {
+      data['product_type'] = 'tiktok';
+      data['points'] = _pointsValue?.toString() ?? '';
+      data['tiktok_charge_mode'] = _tiktokChargeMode;
+      final password = (_tiktokPasswordForOrder ?? '').trim();
+      if (_tiktokChargeMode == _tiktokChargeModeUserPass &&
+          password.isNotEmpty) {
+        data['tiktok_password'] = password;
+      }
+    }
+
+    return data;
+  }
+
+  // EN: Processes Wallet Order.
+  // AR: تعالج Wallet Order.
+  Future<void> _processWalletOrder({
+    required int payableAmount,
+    int pointsDiscount = 0,
+  }) async {
+    Navigator.pop(context);
+
+    if (!await _checkCancelLimit()) return;
+    if (payableAmount > _walletTransferLimitEg) {
+      final supportWhatsapp = _normalizeWhatsappDigits(
+        RemoteConfigService.instance.adminWhatsapp.trim(),
+      );
+      final baseMessage =
+          "للطلبات الأعلى من $_walletTransferLimitEg جنيه استخدم InstaPay أو Binance فقط";
+      _showCustomToast(
+        supportWhatsapp.isNotEmpty
+            ? "$baseMessage أو تواصل معنا عبر واتساب: $supportWhatsapp"
+            : baseMessage,
+        color: Colors.orange,
+      );
+      return;
+    }
+    if (payableAmount <= 0) {
+      _showCustomToast(
+        "لا يوجد مبلغ مطلوب دفعه. اختر الدفع من رصيد النقاط.",
+        color: Colors.orange,
+      );
+      return;
+    }
+
+    bool proceed = false;
+
+    await _showBlurDialog<void>(
+      barrierLabel: 'wallet-order-dialog',
+      builder: (ctx) => AlertDialog(
+        backgroundColor: TTColors.cardBg,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.info, color: Colors.orange, size: 50),
+
+            const SizedBox(height: 10),
+
+            Text(
+              "المبلغ المطلوب دفعه الآن: $payableAmount جنيه",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: TTColors.goldAccent,
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              "سيظهر رقم المحفظة في 'طلباتي' بعد إنشاء الطلب.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              proceed = false;
+            },
+            child: const Text("إلغاء"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              proceed = true;
+            },
+            child: const Text("متابعة"),
+          ),
+        ],
+      ),
+    );
+
+    if (!proceed) return;
+    if (!mounted) return;
+    final created = await _createOrderWithOptionalPoints(
+      payload: _buildOrderPayload(
+        method: "Wallet",
+        status: 'pending_payment',
+        priceOverride: payableAmount,
+        pointsDiscount: pointsDiscount,
+      ),
+      pointsToDeduct: pointsDiscount,
+    );
+    if (!created || !mounted) return;
+
+    Navigator.pushNamed(context, '/orders', arguments: widget.whatsapp);
+    _resetCheckoutMeta();
+  }
+
+  Future<void> _processBinancePay({
+    required int payableAmount,
+    int pointsDiscount = 0,
+  }) async {
+    Navigator.pop(context);
+
+    if (!await _checkCancelLimit()) return;
+    if (payableAmount <= 0) {
+      _showCustomToast(
+        "لا يوجد مبلغ مطلوب دفعه. اختر الدفع من رصيد النقاط.",
+        color: Colors.orange,
+      );
+      return;
+    }
+
+    final String binanceId = _binanceId.trim();
+    if (binanceId.isEmpty) {
+      _showCustomToast("Binance ID غير متاح حالياً", color: Colors.orange);
+      return;
+    }
+
+    final usdtAmount = _computeOrderUsdtAmount(egpAmount: payableAmount);
+    if (usdtAmount == null) {
+      _showCustomToast("سعر USDT غير متاح حالياً", color: Colors.orange);
+      return;
+    }
+    final usdtAmountText = _formatUsdtAmount(usdtAmount);
+
+    bool proceed = false;
+
+    await _showBlurDialog<void>(
+      barrierLabel: 'binance-order-dialog',
+      builder: (ctx) => AlertDialog(
+        backgroundColor: TTColors.cardBg,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.currency_bitcoin,
+              color: Color(0xFFF3BA2F),
+              size: 50,
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              "المبلغ المطلوب: $usdtAmountText USDT",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              "المعادِل بالجنيه: $payableAmount",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: TTColors.goldAccent, fontFamily: 'Cairo'),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              "سيظهر Binance Pay ID في 'طلباتي'.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              proceed = false;
+            },
+            child: const Text("إلغاء"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              proceed = true;
+            },
+            child: const Text("متابعة"),
+          ),
+        ],
+      ),
+    );
+
+    if (!proceed) return;
+    if (!mounted) return;
+    final created = await _createOrderWithOptionalPoints(
+      payload: _buildOrderPayload(
+        method: "Binance Pay",
+        status: 'pending_payment',
+        paymentTarget: binanceId,
+        binanceId: binanceId,
+        usdtAmount: usdtAmountText,
+        usdtPrice: _usdtPrice,
+        priceOverride: payableAmount,
+        pointsDiscount: pointsDiscount,
+      ),
+      pointsToDeduct: pointsDiscount,
+    );
+    if (!created || !mounted) return;
+
+    Navigator.pushNamed(context, '/orders', arguments: widget.whatsapp);
+    _resetCheckoutMeta();
+  }
+
+  // EN: Processes Insta Pay.
+  // AR: تعالج Insta Pay.
+  Future<void> _processInstaPay({
+    required int payableAmount,
+    int pointsDiscount = 0,
+  }) async {
+    Navigator.pop(context);
+
+    if (!await _checkCancelLimit()) return;
+    if (payableAmount <= 0) {
+      _showCustomToast(
+        "لا يوجد مبلغ مطلوب دفعه. اختر الدفع من رصيد النقاط.",
+        color: Colors.orange,
+      );
+      return;
+    }
+
+    bool proceed = false;
+
+    final instapayLink = ensureHttps(_instapayLink);
+
+    await _showBlurDialog<void>(
+      barrierLabel: 'instapay-order-dialog',
+      builder: (ctx) => AlertDialog(
+        backgroundColor: TTColors.cardBg,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "حول المبلغ عبر الرابط:",
+              style: TextStyle(color: TTColors.textWhite),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              "المبلغ المطلوب: $payableAmount جنيه",
+              style: TextStyle(
+                color: TTColors.goldAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            SelectableText(
+              instapayLink,
+              style: const TextStyle(color: Colors.purpleAccent),
+            ),
+
+            const SizedBox(height: 10),
+
+            ElevatedButton(
+              onPressed: () => launchUrl(Uri.parse(instapayLink)),
+              child: const Text("فتح التطبيق"),
+            ),
+
+            const SizedBox(height: 15),
+
+            Text(
+              "ثم اضغط متابعة لرفع الإيصال",
+              style: TextStyle(color: TTColors.textGray),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              proceed = false;
+            },
+            child: const Text("إلغاء"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              proceed = true;
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+            child: const Text("متابعة ورفع"),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    if (!proceed) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp', 'heic'],
+      withData: true,
+      dialogTitle: 'اختر صورة من الملفات',
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final pickedFile = result.files.first;
+    Uint8List? bytes = pickedFile.bytes;
+
+    if (bytes == null && !kIsWeb) {
+      final String? path = pickedFile.path;
+      if (path != null) {
+        if (path.startsWith('content://')) {
+          bytes = await _readFileBytesFromContentUri(path);
+        } else {
+          try {
+            bytes = await File(path).readAsBytes();
+          } catch (e) {
+            debugPrint('File read error: $e');
+            bytes = null;
+          }
+        }
+      }
+    }
+
+    if (bytes == null) {
+      _showCustomToast(
+        "تعذر قراءة الصورة، جرّب صورة أخرى أو استخدم 'مستعرض الملفات'",
+        color: Colors.red,
+      );
+      return;
+    }
+
+    final Uint8List imageBytes = bytes;
+
+    if (!mounted) return;
+
+    bool confirm = false;
+
+    await _showBlurDialog<void>(
+      barrierLabel: 'instapay-receipt-confirm-dialog',
+      builder: (ctx) => AlertDialog(
+        backgroundColor: TTColors.cardBg,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.memory(imageBytes, height: 200, fit: BoxFit.cover),
+
+            const SizedBox(height: 10),
+
+            Text("إرسال الصورة؟", style: TextStyle(color: TTColors.textWhite)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("لا"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              confirm = true;
+            },
+            child: const Text("نعم"),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    if (!confirm) return;
+
+    _showCustomToast("جاري الرفع...", duration: null);
+    try {
+      final orderRef = FirebaseFirestore.instance.collection('orders').doc();
+      final uploadRes = await ReceiptStorageService.uploadWithPath(
+        bytes: imageBytes,
+        whatsapp: widget.whatsapp,
+        orderId: orderRef.id,
+      );
+
+      if (!mounted) {
+        TopSnackBar.dismiss();
+        return;
+      }
+
+      if (uploadRes != null) {
+        final created = await _createOrderWithOptionalPoints(
+          payload: _buildOrderPayload(
+            method: "InstaPay",
+            status: 'pending_review',
+            receiptUrl: uploadRes.url,
+            receiptPath: uploadRes.path,
+            priceOverride: payableAmount,
+            pointsDiscount: pointsDiscount,
+          ),
+          pointsToDeduct: pointsDiscount,
+          orderId: orderRef.id,
+        );
+        if (!created) {
+          await ReceiptStorageService.deleteByPath(uploadRes.path);
+          return;
+        }
+
+        final deliveredToAdmin = await _verifyReceiptAvailableForAdmin(
+          orderId: orderRef.id,
+          receiptPath: uploadRes.path,
+        );
+        if (!mounted) {
+          TopSnackBar.dismiss();
+          return;
+        }
+        _showCustomToast(
+          deliveredToAdmin
+              ? "تم الرفع بنجاح ✅"
+              : "تم الرفع بنجاح ✅ وجارٍ المزامنة لدى الأدمن",
+          color: deliveredToAdmin ? Colors.green : Colors.orange,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        if (!mounted) return;
+        Navigator.pushNamed(context, '/orders', arguments: widget.whatsapp);
+        _resetCheckoutMeta();
+      } else {
+        _showCustomToast("فشل الرفع", color: Colors.red);
+      }
+    } catch (e) {
+      TopSnackBar.dismiss();
+      if (mounted) {
+        _showCustomToast("حدث خطأ أثناء الرفع", color: Colors.red);
+      }
+      debugPrint('instapay receipt upload failed: $e');
+    }
+  }
+
+  Future<void> _processPointsPayment({required int totalAmount}) async {
+    Navigator.pop(context);
+
+    if (!await _checkCancelLimit()) return;
+    if (totalAmount <= 0) return;
+    if (_isBalanceTopupOrder) {
+      _showCustomToast(
+        "لا يمكن شحن الرصيد باستخدام نفس الرصيد",
+        color: Colors.orange,
+      );
+      return;
+    }
+
+    await _refreshBalancePoints(forceServer: true);
+    if (_balancePoints < totalAmount) {
+      _showCustomToast(
+        "رصيدك غير كافٍ للدفع الكامل بالنقاط",
+        color: Colors.orange,
+      );
+      return;
+    }
+
+    final created = await _createOrderWithOptionalPoints(
+      payload: _buildOrderPayload(
+        method: "Points",
+        status: 'processing',
+        priceOverride: 0,
+        pointsPaid: totalAmount,
+      ),
+      pointsToDeduct: totalAmount,
+    );
+    if (!created || !mounted) return;
+
+    _showCustomToast(
+      "تم إنشاء الطلب والدفع من رصيد النقاط ✅",
+      color: Colors.green,
+    );
+    Navigator.pushNamed(context, '/orders', arguments: widget.whatsapp);
+    _resetCheckoutMeta();
+  }
+
+  // ترويج فيديو تيك توك
+  Future<void> _openPromoDialog() async {
+    if (!await _checkCancelLimit()) return;
+
+    final linkCtrl = TextEditingController();
+    final amountCtrl = TextEditingController();
+    bool proceed = false;
+
+    await _showBlurDialog<void>(
+      barrierLabel: 'promo-order-dialog',
+      builder: (ctx) => AlertDialog(
+        backgroundColor: TTColors.cardBg,
+        title: const Text("ترويج فيديو تيك توك"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: linkCtrl,
+              decoration: const InputDecoration(
+                labelText: "رابط الفيديو",
+                hintText: "https://www.tiktok.com/...",
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: amountCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: "المبلغ بالجنيه",
+                hintText: "100 - 60000",
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("إلغاء"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+          ElevatedButton(
+            onPressed: () {
+              proceed = true;
+              Navigator.pop(ctx);
+            },
+            child: const Text("إنشاء طلب"),
+          ),
+        ],
+      ),
+    );
+
+    if (!proceed) return;
+
+    final link = linkCtrl.text.trim();
+    final amount = int.tryParse(amountCtrl.text.trim()) ?? 0;
+
+    bool isTiktokLink(String url) {
+      final uri = Uri.tryParse(url);
+      if (uri == null || !uri.hasAuthority) return false;
+      final h = uri.host.toLowerCase();
+      return h.contains('tiktok.com');
+    }
+
+    if (link.isEmpty || !isTiktokLink(link) || amount < 100 || amount > 60000) {
+      TopSnackBar.show(
+        context,
+        "أدخل رابط تيك توك صالح ومبلغ بين 100 و 60000 جنيه",
+        backgroundColor: Colors.orange,
+        textColor: Colors.black,
+        icon: Icons.warning_amber_rounded,
+      );
+      return;
+    }
+
+    setState(() {
+      _isBalanceTopupOrder = false;
+      _promoLink = link;
+      _priceValue = amount;
+      _pointsValue = null;
+      _isInputValid = true;
+      _selectedPackage = null;
+      _selectedGameId = null;
+    });
+
+    _startCheckoutFlow();
+  }
+
+  Future<void> _openBalanceTopupDialog() async {
+    if (!await _checkCancelLimit()) return;
+
+    final amountCtrl = TextEditingController();
+    bool proceed = false;
+
+    await _showBlurDialog<void>(
+      barrierLabel: 'balance-topup-dialog',
+      builder: (ctx) => AlertDialog(
+        backgroundColor: TTColors.cardBg,
+        title: const Text("شحن الرصيد"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "كل 1 نقطة = 1 جنيه",
+              style: TextStyle(
+                color: TTColors.goldAccent,
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "شحن النقاط اختياري وليس إجباريًا.",
+              style: TextStyle(color: TTColors.textGray, fontFamily: 'Cairo'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: amountCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: "قيمة الشحن بالجنيه",
+                hintText: "من 200 إلى 60000",
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("إلغاء"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+          ElevatedButton(
+            onPressed: () {
+              proceed = true;
+              Navigator.pop(ctx);
+            },
+            child: const Text("متابعة"),
+          ),
+        ],
+      ),
+    );
+
+    if (!proceed) return;
+
+    final amount = int.tryParse(amountCtrl.text.trim()) ?? 0;
+    if (amount < 200 || amount > 60000) {
+      _showCustomToast(
+        "قيمة شحن الرصيد يجب أن تكون بين 200 و 60000 جنيه",
+        color: Colors.orange,
+      );
+      return;
+    }
+
+    setState(() {
+      _isBalanceTopupOrder = true;
+      _selectedPackage = null;
+      _selectedGameId = null;
+      _promoLink = null;
+      _pointsValue = amount;
+      _priceValue = amount;
+      _isInputValid = true;
+      _resultText = "شحن الرصيد: $amount نقطة";
+    });
+
+    _openPaymentDialogSafely();
+  }
+
+  Future<bool> _checkCancelLimit() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final uid = (prefs.getString('user_uid') ?? '').trim();
+      final decision = await CancelLimitService.checkCanCreateOrder(
+        whatsapp: widget.whatsapp,
+        uid: uid.isEmpty ? null : uid,
+      );
+
+      if (!decision.allowed) {
+        _showCustomToast(
+          "تم إلغاء ${decision.cancellationsInLast24Hours} طلبات خلال آخر 24 ساعة. الرجاء الانتظار 24 ساعة قبل إنشاء طلب جديد.",
+          color: Colors.orange,
+        );
+        return false;
+      }
+    } catch (e) {
+      debugPrint("cancel limit check failed: $e");
+      // السماح بالمتابعة حتى لا نحظر المستخدم بسبب فهرس/شبكة
+      return true;
+    }
+
+    return true;
+  }
+
+  String _normalizeSocialHandle(String value) {
+    var out = value.trim();
+    if (out.isEmpty) return '';
+    if (out.startsWith('http://') || out.startsWith('https://')) {
+      final uri = Uri.tryParse(out);
+      if (uri != null && uri.pathSegments.isNotEmpty) {
+        out = uri.pathSegments.last;
+      }
+    }
+    out = out.replaceFirst(RegExp(r'^@+'), '').trim();
+    return out;
+  }
+
+  Uri? _socialUri(String platform, String handle) {
+    final user = _normalizeSocialHandle(handle);
+    if (user.isEmpty) return null;
+    switch (platform) {
+      case 'facebook':
+        return Uri.parse('https://facebook.com/$user');
+      case 'instagram':
+        return Uri.parse('https://instagram.com/$user');
+      case 'tiktok':
+        return Uri.parse('https://www.tiktok.com/@$user');
+      case 'telegram':
+        return Uri.parse('https://t.me/$user');
+      default:
+        return null;
+    }
+  }
+
+  Uri _githubUri(String username, String repo) {
+    final normalizedUser = _normalizeSocialHandle(username);
+    final normalizedRepo = _normalizeSocialHandle(repo);
+    final user = normalizedUser.isEmpty ? GITHUB_USER : normalizedUser;
+    final repoName = normalizedRepo.isEmpty ? GITHUB_REPO : normalizedRepo;
+    return Uri.parse('https://github.com/$user/$repoName');
+  }
+
+  List<_SocialPlatformLink> _socialLinks() {
+    final rc = RemoteConfigService.instance;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final githubUsername = rc.socialGithubUsername.isEmpty
+        ? GITHUB_USER
+        : rc.socialGithubUsername;
+    final githubRepo = rc.socialGithubRepo.isEmpty
+        ? GITHUB_REPO
+        : rc.socialGithubRepo;
+
+    final links = <_SocialPlatformLink>[
+      _SocialPlatformLink(
+        label: 'Facebook',
+        icon: FontAwesomeIcons.facebookF,
+        uri: _socialUri('facebook', rc.socialFacebookUrl),
+        color: const Color(0xFF1877F2),
+      ),
+      _SocialPlatformLink(
+        label: 'Instagram',
+        icon: FontAwesomeIcons.instagram,
+        uri: _socialUri('instagram', rc.socialInstagramUrl),
+        color: const Color(0xFFE1306C),
+      ),
+      _SocialPlatformLink(
+        label: 'TikTok',
+        icon: FontAwesomeIcons.tiktok,
+        uri: _socialUri('tiktok', rc.socialTiktokUrl),
+        color: const Color(0xFF00C7B7),
+      ),
+      _SocialPlatformLink(
+        label: 'Telegram',
+        icon: FontAwesomeIcons.telegram,
+        uri: _socialUri('telegram', rc.socialTelegramUrl),
+        color: const Color(0xFF229ED9),
+      ),
+      _SocialPlatformLink(
+        label: 'GitHub',
+        icon: FontAwesomeIcons.github,
+        uri: _githubUri(githubUsername, githubRepo),
+        color: isDark ? const Color(0xFFE6EDF3) : const Color(0xFF24292F),
+      ),
+    ];
+
+    return links.where((item) => item.uri != null).toList(growable: false);
+  }
+
+  Future<void> _openSocialLink(Uri uri) async {
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      _showCustomToast("تعذر فتح الرابط", color: Colors.orange);
+    }
+  }
+
+  Widget _buildLargeWebSocialDock(List<_SocialPlatformLink> links) {
+    final brightness = Theme.of(context).brightness;
+    final bool isDark = brightness == Brightness.dark;
+    final cardTint = TTColors.cardBgFor(
+      brightness,
+    ).withValues(alpha: isDark ? 0.92 : 0.88);
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 620),
+      child: GlassCard(
+        margin: EdgeInsets.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        tint: cardTint,
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 10,
+          children: links.map((item) {
+            final bool needsHighContrast =
+                isDark && item.color.computeLuminance() > 0.8;
+            final Color chipBackground = needsHighContrast
+                ? Colors.white.withAlpha(28)
+                : item.color.withAlpha(30);
+            final Color chipBorder = needsHighContrast
+                ? Colors.white.withAlpha(128)
+                : item.color.withAlpha(90);
+            return Tooltip(
+              message: item.label,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _openSocialLink(item.uri!),
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: chipBackground,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: chipBorder, width: 1),
+                    ),
+                    alignment: Alignment.center,
+                    child: FaIcon(item.icon, size: 18, color: item.color),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  // EN: Builds widget UI.
+  // AR: تبني واجهة الودجت.
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bool isLargeWeb = kIsWeb && screenWidth >= 1180;
+    final appBarHeight = kToolbarHeight;
+
+    const double webMaxWidth = 540;
+    const double mobileMaxWidth = 540;
+    final bool showCompactMenu =
+        !widget.forceTikTokCharge && !widget.showGamesOnly;
+    final bool showBackButton = !showCompactMenu;
+    final bool showLogout = showCompactMenu;
+    final String compactTitle = showCompactMenu
+        ? "رصيدك $_balancePoints 🪙"
+        : widget.showGamesOnly
+        ? "شحن ألعاب"
+        : (widget.forceTikTokCharge ? "شحن عملات تيك توك" : AppInfo.appName);
+    final socialLinks = _socialLinks();
+    final bool showWebSocialDock = kIsWeb && socialLinks.isNotEmpty;
+    final double webContentBottomPadding = showWebSocialDock ? 104 : 24;
+
+    return Scaffold(
+      key: _scaffoldKey,
+
+      endDrawer: null,
+
+      appBar: _buildCompactAppBar(
+        showBack: showBackButton,
+        showLogout: showLogout,
+        title: compactTitle,
+      ),
+      body: Stack(
+        children: [
+          const SnowBackground(),
+
+          if (showCompactMenu)
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final double minHeight = constraints.maxHeight - appBarHeight;
+                final menuBody = ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 540),
+                  child: _buildCompactMenuBody(),
+                );
+
+                if (isLargeWeb) {
+                  return SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      24,
+                      16,
+                      webContentBottomPadding,
+                    ),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: minHeight > 0 ? minHeight : 0,
+                      ),
+                      child: Align(
+                        alignment: Alignment.center,
+                        child: menuBody,
+                      ),
+                    ),
+                  );
+                }
+
+                return Center(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      12,
+                      16,
+                      kIsWeb ? webContentBottomPadding : 24,
+                    ),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: 540,
+                        minHeight: minHeight > 0 ? minHeight : 0,
+                      ),
+                      child: Center(child: menuBody),
+                    ),
+                  ),
+                );
+              },
+            )
+          else if (widget.showGamesOnly)
+            SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                isLargeWeb ? 20 : 0,
+                20,
+                kIsWeb ? webContentBottomPadding : 0,
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: isLargeWeb ? webMaxWidth : mobileMaxWidth,
+                  ),
+                  child: GlassCard(
+                    margin: EdgeInsets.zero,
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(height: 8),
+                        const Text(
+                          "اختر اللعبة والباقه",
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildGamePackagesList(),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            )
+          else
+            SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                isLargeWeb ? 20 : 0,
+                20,
+                kIsWeb ? webContentBottomPadding : 0,
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight:
+                      MediaQuery.of(context).size.height -
+                      appBarHeight -
+                      (kIsWeb ? (20 + webContentBottomPadding) : 0),
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: isLargeWeb ? webMaxWidth : mobileMaxWidth,
+                    ),
+                    child: GlassCard(
+                      margin: EdgeInsets.zero,
+                      padding: const EdgeInsets.all(26),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(height: 20),
+                          Text(
+                            AppInfo.appName,
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: TTColors.textWhite,
+                              fontFamily: 'Cairo',
+                            ),
+                          ),
+
+                          const SizedBox(height: 30),
+
+                          TextField(
+                            controller: _tiktokCtrl,
+                            decoration: const InputDecoration(
+                              labelText: "يوزر تيك توك",
+                            ),
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          TextField(
+                            controller: _inputCtrl,
+                            onChanged: _recompute,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            decoration: InputDecoration(
+                              labelText: _isPointsMode
+                                  ? "ادخل عدد النقاط المطلوب"
+                                  : "ادخل المبلغ الذي معك",
+                            ),
+                          ),
+
+                          const SizedBox(height: 15),
+                          if (_resultText.isNotEmpty)
+                            Text(
+                              _resultText,
+                              style: TextStyle(
+                                color: _isInputValid
+                                    ? TTColors.textWhite
+                                    : Colors.red,
+                                fontSize: 18,
+                                fontFamily: 'Cairo',
+                              ),
+                            ),
+                          // إظهار خانة كود الخصم دائماً عندما يكون العرض مفعّلاً
+                          if (widget.showRamadanPromo)
+                            GlassCard(
+                              margin: const EdgeInsets.symmetric(vertical: 10),
+                              padding: const EdgeInsets.all(14),
+                              borderColor: TTColors.goldAccent.withAlpha(160),
+                              child: Column(
+                                children: [
+                                  const Text(
+                                    "✨ عروض رمضان الذهبية ✨",
+                                    style: TextStyle(
+                                      color: TTColors.goldAccent,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  ),
+                                  if (!_isDiscountActive) ...[
+                                    const SizedBox(height: 10),
+
+                                    TextField(
+                                      controller: _promoCtrl,
+                                      decoration: const InputDecoration(
+                                        labelText: "الكود الذهبي",
+                                        prefixIcon: Icon(
+                                          Icons.vpn_key,
+                                          color: Color(0xFFFFD700),
+                                        ),
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 10),
+
+                                    ElevatedButton(
+                                      onPressed: _activatePromo,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xFFFFD700,
+                                        ),
+                                        foregroundColor: Colors.black,
+                                      ),
+                                      child: const Text("تفعيل"),
+                                    ),
+
+                                    const SizedBox(height: 10),
+
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        onPressed: _requestRamadanCode,
+                                        icon: const Icon(Icons.card_giftcard),
+                                        label: const Text(
+                                          "اضغط لطلب كود رمضان الخاص بك",
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: const Color(
+                                            0xFFFFD700,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ] else
+                                    const Text(
+                                      "✅ تم التفعيل!",
+                                      style: TextStyle(
+                                        color: Color(0xFFFFD700),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+
+                          const SizedBox(height: 20),
+                          TextButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _isPointsMode = !_isPointsMode;
+                                _inputCtrl.clear();
+                                _resultText = "";
+                              });
+                            },
+                            icon: const Icon(Icons.swap_vert),
+                            label: const Text("تبديل النمط"),
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          const SizedBox(height: 14),
+
+                          ElevatedButton(
+                            onPressed: _isInputValid
+                                ? _startCheckoutFlow
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Theme.of(
+                                context,
+                              ).colorScheme.primary,
+                              foregroundColor: Theme.of(
+                                context,
+                              ).colorScheme.onPrimary,
+                              minimumSize: const Size(double.infinity, 50),
+                            ),
+                            child: const Text(
+                              "طلب الشحن",
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontFamily: 'Cairo',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (showWebSocialDock)
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                child: _buildLargeWebSocialDock(socialLinks),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildCompactAppBar({
+    required bool showBack,
+    required bool showLogout,
+    required String title,
+  }) {
+    return GlassAppBar(
+      title: LayoutBuilder(
+        builder: (context, constraints) => FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            title,
+            maxLines: 1,
+            softWrap: false,
+            style: const TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+      centerTitle: true,
+      automaticallyImplyLeading: false,
+      leading: showBack
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () {
+                if (Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                }
+              },
+            )
+          : IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: "خروج",
+              onPressed: () async {
+                await NotificationService.removeUserNotifications(
+                  widget.whatsapp,
+                );
+                await NotificationService.disposeListeners();
+                final p = await SharedPreferences.getInstance();
+                await p.clear();
+                if (!context.mounted) return;
+                Navigator.pushNamedAndRemoveUntil(
+                  context,
+                  '/login',
+                  (route) => false,
+                );
+              },
+            ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.person),
+          tooltip: "حسابي / تعديل البيانات",
+          onPressed: () => Navigator.pushNamed(context, '/account'),
+        ),
+        IconButton(
+          icon: Icon(
+            Theme.of(context).brightness == Brightness.dark
+                ? Icons.wb_sunny_rounded
+                : Icons.nightlight_round,
+          ),
+          tooltip: "وضع التطبيق",
+          onPressed: () async {
+            await showThemeModeSheet(context);
+          },
+        ),
+        if (!kIsWeb)
+          IconButton(
+            icon: const Icon(Icons.info_outline_rounded),
+            tooltip: "حول التطبيق",
+            onPressed: () => Navigator.pushNamed(context, '/about'),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _openOrders() async {
+    var whatsapp = widget.whatsapp.trim();
+    final prefs = await SharedPreferences.getInstance();
+    whatsapp = whatsapp.isNotEmpty
+        ? whatsapp
+        : (prefs.getString('user_whatsapp') ?? '').trim();
+
+    if (whatsapp.isEmpty) {
+      _showCustomToast("أكمل بياناتك أولاً", color: Colors.orange);
+      if (!mounted) return;
+      Navigator.pushNamed(context, '/');
+      return;
+    }
+
+    if (!mounted) return;
+    Navigator.pushNamed(context, '/orders', arguments: whatsapp);
+  }
+
+  Widget _buildMenuTile({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: TTColors.primaryCyan),
+      title: Text(title, style: const TextStyle(fontFamily: 'Cairo')),
+      onTap: onTap,
+    );
+  }
+
+  Widget _buildCompactMenuBody() {
+    final brightness = Theme.of(context).brightness;
+    final bool isDark = brightness == Brightness.dark;
+    final Color cardTint = TTColors.cardBgFor(
+      brightness,
+    ).withValues(alpha: isDark ? 0.9 : 0.85);
+    final Color accent = isDark
+        ? const Color(0xFF5FE0C9)
+        : const Color(0xFF52D6C2);
+
+    final items = [
+      _MenuItem(
+        title: "طلباتي",
+        icon: Icons.history,
+        onTap: () {
+          _openOrders();
+        },
+      ),
+      _MenuItem(
+        title: "شحن الرصيد",
+        subtitle: "اختياري - كل 1 نقطة = 1 جنيه",
+        icon: Icons.savings,
+        onTap: _openBalanceTopupDialog,
+      ),
+      _MenuItem(
+        title: "شحن عملات تيك توك",
+        icon: Icons.monetization_on,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => HomeScreen(
+                name: widget.name,
+                whatsapp: widget.whatsapp,
+                tiktok: widget.tiktok,
+                forceTikTokCharge: true,
+                showRamadanPromo: true,
+              ),
+            ),
+          );
+        },
+      ),
+      _MenuItem(
+        title: "ترويج فيديو تيك توك",
+        icon: Icons.campaign,
+        onTap: _openPromoDialog,
+      ),
+      if (_isRamadanMode)
+        _MenuItem(
+          title: "أكواد خصم رمضان",
+          icon: Icons.card_giftcard,
+          onTap: () {
+            Navigator.pushNamed(
+              context,
+              '/code_requests',
+              arguments: widget.whatsapp,
+            );
+          },
+        ),
+      _MenuItem(
+        title: "شحن ألعاب",
+        icon: Icons.sports_esports,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => HomeScreen(
+                name: widget.name,
+                whatsapp: widget.whatsapp,
+                tiktok: widget.tiktok,
+                showGamesOnly: true,
+              ),
+            ),
+          );
+        },
+      ),
+      _MenuItem(
+        title: "سياسة الخصوصية",
+        icon: Icons.privacy_tip,
+        onTap: () {
+          Navigator.pushNamed(context, '/privacy');
+        },
+      ),
+      if (!kIsWeb)
+        _MenuItem(
+          title: "تحديث التطبيق",
+          icon: Icons.system_update,
+          onTap: () => UpdateManager.check(context, manual: true),
+        ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ...items.map(
+          (item) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: GlassCard(
+              margin: EdgeInsets.zero,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              tint: cardTint,
+              child: ListTile(
+                leading: CircleAvatar(
+                  radius: 20,
+                  backgroundColor: accent.withValues(alpha: 0.18),
+                  child: Icon(item.icon, color: accent, size: 20),
+                ),
+                title: Text(
+                  item.title,
+                  style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: item.subtitle == null
+                    ? null
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          item.subtitle!,
+                          style: TextStyle(
+                            color: TTColors.textGray,
+                            fontFamily: 'Cairo',
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                onTap: item.onTap,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // EN: Builds Web Nav Bar.
+  // AR: تبني Web Nav Bar.
+  PreferredSizeWidget _buildWebNavBar() {
+    return GlassAppBar(
+      height: 80,
+      centerTitle: false,
+      titleSpacing: 24,
+      title: Text(
+        AppInfo.appName,
+        style: TextStyle(
+          color: TTColors.textWhite,
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 16),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _webBtn("طلباتي", () => _openOrders()),
+              _webBtn("شحن الرصيد", _openBalanceTopupDialog),
+              _webBtn(
+                "شحن عملات تيك توك",
+                () => Navigator.pushNamed(context, '/'),
+              ),
+              _webBtn("ترويج فيديو تيك توك", _openPromoDialog),
+              _webBtn("شحن ألعاب", _showOtherPackagesSheet),
+              _webBtn(
+                "سياسة الخصوصية",
+                () => Navigator.pushNamed(context, '/privacy'),
+              ),
+              _webBtn("حسابي", () => Navigator.pushNamed(context, '/account')),
+              if (_isRamadanMode)
+                _webBtn(
+                  "أكواد خصم رمضان",
+                  () => Navigator.pushNamed(
+                    context,
+                    '/code_requests',
+                    arguments: widget.whatsapp,
+                  ),
+                  color: TTColors.goldAccent,
+                ),
+              const SizedBox(width: 20),
+              PopupMenuButton<ThemeMode>(
+                tooltip: "وضع التطبيق",
+                icon: Icon(
+                  Theme.of(context).brightness == Brightness.dark
+                      ? Icons.wb_sunny_rounded
+                      : Icons.nightlight_round,
+                  color: TTColors.primaryCyan,
+                ),
+                onSelected: (mode) async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await ThemeService.setMode(mode, prefs);
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: ThemeMode.system,
+                    child: Text('تلقائي (حسب النظام)'),
+                  ),
+                  PopupMenuItem(value: ThemeMode.dark, child: Text('داكن')),
+                  PopupMenuItem(value: ThemeMode.light, child: Text('فاتح')),
+                ],
+              ),
+              const SizedBox(width: 10),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final navigator = Navigator.of(context);
+                  await NotificationService.removeUserNotifications(
+                    widget.whatsapp,
+                  );
+                  await NotificationService.disposeListeners();
+                  final p = await SharedPreferences.getInstance();
+                  await p.clear();
+                  if (!mounted) return;
+                  navigator.pushNamedAndRemoveUntil('/', (r) => false);
+                },
+                icon: const Icon(Icons.logout),
+                label: const Text("خروج"),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // EN: Handles web Btn.
+  // AR: تتعامل مع web Btn.
+  Widget _webBtn(String t, VoidCallback o, {Color? color}) {
+    final textColor = color ?? TTColors.textWhite;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: TextButton(
+        onPressed: o,
+        child: Text(
+          t,
+          style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
+}
+
+class _MenuItem {
+  final String title;
+  final String? subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _MenuItem({
+    required this.title,
+    this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+}
+
+class _SocialPlatformLink {
+  final String label;
+  final IconData icon;
+  final Uri? uri;
+  final Color color;
+
+  const _SocialPlatformLink({
+    required this.label,
+    required this.icon,
+    required this.uri,
+    required this.color,
+  });
+}

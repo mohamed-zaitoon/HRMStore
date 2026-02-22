@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 
 import '../../core/tt_colors.dart';
 import '../../utils/url_sanitizer.dart';
+import '../../widgets/snow_background.dart';
 
 const String GITHUB_USER = "mohamed-zaitoon";
 const String GITHUB_REPO = "HRMStore";
@@ -25,7 +26,6 @@ class AndroidLandingPage extends StatefulWidget {
 
 class _AndroidLandingPageState extends State<AndroidLandingPage> {
   bool _isLoading = true;
-  String _latestVersion = "";
   final List<_ApkAsset> _apkAssets = [];
 
   // EN: Initializes widget state.
@@ -61,7 +61,6 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
 
           if (apks.isNotEmpty) {
             _apkAssets.addAll(apks);
-            _latestVersion = release['tag_name'] ?? "";
             break;
           }
         }
@@ -78,102 +77,110 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: TTColors.background,
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(25),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.android, size: 80, color: TTColors.primaryCyan),
-
-              const SizedBox(height: 20),
-
-              Text(
-                "تحميل تطبيق الأندرويد",
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: TTColors.textWhite,
-                  fontFamily: 'Cairo',
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
-              Text(
-                "للحصول على أفضل تجربة، يرجى استخدام التطبيق الرسمي.",
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: TTColors.textGray,
-                  fontFamily: 'Cairo',
-                ),
-              ),
-
-              const SizedBox(height: 30),
-
-              if (_isLoading)
-                const CircularProgressIndicator(color: TTColors.primaryCyan)
-              else ...[
-                if (_latestVersion.isNotEmpty)
-                  Text(
-                    "الإصدار الأخير: $_latestVersion",
-                    style: TextStyle(color: TTColors.textWhite),
+      body: Stack(
+        children: [
+          const SnowBackground(),
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(25),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.android,
+                    size: 80,
+                    color: TTColors.primaryCyan,
                   ),
 
-                const SizedBox(height: 15),
+                  const SizedBox(height: 20),
 
-                if (_apkAssets.isNotEmpty)
-                  ..._apkAssets.map(
-                    (apk) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: ElevatedButton.icon(
-                        onPressed: () => launchUrl(
-                          Uri.parse(ensureHttps(apk.url)),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                        icon: Icon(Icons.download, color: TTColors.textWhite),
-                        label: Text(
-                          "تحميل نسخة: ${apk.displayName}",
-                          style: TextStyle(
-                            color: TTColors.textWhite,
-                            fontFamily: 'Cairo',
+                  Text(
+                    "تحميل تطبيق الأندرويد",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: TTColors.textWhite,
+                      fontFamily: 'Cairo',
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  Text(
+                    "للحصول على أفضل تجربة، يرجى استخدام التطبيق الرسمي.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: TTColors.textGray,
+                      fontFamily: 'Cairo',
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  if (_isLoading)
+                    const CircularProgressIndicator(color: TTColors.primaryCyan)
+                  else ...[
+                    if (_apkAssets.isNotEmpty)
+                      ..._apkAssets.map(
+                        (apk) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: ElevatedButton.icon(
+                            onPressed: () => launchUrl(
+                              Uri.parse(ensureHttps(apk.url)),
+                              mode: LaunchMode.externalApplication,
+                            ),
+                            icon: Icon(
+                              Icons.download,
+                              color: TTColors.textWhite,
+                            ),
+                            label: Text(
+                              "تحميل نسخة: ${apk.displayName}",
+                              style: TextStyle(
+                                color: TTColors.textWhite,
+                                fontFamily: 'Cairo',
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: TTColors.cardBg,
+                              side: const BorderSide(
+                                color: TTColors.primaryCyan,
+                              ),
+                              minimumSize: const Size(double.infinity, 55),
+                            ),
                           ),
                         ),
+                      )
+                    else
+                      ElevatedButton.icon(
+                        onPressed: () => launchUrl(
+                          Uri.parse(
+                            "https://github.com/$GITHUB_USER/$GITHUB_REPO/releases/latest",
+                          ),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                        icon: const Icon(Icons.public),
+                        label: const Text(
+                          "الذهاب لصفحة التحميل",
+                          style: TextStyle(fontFamily: 'Cairo'),
+                        ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: TTColors.cardBg,
-                          side: const BorderSide(color: TTColors.primaryCyan),
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.secondary,
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onSecondary,
                           minimumSize: const Size(double.infinity, 55),
                         ),
                       ),
-                    ),
-                  )
-                else
-                  ElevatedButton.icon(
-                    onPressed: () => launchUrl(
-                      Uri.parse(
-                        "https://github.com/$GITHUB_USER/$GITHUB_REPO/releases/latest",
-                      ),
-                      mode: LaunchMode.externalApplication,
-                    ),
-                    icon: const Icon(Icons.public),
-                    label: const Text(
-                      "الذهاب لصفحة التحميل",
-                      style: TextStyle(fontFamily: 'Cairo'),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.secondary,
-                      foregroundColor: Theme.of(
-                        context,
-                      ).colorScheme.onSecondary,
-                      minimumSize: const Size(double.infinity, 55),
-                    ),
-                  ),
-              ],
-            ],
+                  ],
+                ],
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

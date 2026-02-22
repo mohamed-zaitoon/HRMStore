@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Temporary bypass:
+#   ALLOW_INSECURE_PUSH=1 git push
+if [[ "${ALLOW_INSECURE_PUSH:-}" == "1" ]]; then
+  exit 0
+fi
+
+ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT_DIR"
+
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  exit 0
+fi
+
+mapfile -t TRACKED_FILES < <(git ls-files)
+if [[ "${#TRACKED_FILES[@]}" -eq 0 ]]; then
+  exit 0
+fi
+
+is_example_file() {
+  local path="$1"
+  [[ "$path" == *.example ]] || [[ "$path" == *.example.* ]]
+}
+
+print_list() {
+  local -a list=("$@")
+  for item in "${list[@]}"; do
+    echo "  - $item"
+  done
+}
+
+declare -a SENSITIVE_PATH_PATTERNS=(
+  '^\.env(\..+)?$'
+  '^.+/\.env(\..+)?$'
+  '^functions/\.env(\..+)?$'
+  '^android/local\.properties$'
+  '^android/key\.properties$'
+  '^android/app/key\.properties$'
+  '^android/app/google-services\.json$'
+  '^android/app/src/.+/google-services\.json$'
+  '^ios/Runner/GoogleService-Info\.plist$'
+  '^cloudflare/wrangler\.toml$'
+  '^cloudflare/\.dev\.vars(\..+)?$'
+  '^.+\.(pem|cer|key|p12|jks|keystore)$'
+  '^.+service[-_]?account.*\.json$'
+)
+
+declare -a sensitive_path_hits=()
+declare -A sensitive_seen=()
+
+for file in "${TRACKED_FILES[@]}"; do
+  for re in "${SENSITIVE_PATH_PATTERNS[@]}"; do
+    if [[ "$file" =~ $re ]]; then
+      if is_example_file "$file"; then
+        continue
+      fi
+      if [[ -z "${sensitive_seen[$file]+x}" ]]; then
+        sensitive_path_hits+=("$file")
+        sensitive_seen[$file]=1
+      fi
+      break
+    fi
+  done
+done
+
+declare -a protected_hits=()
+declare -A protected_seen=()
+PROTECTED_REGEX_FILE=".protected-paths.regex"
+
+if [[ -f "$PROTECTED_REGEX_FILE" ]]; then
+  while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+    line="${raw_line#"${raw_line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    if [[ -z "$line" ]] || [[ "${line:0:1}" == "#" ]]; then
+      continue
+    fi
+
+    for file in "${TRACKED_FILES[@]}"; do
+      if [[ "$file" =~ $line ]]; then
+        if [[ -z "${protected_seen[$file]+x}" ]]; then
+          protected_hits+=("$file")
+          protected_seen[$file]=1
+        fi
+      fi
+    done
+  done < "$PROTECTED_REGEX_FILE"
+fi
+
+# High-confidence secret signatures in tracked text files.
+SECRET_REGEX='(os_v2_[A-Za-z0-9_]{20,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]+PRIVATE KEY-----|ghp_[A-Za-z0-9]{20,}|sk_live_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})'
+secret_hits_raw="$(git grep -nE "$SECRET_REGEX" || true)"
+
+declare -a secret_hits=()
+if [[ -n "$secret_hits_raw" ]]; then
+  while IFS= read -r hit_line; do
+    [[ -z "$hit_line" ]] && continue
+    file="${hit_line%%:*}"
+    if is_example_file "$file"; then
+      continue
+    fi
+    case "$file" in
+      README.md|LICENSE|docs/*)
+        continue
+        ;;
+    esac
+    secret_hits+=("$hit_line")
+  done <<< "$secret_hits_raw"
+fi
+
+# API credentials patterns (hard-coded values in source/config).
+declare -a API_SECRET_REGEXES=(
+  '(api[_-]?key|apikey|api[_-]?token|api[_-]?secret|client[_-]?secret|client[_-]?id|access[_-]?token|auth[_-]?token|bearer[_-]?token|secret[_-]?key|private[_-]?key|onesignal_reset_api|onesignal_rest_key|imgbb_api_key|imgBB_api|cloudflare_notify_token)[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{6,}["'"'"']'
+  '(authorization|auth)[[:space:]]*[:=][[:space:]]*["'"'"'](basic|bearer)[[:space:]]+[A-Za-z0-9._~+/-]{10,}["'"'"']'
+  'https?://[^[:space:]"'"'"']*[?&](api[_-]?key|token|access[_-]?token|auth|secret)=[^&"'"'"'[:space:]]{6,}'
+)
+
+declare -a api_secret_hits=()
+declare -A api_secret_seen=()
+
+for api_re in "${API_SECRET_REGEXES[@]}"; do
+  api_hits_raw="$(git grep -nEI "$api_re" || true)"
+  [[ -z "$api_hits_raw" ]] && continue
+
+  while IFS= read -r hit_line; do
+    [[ -z "$hit_line" ]] && continue
+    file="${hit_line%%:*}"
+    if is_example_file "$file"; then
+      continue
+    fi
+    case "$file" in
+      README.md|LICENSE|docs/*)
+        continue
+        ;;
+    esac
+    if [[ -z "${api_secret_seen[$hit_line]+x}" ]]; then
+      api_secret_hits+=("$hit_line")
+      api_secret_seen[$hit_line]=1
+    fi
+  done <<< "$api_hits_raw"
+done
+
+if [[ "${#sensitive_path_hits[@]}" -eq 0 ]] && \
+   [[ "${#protected_hits[@]}" -eq 0 ]] && \
+   [[ "${#secret_hits[@]}" -eq 0 ]] && \
+   [[ "${#api_secret_hits[@]}" -eq 0 ]]; then
+  exit 0
+fi
+
+echo
+echo "Push blocked: sensitive or protected content detected."
+echo
+
+if [[ "${#sensitive_path_hits[@]}" -gt 0 ]]; then
+  echo "Sensitive tracked files:"
+  print_list "${sensitive_path_hits[@]}"
+  echo
+fi
+
+if [[ "${#protected_hits[@]}" -gt 0 ]]; then
+  echo "Protected code files (from .protected-paths.regex):"
+  print_list "${protected_hits[@]}"
+  echo
+fi
+
+if [[ "${#secret_hits[@]}" -gt 0 ]]; then
+  echo "Potential hard-coded secrets:"
+  print_list "${secret_hits[@]}"
+  echo
+fi
+
+if [[ "${#api_secret_hits[@]}" -gt 0 ]]; then
+  echo "Potential API credentials:"
+  print_list "${api_secret_hits[@]}"
+  echo
+fi
+
+echo "Fix options:"
+echo "  1) Remove tracked sensitive files: git rm --cached <file>"
+echo "  2) Move secrets to env/Remote Config/secrets manager"
+echo "  3) Edit .protected-paths.regex if a path should be allowed"
+echo "  4) Emergency bypass once: ALLOW_INSECURE_PUSH=1 git push"
+echo
+
+exit 1

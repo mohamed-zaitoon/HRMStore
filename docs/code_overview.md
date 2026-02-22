@@ -24,7 +24,7 @@ This document gives a concise, high-signal map of the codebase without modifying
 - Other admin screens: prices, codes, availability, users, game packages; each under `lib/features/admin/`.
 
 ## User flows
-- `lib/features/calculator/calculator_screen.dart`: Core purchase/shipping flow; initiates `UpdateManager.check` on start for native users; shows menu with manual update trigger.
+- `lib/features/home/home_screen.dart`: Core purchase/shipping flow; initiates `UpdateManager.check` on start for native users; shows menu with manual update trigger.
 - `lib/features/orders/orders_screen.dart`: Displays user orders; auto-assigns wallet numbers by pulling from Firestore `wallets` when missing.
 
 ## OneSignal / Notifications

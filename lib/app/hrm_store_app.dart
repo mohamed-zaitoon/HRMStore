@@ -14,9 +14,9 @@ import '../widgets/connection_blocker.dart';
 import '../widgets/access_blocker.dart';
 import '../widgets/availability_blocker.dart';
 
-import '../features/calculator/calculator_screen.dart';
+import '../features/home/home_screen.dart';
 import '../features/orders/orders_screen.dart';
-import '../features/calculator/privacy_screen.dart';
+import '../features/home/privacy_screen.dart';
 import '../features/auth/account_screen.dart';
 import '../features/auth/user_auth_screen.dart';
 
@@ -32,6 +32,7 @@ import '../features/admin/admin_wallets_screen.dart';
 import '../features/admin/admin_route_guard.dart';
 
 import '../features/platform/android_landing_page.dart';
+import '../features/platform/about_app_screen.dart';
 import '../features/orders/ramadan_codes_screen.dart';
 import '../utils/html_meta.dart';
 import '../core/app_info.dart';
@@ -92,7 +93,7 @@ class HrmStoreApp extends StatelessWidget {
           }
 
           return MaterialPageRoute(
-            builder: (_) => CalculatorScreen(
+            builder: (_) => HomeScreen(
               name: name,
               whatsapp: whatsapp,
               tiktok: tiktok,
@@ -121,6 +122,12 @@ class HrmStoreApp extends StatelessWidget {
 
       case '/account':
         return MaterialPageRoute(builder: (_) => AccountScreen());
+
+      case '/about':
+        if (kIsWeb) {
+          return MaterialPageRoute(builder: (_) => const _NotFoundScreen());
+        }
+        return MaterialPageRoute(builder: (_) => const AboutAppScreen());
 
       case '/privacy':
       case '/privacy_policy':

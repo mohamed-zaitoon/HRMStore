@@ -1,0 +1,12 @@
+# Regex patterns for source files you never want to push to GitHub.
+# One regex per line. Empty lines and lines starting with # are ignored.
+#
+# If any tracked file matches one of these rules, push is blocked.
+
+^lib/services/integrity_service\.dart$
+^lib/services/legacy_app_cleanup_service\.dart$
+^android/app/src/main/cpp/.*$
+^lib/services/remote_config_service\.dart$
+^lib/firebase_options\.dart$
+^functions/index\.js$
+^cloudflare/worker\.js$

@@ -70,8 +70,8 @@
 
     function _domainAllowed() {
       const host = location.hostname;
-      return host === 'localhost' || host === '127.0.0.1' ||
-        host.endsWith('hrmstore.web.app') || host.endsWith('hrmstore.mohamedzaitoon.com');
+      if (host === 'localhost' || host === '127.0.0.1') return true;
+      return location.protocol === 'https:';
     }
 
     function hrmstoreOneSignalWithSdk(callback) {

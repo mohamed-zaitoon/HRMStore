@@ -44,7 +44,7 @@ HRM Store is a Flutter application for purchasing TikTok coins with a smooth, Ar
   - Other admin screens: prices, codes, availability, users, game packages under `lib/features/admin/`.
 
 - User flows  
-  - `lib/features/calculator/calculator_screen.dart`: Core purchase/shipping flow; initiates `UpdateManager.check` on start for native users; shows menu with manual update trigger.  
+  - `lib/features/home/home_screen.dart`: Core purchase/shipping flow; initiates `UpdateManager.check` on start for native users; shows menu with manual update trigger.  
   - `lib/features/orders/orders_screen.dart`: Displays user orders; auto-assigns wallet numbers by pulling from Firestore `wallets` when missing.
 
 - OneSignal / Notifications  
