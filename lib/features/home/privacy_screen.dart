@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hrmstoreapp/core/app_info.dart';
 import 'package:hrmstoreapp/core/tt_colors.dart';
+import '../../services/remote_config_service.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/snow_background.dart';
@@ -13,12 +14,17 @@ class PrivacyScreen extends StatelessWidget {
   // AR: ينشئ PrivacyScreen.
   const PrivacyScreen({super.key});
 
+  static const String _fallbackSupportEmail = 'contact@mohamedzaitoon.com';
+
   // EN: Sends Email.
   // AR: ترسل Email.
   Future<void> _sendEmail() async {
+    final supportEmail = RemoteConfigService.instance.supportEmail.isNotEmpty
+        ? RemoteConfigService.instance.supportEmail
+        : _fallbackSupportEmail;
     final Uri emailLaunchUri = Uri(
       scheme: 'mailto',
-      path: 'contact@mohamedzaitoon.com',
+      path: supportEmail,
       query: 'subject=استفسار بخصوص تطبيق ${AppInfo.appName}',
     );
     try {

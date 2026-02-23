@@ -516,7 +516,7 @@ class UpdateManager {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  force ? "تحديث إجباري" : "تحديث جديد متوفر 🚀",
+                  force ? "تحديث مهم" : "تحديث جديد متوفر 🚀",
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: 'Cairo',
@@ -541,7 +541,7 @@ class UpdateManager {
 
                 Text(
                   force
-                      ? "يجب تحديث التطبيق للمتابعة. لن تتمكن من استخدام التطبيق قبل التحديث."
+                      ? "يوجد تحديث مهم لتحسين الأداء والاستقرار. يُفضّل التحديث الآن."
                       : "يوجد تحديث أحدث من نسختك الحالية. ننصح بالتحديث الآن.",
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -589,7 +589,7 @@ class UpdateManager {
                         foregroundColor: Colors.black,
                       ),
                       child: Text(
-                        force ? "تحديث الآن (إجباري)" : "تحديث الآن",
+                        "تحديث الآن",
                         style: const TextStyle(
                           fontFamily: 'Cairo',
                           fontWeight: FontWeight.bold,
