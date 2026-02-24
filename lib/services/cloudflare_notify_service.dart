@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
 
-import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -233,29 +232,11 @@ class CloudflareNotifyService {
     }
   }
 
-  static String _promoSeasonLabel() {
-    try {
-      if (RemoteConfigService.instance.isRamadan) return 'رمضان';
-    } catch (_) {}
-    try {
-      if (FirebaseRemoteConfig.instance.getBool('is_eid')) return 'العيد';
-    } catch (_) {}
-    return '';
-  }
-
   static String _newPromoCodeRequestTitle() {
-    final season = _promoSeasonLabel();
-    if (season.isNotEmpty) {
-      return 'طلب كود $season جديد';
-    }
     return 'طلب كود خصم جديد';
   }
 
   static String _promoCodeSentTitle() {
-    final season = _promoSeasonLabel();
-    if (season.isNotEmpty) {
-      return 'تم ارسال كود $season لك 🎁';
-    }
     return 'تم ارسال كود الخصم لك 🎁';
   }
 

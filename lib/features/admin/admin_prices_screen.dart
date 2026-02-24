@@ -1,20 +1,16 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 
-import '../../widgets/top_snackbar.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/snow_background.dart';
+import '../../widgets/top_snackbar.dart';
 
 class AdminPricesScreen extends StatefulWidget {
-  // EN: Creates AdminPricesScreen.
-  // AR: ينشئ AdminPricesScreen.
   const AdminPricesScreen({super.key});
 
-  // EN: Creates state object.
-  // AR: تنشئ كائن الحالة.
   @override
   State<AdminPricesScreen> createState() => _AdminPricesScreenState();
 }
@@ -28,28 +24,21 @@ class _PriceRange {
 
 class _AdminPricesScreenState extends State<AdminPricesScreen> {
   final TextEditingController _costCtrl = TextEditingController();
-  final TextEditingController _basePricePer1000Ctrl = TextEditingController();
-  final TextEditingController _coinsCountCtrl = TextEditingController();
   bool _isSaving = false;
   bool _isEditing = false;
-  double? _manualCalculatedCost;
 
   final List<double> _markups = const [19.23, 7.69, 2.88, 1.92, 0.96];
   final List<_PriceRange> _targetRanges = const [
     _PriceRange(min: 100, max: 499),
     _PriceRange(min: 500, max: 999),
     _PriceRange(min: 1000, max: 29999),
-    _PriceRange(min: 50000, max: 74999),
-    _PriceRange(min: 75000, max: 2500000),
+    _PriceRange(min: 30000, max: 130000),
+    _PriceRange(min: 130001, max: 2500000),
   ];
 
-  // EN: Releases resources.
-  // AR: تفرّغ الموارد.
   @override
   void dispose() {
     _costCtrl.dispose();
-    _basePricePer1000Ctrl.dispose();
-    _coinsCountCtrl.dispose();
     super.dispose();
   }
 
@@ -59,8 +48,6 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
     return value;
   }
 
-  // EN: Applies cost to all tiers.
-  // AR: تطبق التكلفة على كل الشرائح.
   Future<void> _applyCost() async {
     final cost = _parsePositive(_costCtrl.text);
     if (cost == null) {
@@ -117,7 +104,7 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
         textColor: Colors.white,
         icon: Icons.check_circle,
       );
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       TopSnackBar.show(
         context,
@@ -179,48 +166,6 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
     }
 
     return docs;
-  }
-
-  void _calculateManualCost(BuildContext context) {
-    final basePrice = _parsePositive(_basePricePer1000Ctrl.text);
-    if (basePrice == null) {
-      TopSnackBar.show(
-        context,
-        "أدخل سعر 1000 بدون مكسب بشكل صحيح",
-        backgroundColor: Colors.red,
-        textColor: Colors.white,
-        icon: Icons.error,
-      );
-      return;
-    }
-
-    final coins = _parsePositive(_coinsCountCtrl.text);
-    if (coins == null) {
-      TopSnackBar.show(
-        context,
-        "أدخل عدد العملات بشكل صحيح",
-        backgroundColor: Colors.red,
-        textColor: Colors.white,
-        icon: Icons.error,
-      );
-      return;
-    }
-
-    final totalCost = double.parse(
-      ((coins / 1000) * basePrice).toStringAsFixed(2),
-    );
-
-    setState(() {
-      _manualCalculatedCost = totalCost;
-    });
-
-    TopSnackBar.show(
-      context,
-      "تم حساب التكلفة اليدوية ✅",
-      backgroundColor: Colors.green,
-      textColor: Colors.white,
-      icon: Icons.check_circle,
-    );
   }
 
   Future<void> _editPrice(DocumentSnapshot doc, double currentPrice) async {
@@ -307,13 +252,29 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
     );
   }
 
-  // EN: Builds widget UI.
-  // AR: تبني واجهة الودجت.
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: const GlassAppBar(title: Text("تعديل الأسعار")),
+      appBar: GlassAppBar(
+        title: const Text("تعديل الأسعار"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.local_offer),
+            tooltip: "عروض الأسعار",
+            onPressed: () {
+              Navigator.pushNamed(context, '/admin/offers');
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.calculate),
+            tooltip: "حاسبة التكلفة اليدوية",
+            onPressed: () {
+              Navigator.pushNamed(context, '/admin/cost-calculator');
+            },
+          ),
+        ],
+      ),
       body: Stack(
         children: [
           const SnowBackground(),
@@ -356,57 +317,6 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
                             labelText: "مثال: 100",
                           ),
                         ),
-                        const SizedBox(height: 14),
-                        const Divider(),
-                        const SizedBox(height: 10),
-                        const Text(
-                          "حاسبة التكلفة اليدوية (مستقلة)",
-                          style: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _basePricePer1000Ctrl,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: "سعر 1000 بدون مكسب",
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _coinsCountCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: "عدد العملات المراد حسابها",
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: OutlinedButton.icon(
-                            onPressed: _isSaving || _isEditing
-                                ? null
-                                : () => _calculateManualCost(context),
-                            icon: const Icon(Icons.calculate),
-                            label: const Text("احسب التكلفة"),
-                          ),
-                        ),
-                        if (_manualCalculatedCost != null) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            "التكلفة: ${_manualCalculatedCost!.toStringAsFixed(2)} ج.م",
-                            style: TextStyle(
-                              color: colorScheme.primary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
                         const SizedBox(height: 10),
                         Text(
                           "سيتم إضافة النِسب التالية بالترتيب:",

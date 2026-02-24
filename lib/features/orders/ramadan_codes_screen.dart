@@ -3,7 +3,6 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -37,57 +36,42 @@ class RamadanCodesScreen extends StatefulWidget {
 
 class _RamadanCodesScreenState extends State<RamadanCodesScreen> {
   bool _requesting = false;
-  bool _isRamadanMode = false;
-  bool _isEidMode = false;
   bool _seasonLoaded = false;
+  bool _isRamadanSeason = false;
+  bool _isEidSeason = false;
 
-  bool get _isSeasonalPromoEnabled => _isRamadanMode || _isEidMode;
+  bool get _isSeasonalPromoEnabled =>
+      (_isRamadanSeason && !_isEidSeason) ||
+      (_isEidSeason && !_isRamadanSeason);
 
-  String get _seasonLabel {
-    if (_isRamadanMode) return 'رمضان';
-    if (_isEidMode) return 'العيد';
-    return '';
-  }
-
-  String get _seasonalPromoTitle {
-    final season = _seasonLabel;
-    return season.isEmpty ? 'أكواد الخصم' : 'أكواد خصم $season';
-  }
+  String get _seasonalPromoTitle => _isSeasonalPromoEnabled
+      ? 'أكواد خصم ${_isEidSeason ? 'العيد' : 'رمضان'}'
+      : 'أكواد الخصم';
 
   @override
   void initState() {
     super.initState();
     NotificationService.listenToUserRamadanCodes(widget.whatsapp);
-    _loadSeasonFlags();
+    unawaited(_loadSeasonFlags());
   }
 
   Future<void> _loadSeasonFlags() async {
     try {
-      final rc = FirebaseRemoteConfig.instance;
-      await rc.setConfigSettings(
-        RemoteConfigSettings(
-          fetchTimeout: const Duration(minutes: 1),
-          minimumFetchInterval: Duration.zero,
-        ),
-      );
-      await rc.fetchAndActivate();
-      if (!mounted) return;
-      setState(() {
-        _isRamadanMode = rc.getBool('is_ramadan');
-        _isEidMode = rc.getBool('is_eid');
-        _seasonLoaded = true;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _isRamadanMode = RemoteConfigService.instance.isRamadan;
-        _isEidMode = FirebaseRemoteConfig.instance.getBool('is_eid');
-        _seasonLoaded = true;
-      });
-    }
+      await RemoteConfigService.instance.init();
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    final isRamadanRaw = RemoteConfigService.instance.isRamadan;
+    final isEidRaw = RemoteConfigService.instance.isEid;
+    setState(() {
+      _isRamadanSeason = isRamadanRaw && !isEidRaw;
+      _isEidSeason = isEidRaw && !isRamadanRaw;
+      _seasonLoaded = true;
+    });
   }
 
-  Future<void> _requestRamadanCode() async {
+  Future<void> _requestDiscountCode() async {
     if (!_isSeasonalPromoEnabled) {
       _showMsg("أكواد الخصم غير متاحة حالياً", color: Colors.orange);
       return;
@@ -154,7 +138,6 @@ class _RamadanCodesScreenState extends State<RamadanCodesScreen> {
 
   Future<void> _handlePageSwipeRefresh() async {
     await _loadSeasonFlags();
-    await Future<void>.delayed(const Duration(milliseconds: 150));
   }
 
   @override
@@ -266,7 +249,7 @@ class _RamadanCodesScreenState extends State<RamadanCodesScreen> {
                                       child: ElevatedButton.icon(
                                         onPressed: _requesting
                                             ? null
-                                            : _requestRamadanCode,
+                                            : _requestDiscountCode,
                                         icon: _requesting
                                             ? const SizedBox(
                                                 width: 18,
@@ -519,7 +502,7 @@ class _RamadanCodesScreenState extends State<RamadanCodesScreen> {
                                     child: ElevatedButton.icon(
                                       onPressed: _requesting
                                           ? null
-                                          : _requestRamadanCode,
+                                          : _requestDiscountCode,
                                       icon: _requesting
                                           ? const SizedBox(
                                               width: 18,

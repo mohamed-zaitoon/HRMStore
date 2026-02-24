@@ -202,6 +202,24 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                 ),
 
                 _menuTile(
+                  icon: Icons.local_offer,
+                  title: "عروض الأسعار",
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.pushNamed(context, '/admin/offers');
+                  },
+                ),
+
+                _menuTile(
+                  icon: Icons.calculate,
+                  title: "حاسبة التكلفة اليدوية",
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.pushNamed(context, '/admin/cost-calculator');
+                  },
+                ),
+
+                _menuTile(
                   icon: Icons.games,
                   title: "شحن الألعاب",
                   onTap: () {
@@ -341,6 +359,22 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           tooltip: "تعديل الأسعار",
           onPressed: () {
             Navigator.pushNamed(context, '/admin/prices');
+          },
+        ),
+
+        IconButton(
+          icon: Icon(Icons.local_offer, color: colorScheme.tertiary),
+          tooltip: "عروض الأسعار",
+          onPressed: () {
+            Navigator.pushNamed(context, '/admin/offers');
+          },
+        ),
+
+        IconButton(
+          icon: Icon(Icons.calculate, color: colorScheme.primary),
+          tooltip: "حاسبة التكلفة اليدوية",
+          onPressed: () {
+            Navigator.pushNamed(context, '/admin/cost-calculator');
           },
         ),
 

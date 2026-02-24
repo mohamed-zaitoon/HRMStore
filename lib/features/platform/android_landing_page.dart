@@ -2,6 +2,8 @@
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:universal_html/html.dart' as html;
 
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
@@ -43,32 +45,55 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
     try {
       final res = await http.get(
         Uri.parse(
-          "https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO/releases?per_page=5",
+          "https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO/releases/latest",
         ),
       );
 
       if (res.statusCode == 200) {
-        final List releases = jsonDecode(res.body);
-        for (final release in releases) {
-          final List assets = release['assets'];
-          final apks = assets
-              .where((a) => a['name'].toString().toLowerCase().endsWith('.apk'))
-              .map(
-                (a) =>
-                    _ApkAsset(name: a['name'], url: a['browser_download_url']),
-              )
-              .toList();
-
-          if (apks.isNotEmpty) {
-            _apkAssets.addAll(apks);
-            break;
-          }
-        }
+        final Map<String, dynamic> release = jsonDecode(res.body);
+        final List assets = (release['assets'] as List?) ?? [];
+        final apks = assets
+            .where((a) => a['name'].toString().toLowerCase().endsWith('.apk'))
+            .map(
+              (a) => _ApkAsset(name: a['name'], url: a['browser_download_url']),
+            )
+            .toList();
+        _apkAssets.addAll(apks);
       }
     } catch (e) {
       debugPrint("Error fetching APKs: $e");
     }
     if (mounted) setState(() => _isLoading = false);
+  }
+
+  // EN: Starts direct apk download without opening a new tab.
+  // AR: يبدأ تنزيل apk مباشر بدون فتح تبويب جديد.
+  Future<void> _downloadApk(_ApkAsset apk) async {
+    final url = _withCacheBuster(ensureHttps(apk.url));
+    if (kIsWeb) {
+      // GitHub release asset links redirect across domains.
+      // Using same-tab navigation is generally more reliable than
+      // forcing the HTML download attribute with cross-origin redirects.
+      html.window.location.assign(url);
+      return;
+    }
+
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
+
+  String _withCacheBuster(String url) {
+    final uri = Uri.parse(url);
+    final updatedQuery = Map<String, String>.from(uri.queryParameters)
+      ..['_ts'] = DateTime.now().millisecondsSinceEpoch.toString();
+    return uri.replace(queryParameters: updatedQuery).toString();
+  }
+
+  Future<void> _retryFetchApks() async {
+    setState(() {
+      _isLoading = true;
+      _apkAssets.clear();
+    });
+    await _fetchLatestApks();
   }
 
   // EN: Builds widget UI.
@@ -127,10 +152,7 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
                         (apk) => Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: ElevatedButton.icon(
-                            onPressed: () => launchUrl(
-                              Uri.parse(ensureHttps(apk.url)),
-                              mode: LaunchMode.externalApplication,
-                            ),
+                            onPressed: () => _downloadApk(apk),
                             icon: Icon(
                               Icons.download,
                               color: TTColors.textWhite,
@@ -153,27 +175,35 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
                         ),
                       )
                     else
-                      ElevatedButton.icon(
-                        onPressed: () => launchUrl(
-                          Uri.parse(
-                            "https://github.com/$GITHUB_USER/$GITHUB_REPO/releases/latest",
+                      Column(
+                        children: [
+                          Text(
+                            "تعذّر جلب روابط التحميل الآن. جرّب مرة أخرى.",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: TTColors.textGray,
+                              fontFamily: 'Cairo',
+                            ),
                           ),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                        icon: const Icon(Icons.public),
-                        label: const Text(
-                          "الذهاب لصفحة التحميل",
-                          style: TextStyle(fontFamily: 'Cairo'),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.secondary,
-                          foregroundColor: Theme.of(
-                            context,
-                          ).colorScheme.onSecondary,
-                          minimumSize: const Size(double.infinity, 55),
-                        ),
+                          const SizedBox(height: 10),
+                          ElevatedButton.icon(
+                            onPressed: _retryFetchApks,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text(
+                              "إعادة المحاولة",
+                              style: TextStyle(fontFamily: 'Cairo'),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Theme.of(
+                                context,
+                              ).colorScheme.secondary,
+                              foregroundColor: Theme.of(
+                                context,
+                              ).colorScheme.onSecondary,
+                              minimumSize: const Size(double.infinity, 55),
+                            ),
+                          ),
+                        ],
                       ),
                   ],
                 ],

@@ -93,8 +93,9 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isPointsMode = true;
   bool _isDiscountActive = false;
   bool _isInputValid = false;
-  static const int _minPoints = 250;
-  static const int _maxPoints = 130000;
+  static const int _minPoints = 100;
+  static const int _maxPoints = 2500000;
+  static const int _manualContactPointsThreshold = 130000;
   static const int _walletTransferLimitEg = 30000;
   static const String _tiktokChargeModeLink = 'link';
   static const String _tiktokChargeModeQr = 'qr';
@@ -119,10 +120,16 @@ class _HomeScreenState extends State<HomeScreen>
   String _instapayLink = "";
   String _binanceId = "";
   double _usdtPrice = 0;
-  double _offer5 = 0;
-  double _offer50 = 0;
-  bool _isRamadanMode = false;
-  bool _isEidMode = false;
+  double _offerRateFor100 = 0;
+  double _offerRateFor500 = 0;
+  double _offerRateFor1000 = 0;
+  double _offerRateFor50000 = 0;
+  double _offerRateFor75000 = 0;
+  bool _offersEnabled = true;
+  bool _isRamadanSeason = false;
+  bool _isEidSeason = false;
+  String _offersTitle = '✨ عروض الخصم ✨';
+  String _offersRequestCta = 'اضغط لطلب كود الخصم الخاص بك';
   int _balancePoints = 0;
   bool _isBalanceTopupOrder = false;
   DocumentReference<Map<String, dynamic>>? _userDocRef;
@@ -132,40 +139,39 @@ class _HomeScreenState extends State<HomeScreen>
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   _balancePointsByWhatsappSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _pricesSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _offersSub;
 
-  bool get _isSeasonalPromoEnabled => _isRamadanMode || _isEidMode;
+  bool get _isPromoOffersEnabled => _offersEnabled;
 
-  String get _seasonLabel {
-    if (_isRamadanMode) return 'رمضان';
-    if (_isEidMode) return 'العيد';
-    return '';
+  bool get _isSeasonalPromoEnabled =>
+      (_isRamadanSeason && !_isEidSeason) ||
+      (_isEidSeason && !_isRamadanSeason);
+
+  String get _seasonalPromoLabel => _isEidSeason ? 'العيد' : 'رمضان';
+
+  bool get _showPromoCodeSection =>
+      widget.showRamadanPromo &&
+      _isPromoOffersEnabled &&
+      _isSeasonalPromoEnabled;
+
+  String get _promoCodesTitle => _isSeasonalPromoEnabled
+      ? 'أكواد خصم $_seasonalPromoLabel'
+      : 'أكواد الخصم';
+
+  String get _offersCardTitle {
+    final value = _offersTitle.trim();
+    return value.isEmpty ? '✨ عروض الخصم ✨' : value;
   }
 
-  String get _seasonalPromoTitle {
-    final season = _seasonLabel;
-    return season.isEmpty ? 'أكواد الخصم' : 'أكواد خصم $season';
-  }
-
-  String get _seasonalOfferTitle {
-    final season = _seasonLabel;
-    if (season.isEmpty) return '✨ عروضنا الذهبية ✨';
-    return '✨ عروض $season الذهبية ✨';
-  }
-
-  String get _seasonalRequestCta {
-    final season = _seasonLabel;
-    if (season.isEmpty) return 'اضغط لطلب كود الخصم الخاص بك';
-    return 'اضغط لطلب كود $season الخاص بك';
+  String get _offersRequestButtonTitle {
+    final value = _offersRequestCta.trim();
+    return value.isEmpty ? 'اضغط لطلب كود الخصم الخاص بك' : value;
   }
 
   void _updateWebMetaDescription() {
     if (!kIsWeb) return;
-    final season = _seasonLabel;
-    final seasonalText = season.isEmpty
-        ? 'عروض خاصة وكود خصم حصري'
-        : 'عروض $season وكود خصم حصري';
     setMetaDescription(
-      'احسب سعر شحن نقاط تيك توك حسب عدد النقاط أو المبلغ، $seasonalText لمستخدمي الموقع والتطبيق.',
+      'احسب سعر شحن نقاط تيك توك حسب عدد النقاط أو المبلغ، مع عروض خصم حصرية لمستخدمي الموقع والتطبيق.',
     );
   }
 
@@ -207,6 +213,7 @@ class _HomeScreenState extends State<HomeScreen>
     _balancePointsByUidSub?.cancel();
     _balancePointsByWhatsappSub?.cancel();
     _pricesSub?.cancel();
+    _offersSub?.cancel();
     _inputCtrl.dispose();
     _promoCtrl.dispose();
     _nameCtrl.dispose();
@@ -665,6 +672,7 @@ class _HomeScreenState extends State<HomeScreen>
   // AR: تجلب Data.
   Future<void> _fetchData() async {
     await _refreshRemoteConfigValues();
+    await _listenToOffers();
 
     await _pricesSub?.cancel();
     _pricesSub = FirebaseFirestore.instance
@@ -682,6 +690,81 @@ class _HomeScreenState extends State<HomeScreen>
         });
   }
 
+  double? _tryReadDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value.trim());
+    return null;
+  }
+
+  double _resolveOfferRateForPoints({
+    required double points,
+    required double fallbackRate,
+  }) {
+    if (!_isDiscountActive ||
+        !_isPromoOffersEnabled ||
+        !_isSeasonalPromoEnabled) {
+      return fallbackRate;
+    }
+    if (points >= 75000 && _offerRateFor75000 > 0) return _offerRateFor75000;
+    if (points >= 50000 && _offerRateFor50000 > 0) return _offerRateFor50000;
+    if (points >= 1000 && _offerRateFor1000 > 0) return _offerRateFor1000;
+    if (points >= 500 && _offerRateFor500 > 0) return _offerRateFor500;
+    if (points >= 100 && _offerRateFor100 > 0) return _offerRateFor100;
+    return fallbackRate;
+  }
+
+  void _applyOffersData(Map<String, dynamic>? rawData) {
+    final data = rawData ?? const <String, dynamic>{};
+    final parsed100 =
+        _tryReadDouble(data['rate_100']) ?? _tryReadDouble(data['offer5']) ?? 0;
+    final parsed500 = _tryReadDouble(data['rate_500']) ?? parsed100;
+    final parsed1000 = _tryReadDouble(data['rate_1000']) ?? parsed500;
+    final parsed50000 =
+        _tryReadDouble(data['rate_50000']) ??
+        _tryReadDouble(data['offer50']) ??
+        0;
+    final parsed75000 = _tryReadDouble(data['rate_75000']) ?? parsed50000;
+    final title = (data['title'] as String? ?? '').trim();
+    final requestCta = (data['request_cta'] as String? ?? '').trim();
+    if (!mounted) return;
+    setState(() {
+      _offersEnabled = data['enabled'] as bool? ?? true;
+      _offerRateFor100 = parsed100;
+      _offerRateFor500 = parsed500;
+      _offerRateFor1000 = parsed1000;
+      _offerRateFor50000 = parsed50000;
+      _offerRateFor75000 = parsed75000;
+      _offersTitle = title.isEmpty ? '✨ عروض الخصم ✨' : title;
+      _offersRequestCta = requestCta.isEmpty
+          ? 'اضغط لطلب كود الخصم الخاص بك'
+          : requestCta;
+    });
+    _updateWebMetaDescription();
+  }
+
+  Future<void> _listenToOffers() async {
+    await _offersSub?.cancel();
+    _offersSub = FirebaseFirestore.instance
+        .collection('offers')
+        .doc('current')
+        .snapshots()
+        .listen((doc) {
+          _applyOffersData(doc.data());
+        });
+  }
+
+  Future<void> _refreshOffersFromServer() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('offers')
+          .doc('current')
+          .get(const GetOptions(source: Source.server));
+      _applyOffersData(snap.data());
+    } catch (_) {
+      // إذا فشل جلب السيرفر نكتفي بالاستماع اللحظي.
+    }
+  }
+
   Future<void> _refreshRemoteConfigValues() async {
     try {
       final rc = FirebaseRemoteConfig.instance;
@@ -694,6 +777,10 @@ class _HomeScreenState extends State<HomeScreen>
       await rc.fetchAndActivate();
       final rcUsdtPrice = rc.getDouble('usdt_price');
       final parsedUsdtFromString = double.tryParse(rc.getString('usdt_price'));
+      final isRamadanRaw = rc.getBool('is_ramadan');
+      final isEidRaw = rc.getBool('is_eid');
+      final isRamadanSeason = isRamadanRaw && !isEidRaw;
+      final isEidSeason = isEidRaw && !isRamadanRaw;
       setState(() {
         _walletNumber = rc.getString('wallet_number');
         _instapayLink = rc.getString('instapay_link');
@@ -701,10 +788,8 @@ class _HomeScreenState extends State<HomeScreen>
         _usdtPrice = rcUsdtPrice > 0
             ? rcUsdtPrice
             : (parsedUsdtFromString ?? 0);
-        _offer5 = rc.getDouble('offer5');
-        _offer50 = rc.getDouble('offer50');
-        _isRamadanMode = rc.getBool('is_ramadan');
-        _isEidMode = rc.getBool('is_eid');
+        _isRamadanSeason = isRamadanSeason;
+        _isEidSeason = isEidSeason;
       });
       _updateWebMetaDescription();
     } catch (e) {
@@ -714,6 +799,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _handlePageSwipeRefresh() async {
     await _refreshRemoteConfigValues();
+    await _refreshOffersFromServer();
     await _refreshBalancePoints(forceServer: true);
     try {
       final snap = await FirebaseFirestore.instance
@@ -762,6 +848,10 @@ class _HomeScreenState extends State<HomeScreen>
   // EN: Handles activate Promo.
   // AR: تتعامل مع activate Promo.
   Future<void> _activatePromo() async {
+    if (!_showPromoCodeSection) {
+      _showCustomToast("أكواد الخصم غير متاحة حالياً", color: Colors.orange);
+      return;
+    }
     final String code = _promoCtrl.text.trim().toUpperCase().replaceAll(
       "-",
       "",
@@ -810,9 +900,13 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  // EN: Requests Ramadan Code.
-  // AR: تطلب Ramadan Code.
-  Future<void> _requestRamadanCode() async {
+  // EN: Requests Discount Code.
+  // AR: تطلب كود خصم.
+  Future<void> _requestDiscountCode() async {
+    if (!_showPromoCodeSection) {
+      _showCustomToast("أكواد الخصم غير متاحة حالياً", color: Colors.orange);
+      return;
+    }
     final tiktokHandle = _tiktokCtrl.text.trim();
     if (_nameCtrl.text.isEmpty ||
         widget.whatsapp.isEmpty ||
@@ -916,20 +1010,18 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
+      final firstRange = _prices.first;
+      final lastRange = _prices.last;
       final rule = _prices.firstWhere(
         (r) => inputVal >= r['min'] && inputVal <= r['max'],
-        orElse: () => _prices.last,
+        orElse: () {
+          final firstMin = (firstRange['min'] as num?)?.toDouble() ?? 0;
+          return inputVal < firstMin ? firstRange : lastRange;
+        },
       );
 
       double rate = rule['pricePer1000'].toDouble();
-
-      if (_isDiscountActive) {
-        if (inputVal >= 50000) {
-          rate = _offer50 > 0 ? _offer50 : rate;
-        } else if (inputVal >= 2000) {
-          rate = _offer5 > 0 ? _offer5 : rate;
-        }
-      }
+      rate = _resolveOfferRateForPoints(points: inputVal, fallbackRate: rate);
 
       _priceValue = ((inputVal / 1000) * rate).ceil();
       _pointsValue = inputVal.round();
@@ -941,17 +1033,13 @@ class _HomeScreenState extends State<HomeScreen>
 
       final reversedPrices = _prices.reversed.toList();
       for (var rule in reversedPrices) {
-        double rate = rule['pricePer1000'].toDouble();
-
-        if (_isDiscountActive) {
-          if (rule['min'] >= 50000) {
-            rate = _offer50 > 0 ? _offer50 : rate;
-          } else if (rule['min'] >= 2000) {
-            rate = _offer5 > 0 ? _offer5 : rate;
-          }
-        }
-
-        int potentialPoints = ((inputVal * 1000) / rate).floor();
+        final baseRate = rule['pricePer1000'].toDouble();
+        int potentialPoints = ((inputVal * 1000) / baseRate).floor();
+        final appliedRate = _resolveOfferRateForPoints(
+          points: potentialPoints.toDouble(),
+          fallbackRate: baseRate,
+        );
+        potentialPoints = ((inputVal * 1000) / appliedRate).floor();
 
         if (potentialPoints >= rule['min']) {
           bestPoints = potentialPoints;
@@ -984,6 +1072,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool get _isGameOrder => _selectedPackage != null;
   bool get _isPromoOrder => (_promoLink ?? '').isNotEmpty;
+  bool get _requiresManualWhatsappForLargePoints =>
+      !_isGameOrder &&
+      !_isPromoOrder &&
+      !_isBalanceTopupOrder &&
+      (_pointsValue ?? 0) > _manualContactPointsThreshold;
 
   String _gameOrderTitle(GamePackage pkg) {
     final gameName = GamePackage.gameLabel(pkg.game);
@@ -1174,6 +1267,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _startCheckoutFlow() async {
     if (!_isInputValid && !_isGameOrder && !_isPromoOrder) return;
+    if (_requiresManualWhatsappForLargePoints) {
+      await _showLargeOrderContactDialog();
+      return;
+    }
 
     if (_isGameOrder || _isPromoOrder || _isBalanceTopupOrder) {
       _tiktokChargeMode = _tiktokChargeModeLink;
@@ -1571,7 +1668,7 @@ class _HomeScreenState extends State<HomeScreen>
                                               const SizedBox(width: 8),
                                               Expanded(
                                                 child: Text(
-                                                  "للطلبات الأعلى من 30000 جنيه تم إخفاء الدفع بالمحفظة.",
+                                                  "للطلبات الأعلى من $_walletTransferLimitEg جنيه تم إخفاء الدفع بالمحفظة.",
                                                   style: TextStyle(
                                                     fontFamily: 'Cairo',
                                                     fontWeight: FontWeight.w700,
@@ -1720,18 +1817,19 @@ class _HomeScreenState extends State<HomeScreen>
     return normalized.toString().replaceAll(RegExp(r'[^0-9]'), '').trim();
   }
 
-  Uri? _supportWhatsappUri() {
+  Uri? _supportWhatsappUri({String? message}) {
     final raw = RemoteConfigService.instance.adminWhatsapp.trim();
     final digits = _normalizeWhatsappDigits(raw);
     if (digits.isEmpty) return null;
     final text = Uri.encodeComponent(
-      'مرحبًا، لدي طلب بقيمة أعلى من 30000 جنيه وأحتاج المساعدة في طريقة الدفع.',
+      message ??
+          'مرحبًا، لدي طلب بقيمة أعلى من $_walletTransferLimitEg جنيه وأحتاج المساعدة في طريقة الدفع.',
     );
     return Uri.parse('https://wa.me/$digits?text=$text');
   }
 
-  Future<void> _openSupportWhatsapp() async {
-    final uri = _supportWhatsappUri();
+  Future<void> _openSupportWhatsapp({String? message}) async {
+    final uri = _supportWhatsappUri(message: message);
     if (uri == null) {
       _showCustomToast(
         "رقم واتساب الدعم غير متاح حالياً",
@@ -1747,6 +1845,69 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (_) {
       _showCustomToast("تعذر فتح واتساب حالياً", color: Colors.orange);
     }
+  }
+
+  Future<void> _showLargeOrderContactDialog() async {
+    final message =
+        'مرحبًا، لدي طلب أكبر من $_manualContactPointsThreshold عملة، وأحتاج تنسيق طريقة الدفع قبل الشحن.';
+    await _showBlurDialog<void>(
+      barrierLabel: 'large-order-contact-dialog',
+      builder: (ctx) => AlertDialog(
+        backgroundColor: TTColors.cardBg,
+        title: const Text(
+          "تنبيه للطلبات الكبيرة",
+          style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "الطلبات فوق $_manualContactPointsThreshold عملة تتطلب التواصل عبر واتساب قبل إكمال الشحن.",
+              style: TextStyle(
+                color: TTColors.textWhite,
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "قد تحتاج هذه الطلبات إلى تحويل بنكي، وقد يستغرق التأكيد حتى 3 أيام عمل. بعد التأكيد سيتم التواصل معك لاستكمال الشحن.",
+              style: TextStyle(
+                color: TTColors.textGray,
+                fontFamily: 'Cairo',
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "إخلاء مسؤولية: مدة التنفيذ والسعر النهائي قد يتأثران بإجراءات البنك وتوفر الرصيد في وقت التنفيذ.",
+              style: TextStyle(
+                color: Colors.orange,
+                fontFamily: 'Cairo',
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("إغلاق"),
+          ),
+          const SizedBox(width: _dialogActionsSpacing),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _openSupportWhatsapp(message: message);
+            },
+            icon: const Icon(Icons.chat_rounded),
+            label: const Text("تواصل واتساب"),
+          ),
+        ],
+      ),
+    );
   }
 
   String _formatUsdtAmount(double amount) => amount.toStringAsFixed(2);
@@ -2851,9 +3012,9 @@ class _HomeScreenState extends State<HomeScreen>
                                         fontFamily: 'Cairo',
                                       ),
                                     ),
-                                  // إظهار خانة كود الخصم دائماً عندما يكون العرض مفعّلاً
-                                  if (widget.showRamadanPromo &&
-                                      _isSeasonalPromoEnabled)
+                                  _buildLargePointsWarningCard(),
+                                  // إظهار خانة كود الخصم عند تفعيل الموسم والعروض
+                                  if (_showPromoCodeSection)
                                     GlassCard(
                                       margin: const EdgeInsets.symmetric(
                                         vertical: 10,
@@ -2864,7 +3025,7 @@ class _HomeScreenState extends State<HomeScreen>
                                       child: Column(
                                         children: [
                                           Text(
-                                            _seasonalOfferTitle,
+                                            _offersCardTitle,
                                             style: TextStyle(
                                               color: TTColors.goldAccent,
                                               fontSize: 16,
@@ -2904,12 +3065,12 @@ class _HomeScreenState extends State<HomeScreen>
                                             SizedBox(
                                               width: double.infinity,
                                               child: OutlinedButton.icon(
-                                                onPressed: _requestRamadanCode,
+                                                onPressed: _requestDiscountCode,
                                                 icon: const Icon(
                                                   Icons.card_giftcard,
                                                 ),
                                                 label: Text(
-                                                  _seasonalRequestCta,
+                                                  _offersRequestButtonTitle,
                                                   textAlign: TextAlign.center,
                                                 ),
                                                 style: OutlinedButton.styleFrom(
@@ -3056,9 +3217,9 @@ class _HomeScreenState extends State<HomeScreen>
                                       fontFamily: 'Cairo',
                                     ),
                                   ),
-                                // إظهار خانة كود الخصم دائماً عندما يكون العرض مفعّلاً
-                                if (widget.showRamadanPromo &&
-                                    _isSeasonalPromoEnabled)
+                                _buildLargePointsWarningCard(),
+                                // إظهار خانة كود الخصم عند تفعيل الموسم والعروض
+                                if (_showPromoCodeSection)
                                   GlassCard(
                                     margin: const EdgeInsets.symmetric(
                                       vertical: 10,
@@ -3070,7 +3231,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     child: Column(
                                       children: [
                                         Text(
-                                          _seasonalOfferTitle,
+                                          _offersCardTitle,
                                           style: TextStyle(
                                             color: TTColors.goldAccent,
                                             fontSize: 16,
@@ -3110,12 +3271,12 @@ class _HomeScreenState extends State<HomeScreen>
                                           SizedBox(
                                             width: double.infinity,
                                             child: OutlinedButton.icon(
-                                              onPressed: _requestRamadanCode,
+                                              onPressed: _requestDiscountCode,
                                               icon: const Icon(
                                                 Icons.card_giftcard,
                                               ),
                                               label: Text(
-                                                _seasonalRequestCta,
+                                                _offersRequestButtonTitle,
                                                 textAlign: TextAlign.center,
                                               ),
                                               style: OutlinedButton.styleFrom(
@@ -3278,6 +3439,66 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildLargePointsWarningCard() {
+    if (!_requiresManualWhatsappForLargePoints) {
+      return const SizedBox.shrink();
+    }
+    return GlassCard(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(14),
+      borderColor: Colors.orange.withAlpha(160),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  "الطلبات فوق $_manualContactPointsThreshold عملة تتطلب التواصل عبر واتساب.",
+                  style: TextStyle(
+                    color: TTColors.textWhite,
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "قد تحتاج هذه الكمية إلى تحويل بنكي يصل إلى 3 أيام عمل. بعد التأكيد سنتواصل معك لإتمام الشحن.",
+            style: TextStyle(
+              color: TTColors.textGray,
+              fontFamily: 'Cairo',
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "إخلاء مسؤولية: الأسعار والمدة النهائية تخضع لحالة التحويل البنكي وتوفر الرصيد.",
+            style: TextStyle(
+              color: Colors.orange,
+              fontFamily: 'Cairo',
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _showLargeOrderContactDialog,
+              icon: const Icon(Icons.chat_rounded),
+              label: const Text("تواصل عبر واتساب قبل الطلب"),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _openOrders() async {
     var whatsapp = widget.whatsapp.trim();
     final prefs = await SharedPreferences.getInstance();
@@ -3355,9 +3576,9 @@ class _HomeScreenState extends State<HomeScreen>
         icon: Icons.campaign,
         onTap: _openPromoDialog,
       ),
-      if (_isSeasonalPromoEnabled)
+      if (_showPromoCodeSection)
         _MenuItem(
-          title: _seasonalPromoTitle,
+          title: _promoCodesTitle,
           icon: Icons.card_giftcard,
           onTap: () {
             Navigator.pushNamed(
@@ -3478,9 +3699,9 @@ class _HomeScreenState extends State<HomeScreen>
                 () => Navigator.pushNamed(context, '/privacy'),
               ),
               _webBtn("حسابي", () => Navigator.pushNamed(context, '/account')),
-              if (_isSeasonalPromoEnabled)
+              if (_showPromoCodeSection)
                 _webBtn(
-                  _seasonalPromoTitle,
+                  _promoCodesTitle,
                   () => Navigator.pushNamed(
                     context,
                     '/code_requests',

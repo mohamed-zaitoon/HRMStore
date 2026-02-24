@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -838,31 +837,15 @@ class NotificationService {
     return (data['promo_code'] ?? '').toString().trim();
   }
 
-  static String _promoSeasonLabel() {
-    try {
-      if (RemoteConfigService.instance.isRamadan) return 'رمضان';
-    } catch (_) {}
-    try {
-      if (FirebaseRemoteConfig.instance.getBool('is_eid')) return 'العيد';
-    } catch (_) {}
-    return '';
-  }
-
   static String _promoCodeSentMessage(String promoCode) {
-    final season = _promoSeasonLabel();
-    if (season.isNotEmpty) {
-      return 'تم إرسال كود $season: $promoCode';
-    }
     return 'تم إرسال كود الخصم: $promoCode';
   }
 
   static String _newPromoCodeRequestMessage({required String name}) {
-    final season = _promoSeasonLabel();
-    final codeLabel = season.isNotEmpty ? 'كود $season' : 'كود الخصم';
     if (name.isNotEmpty) {
-      return 'طلب $codeLabel جديد من $name';
+      return 'طلب كود خصم جديد من $name';
     }
-    return 'طلب $codeLabel جديد';
+    return 'طلب كود خصم جديد';
   }
 
   static void _showUserOrderStatusNotification({required String status}) {

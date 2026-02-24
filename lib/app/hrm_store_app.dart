@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:universal_html/html.dart' as html;
 
 import '../core/tt_colors.dart';
 import '../core/app_navigator.dart';
@@ -25,6 +26,8 @@ import '../features/admin/admin_orders_screen.dart';
 import '../features/admin/admin_code_requests_screen.dart';
 import '../features/admin/admin_promo_codes_screen.dart';
 import '../features/admin/admin_prices_screen.dart';
+import '../features/admin/admin_offers_screen.dart';
+import '../features/admin/admin_cost_calculator_screen.dart';
 import '../features/admin/admin_availability_screen.dart';
 import '../features/admin/admin_game_packages_screen.dart';
 import '../features/admin/admin_users_screen.dart';
@@ -56,6 +59,10 @@ class HrmStoreApp extends StatelessWidget {
       name = parsed.path;
     }
     name = _normalizeRoute(name);
+
+    if (_shouldForceAndroidLanding(name)) {
+      return MaterialPageRoute(builder: (_) => const AndroidLandingPage());
+    }
 
     switch (name) {
       case '/':
@@ -180,6 +187,15 @@ class HrmStoreApp extends StatelessWidget {
         return MaterialPageRoute(
           builder: (_) => const AdminRouteGuard(child: AdminPricesScreen()),
         );
+      case '/admin/offers':
+        return MaterialPageRoute(
+          builder: (_) => const AdminRouteGuard(child: AdminOffersScreen()),
+        );
+      case '/admin/cost-calculator':
+        return MaterialPageRoute(
+          builder: (_) =>
+              const AdminRouteGuard(child: AdminCostCalculatorScreen()),
+        );
 
       case '/admin/availability':
         return MaterialPageRoute(
@@ -217,6 +233,13 @@ class HrmStoreApp extends StatelessWidget {
     }
     if (name.isEmpty) return '/';
     return name;
+  }
+
+  bool _shouldForceAndroidLanding(String route) {
+    if (!kIsWeb || isAdminApp) return false;
+    if (route == '/android' || route.startsWith('/admin')) return false;
+    final userAgent = html.window.navigator.userAgent.toLowerCase();
+    return userAgent.contains('android');
   }
 
   // EN: Builds widget UI.
