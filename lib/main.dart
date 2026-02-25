@@ -13,6 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 import 'services/app_check_service.dart';
 import 'services/notification_service.dart';
+import 'services/app_links_service.dart';
+import 'services/easy_loading_service.dart';
 import 'services/remote_config_service.dart';
 import 'services/theme_service.dart';
 import 'services/update_manager.dart';
@@ -40,12 +42,14 @@ Future<void> main() async {
 
   final prefs = await SharedPreferences.getInstance();
   ThemeService.init(prefs);
+  EasyLoadingService.configure();
   final whatsapp = prefs.getString('user_whatsapp') ?? '';
   final isAdmin = prefs.getBool('is_admin') ?? false;
   AppInfo.isAdminApp = isAdmin;
 
   runApp(HrmStoreApp(prefs: prefs, isAdminApp: isAdmin));
 
+  unawaited(AppLinksService.start(isAdminApp: isAdmin));
   unawaited(_postInit(whatsapp: whatsapp, isAdmin: isAdmin));
 }
 
@@ -73,7 +77,6 @@ Future<void> _postInit({
         whatsapp,
         requestPermission: true,
       );
-      NotificationService.listenToUserOrders(whatsapp);
       NotificationService.listenToUserRamadanCodes(whatsapp);
     }
   }

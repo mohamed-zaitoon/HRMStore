@@ -1,12 +1,21 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
+import 'dart:async';
+
+import 'package:awesome_snackbar_content/awesome_snackbar_content.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 class TopSnackBar {
   static OverlayEntry? _activeEntry;
+  static Timer? _dismissTimer;
+  static String _lastSignature = '';
+  static DateTime _lastShownAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _dedupeWindow = Duration(milliseconds: 900);
+  static final Map<String, DateTime> _keyedDedupeUntil = <String, DateTime>{};
 
-  // EN: Shows a top snack bar overlay.
-  // AR: تعرض إشعارًا علويًا فوق الواجهة.
+  // EN: Shows a top snack bar using awesome_snackbar_content.
+  // AR: تعرض إشعارًا علويًا باستخدام awesome_snackbar_content.
   static void show(
     BuildContext context,
     String message, {
@@ -14,242 +23,300 @@ class TopSnackBar {
     Color? textColor,
     IconData? icon,
     Duration? duration = const Duration(seconds: 3),
+    String? dedupeKey,
+    Duration dedupeDuration = const Duration(minutes: 10),
   }) {
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
-    if (overlay == null) return;
 
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final brightness = theme.brightness;
-    final isDark = brightness == Brightness.dark;
-
-    final Color accent = backgroundColor ?? colorScheme.primary;
-    final bool hasCustomBg = backgroundColor != null;
-    final Color bg = hasCustomBg
-        ? (isDark
-              ? Color.alphaBlend(Colors.black.withAlpha(34), accent)
-              : Color.alphaBlend(Colors.white.withAlpha(12), accent))
-        : (isDark ? const Color(0xFF0F131A) : const Color(0xFFFFFFFF));
-    final Brightness bgBrightness = ThemeData.estimateBrightnessForColor(bg);
-    final Color fg =
-        textColor ??
-        (bgBrightness == Brightness.dark
-            ? Colors.white
-            : const Color(0xFF0F172A));
-
-    if (_activeEntry?.mounted ?? false) {
-      _activeEntry?.remove();
-      _activeEntry = null;
+    final contentType = _resolveContentType(
+      backgroundColor: backgroundColor,
+      icon: icon,
+    );
+    final title = _resolveTitle(contentType);
+    final signature = '${contentType.toString()}|${message.trim()}';
+    final now = DateTime.now();
+    if (_lastSignature == signature &&
+        now.difference(_lastShownAt) < _dedupeWindow) {
+      return;
     }
+    final trimmedDedupeKey = (dedupeKey ?? '').trim();
+    if (trimmedDedupeKey.isNotEmpty) {
+      _purgeExpiredKeyedDedupe(now);
+      final until = _keyedDedupeUntil[trimmedDedupeKey];
+      if (until != null && now.isBefore(until)) {
+        return;
+      }
+      _keyedDedupeUntil[trimmedDedupeKey] = now.add(dedupeDuration);
+    }
+    _lastSignature = signature;
+    _lastShownAt = now;
 
-    late OverlayEntry entry;
-    entry = OverlayEntry(
-      builder: (context) => _TopSnackBarEntry(
-        message: message,
-        backgroundColor: bg,
-        textColor: fg,
-        accentColor: accent,
-        isDarkMode: isDark,
-        icon: icon,
+    if (overlay == null) {
+      _showFallbackSnackBar(
+        context,
+        message,
+        contentType: contentType,
         duration: duration,
-        onClose: () {
-          if (_activeEntry == entry) {
-            _activeEntry = null;
-          }
-          if (entry.mounted) entry.remove();
-        },
-      ),
-    );
-
-    _activeEntry = entry;
-    overlay.insert(entry);
-  }
-
-  // EN: Dismisses current top snack bar if visible.
-  // AR: تغلق الإشعار العلوي الحالي إن كان ظاهرًا.
-  static void dismiss() {
-    if (_activeEntry?.mounted ?? false) {
-      _activeEntry?.remove();
+        backgroundColor: backgroundColor,
+        textColor: textColor,
+        icon: icon,
+      );
+      return;
     }
-    _activeEntry = null;
-  }
-}
 
-class _TopSnackBarEntry extends StatefulWidget {
-  final String message;
-  final Color backgroundColor;
-  final Color textColor;
-  final Color accentColor;
-  final bool isDarkMode;
-  final IconData? icon;
-  final Duration? duration;
-  final VoidCallback onClose;
+    _dismissTimer?.cancel();
+    _activeEntry?.remove();
 
-  // EN: Creates TopSnackBarEntry.
-  // AR: ينشئ TopSnackBarEntry.
-  const _TopSnackBarEntry({
-    required this.message,
-    required this.backgroundColor,
-    required this.textColor,
-    required this.accentColor,
-    required this.isDarkMode,
-    required this.duration,
-    required this.onClose,
-    this.icon,
-  });
-
-  // EN: Creates state object.
-  // AR: تنشئ كائن الحالة.
-  @override
-  State<_TopSnackBarEntry> createState() => _TopSnackBarEntryState();
-}
-
-class _TopSnackBarEntryState extends State<_TopSnackBarEntry>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<Offset> _slide;
-  late final Animation<double> _fade;
-  late final Animation<double> _scale;
-  bool _closed = false;
-
-  // EN: Initializes animation state.
-  // AR: تهيّئ حالة التحريك.
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 430),
-      reverseDuration: const Duration(milliseconds: 240),
-    );
-    _slide = Tween<Offset>(
-      begin: const Offset(0, -0.75),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
-    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
-    _scale = Tween<double>(
-      begin: 0.88,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-    _controller.forward();
-
-    final duration = widget.duration;
-    if (duration != null) {
-      Future.delayed(duration, () {
-        if (!mounted || _closed) return;
-        _dismiss();
-      });
-    }
-  }
-
-  // EN: Disposes animation resources.
-  // AR: تنهي موارد التحريك.
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  // EN: Closes the overlay entry.
-  // AR: تغلق طبقة الإشعار.
-  void _close() {
-    if (_closed) return;
-    _closed = true;
-    widget.onClose();
-  }
-
-  Future<void> _dismiss() async {
-    if (_closed) return;
-    if (_controller.status != AnimationStatus.dismissed) {
-      await _controller.reverse();
-    }
-    _close();
-  }
-
-  // EN: Builds the top snack bar UI.
-  // AR: تبني واجهة الإشعار العلوي.
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      top: 0,
-      left: 4,
-      right: 4,
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: SlideTransition(
-            position: _slide,
-            child: FadeTransition(
-              opacity: _fade,
-              child: Center(
+    _activeEntry = OverlayEntry(
+      builder: (overlayContext) {
+        final media = MediaQuery.maybeOf(overlayContext);
+        final top = (media?.padding.top ?? 0) + 8;
+        return Positioned(
+          top: top,
+          left: 12,
+          right: 12,
+          child: Material(
+            color: Colors.transparent,
+            child: SafeArea(
+              bottom: false,
+              child: Align(
+                alignment: Alignment.topCenter,
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  child: ScaleTransition(
-                    scale: _scale,
-                    child: GestureDetector(
-                      onTap: _dismiss,
-                      child: Material(
-                        color: widget.backgroundColor,
-                        borderRadius: BorderRadius.circular(30),
-                        clipBehavior: Clip.antiAlias,
-                        elevation: 14,
-                        shadowColor: widget.isDarkMode
-                            ? Colors.black.withAlpha(70)
-                            : Colors.black.withAlpha(26),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.max,
-                              children: [
-                                Container(
-                                  width: 28,
-                                  height: 28,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: widget.accentColor.withAlpha(
-                                      widget.isDarkMode ? 54 : 66,
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    widget.icon ?? Icons.notifications_active,
-                                    color: widget.textColor,
-                                    size: 16,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    widget.message,
-                                    textAlign: TextAlign.center,
-                                    maxLines: 3,
-                                    overflow: TextOverflow.ellipsis,
-                                    softWrap: true,
-                                    style: TextStyle(
-                                      color: widget.textColor,
-                                      fontFamily: 'Cairo',
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 13.5,
-                                      height: 1.25,
-                                      decoration: TextDecoration.none,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: GestureDetector(
+                    onTap: dismiss,
+                    child: kIsWeb
+                        ? _buildWebTopToast(
+                            message: message,
+                            contentType: contentType,
+                            icon: icon,
+                            backgroundColor: backgroundColor,
+                            textColor: textColor,
+                          )
+                        : AwesomeSnackbarContent(
+                            title: title,
+                            message: message,
+                            contentType: contentType,
+                            inMaterialBanner: false,
+                            titleTextStyle: TextStyle(
+                              color: textColor ?? Colors.white,
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
+                            messageTextStyle: TextStyle(
+                              color: textColor ?? Colors.white,
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
                             ),
                           ),
-                        ),
-                      ),
-                    ),
                   ),
                 ),
               ),
             ),
           ),
+        );
+      },
+    );
+    overlay.insert(_activeEntry!);
+
+    if (duration != null) {
+      _dismissTimer = Timer(duration, dismiss);
+    }
+  }
+
+  static Widget _buildWebTopToast({
+    required String message,
+    required ContentType contentType,
+    required IconData? icon,
+    required Color? backgroundColor,
+    required Color? textColor,
+  }) {
+    final fg = textColor ?? Colors.white;
+    final bg = backgroundColor ?? _resolveBgColor(contentType);
+    final effectiveIcon = icon ?? _resolveIcon(contentType);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: bg.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x55000000),
+            blurRadius: 14,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Row(
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            Icon(effectiveIcon, color: fg, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: fg,
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  static void _showFallbackSnackBar(
+    BuildContext context,
+    String message, {
+    required ContentType contentType,
+    required Duration? duration,
+    required Color? backgroundColor,
+    required Color? textColor,
+    required IconData? icon,
+  }) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+
+    final fg = textColor ?? Colors.white;
+    final bg = (backgroundColor ?? _resolveBgColor(contentType)).withValues(
+      alpha: 0.96,
+    );
+    final effectiveIcon = icon ?? _resolveIcon(contentType);
+
+    messenger.hideCurrentSnackBar(reason: SnackBarClosedReason.hide);
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: bg,
+        duration: duration ?? const Duration(seconds: 3),
+        content: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Row(
+            children: [
+              Icon(effectiveIcon, color: fg),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: TextStyle(
+                    color: fg,
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Color _resolveBgColor(ContentType contentType) {
+    switch (contentType) {
+      case ContentType.success:
+        return const Color(0xFF148F58);
+      case ContentType.failure:
+        return const Color(0xFFC0392B);
+      case ContentType.warning:
+        return const Color(0xFFD68910);
+      case ContentType.help:
+        return const Color(0xFF265D97);
+    }
+    return const Color(0xFF265D97);
+  }
+
+  static IconData _resolveIcon(ContentType contentType) {
+    switch (contentType) {
+      case ContentType.success:
+        return Icons.check_circle_rounded;
+      case ContentType.failure:
+        return Icons.error_rounded;
+      case ContentType.warning:
+        return Icons.warning_amber_rounded;
+      case ContentType.help:
+        return Icons.notifications_rounded;
+    }
+    return Icons.notifications_rounded;
+  }
+
+  // EN: Dismisses current top snack bar if visible.
+  // AR: تغلق الإشعار العلوي الحالي إن كان ظاهرًا.
+  static void dismiss() {
+    _dismissTimer?.cancel();
+    _dismissTimer = null;
+    _activeEntry?.remove();
+    _activeEntry = null;
+  }
+
+  static void _purgeExpiredKeyedDedupe(DateTime now) {
+    if (_keyedDedupeUntil.isEmpty) return;
+    final expired = <String>[];
+    _keyedDedupeUntil.forEach((key, until) {
+      if (!now.isBefore(until)) {
+        expired.add(key);
+      }
+    });
+    for (final key in expired) {
+      _keyedDedupeUntil.remove(key);
+    }
+  }
+
+  static ContentType _resolveContentType({
+    required Color? backgroundColor,
+    required IconData? icon,
+  }) {
+    if (backgroundColor != null) {
+      final hsl = HSLColor.fromColor(backgroundColor);
+      final hue = hsl.hue;
+      final saturation = hsl.saturation;
+      if (saturation < 0.15) {
+        return ContentType.help;
+      }
+      if (hue <= 25 || hue >= 330) {
+        return ContentType.failure;
+      }
+      if (hue >= 35 && hue <= 75) {
+        return ContentType.warning;
+      }
+      if (hue >= 76 && hue <= 170) {
+        return ContentType.success;
+      }
+      return ContentType.help;
+    }
+
+    if (icon != null) {
+      if (icon == Icons.check_circle ||
+          icon == Icons.task_alt ||
+          icon == Icons.done_all) {
+        return ContentType.success;
+      }
+      if (icon == Icons.warning_amber_rounded ||
+          icon == Icons.warning ||
+          icon == Icons.info_outline) {
+        return ContentType.warning;
+      }
+      if (icon == Icons.error_outline ||
+          icon == Icons.cancel ||
+          icon == Icons.block) {
+        return ContentType.failure;
+      }
+    }
+
+    return ContentType.help;
+  }
+
+  static String _resolveTitle(ContentType contentType) {
+    return '';
   }
 }

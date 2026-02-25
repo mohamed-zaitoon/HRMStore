@@ -1,10 +1,9 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:hrmstoreapp/core/app_info.dart';
+import 'package:hrmstoreapp/core/app_navigator.dart';
 import 'package:hrmstoreapp/core/tt_colors.dart';
-import '../../services/remote_config_service.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/snow_background.dart';
@@ -14,24 +13,8 @@ class PrivacyScreen extends StatelessWidget {
   // AR: ينشئ PrivacyScreen.
   const PrivacyScreen({super.key});
 
-  static const String _fallbackSupportEmail = 'contact@mohamedzaitoon.com';
-
-  // EN: Sends Email.
-  // AR: ترسل Email.
-  Future<void> _sendEmail() async {
-    final supportEmail = RemoteConfigService.instance.supportEmail.isNotEmpty
-        ? RemoteConfigService.instance.supportEmail
-        : _fallbackSupportEmail;
-    final Uri emailLaunchUri = Uri(
-      scheme: 'mailto',
-      path: supportEmail,
-      query: 'subject=استفسار بخصوص تطبيق ${AppInfo.appName}',
-    );
-    try {
-      await launchUrl(emailLaunchUri);
-    } catch (e) {
-      debugPrint("Could not launch email: $e");
-    }
+  void _openSupportChat(BuildContext context) {
+    AppNavigator.pushNamed(context, '/support_inquiry');
   }
 
   // EN: Builds widget UI.
@@ -73,7 +56,7 @@ class PrivacyScreen extends StatelessWidget {
                         "1. البيانات التي نقوم بجمعها",
                         "لإتمام عملية الشحن، نحتاج إلى جمع البيانات التالية:\n"
                             "• الاسم: لتعريف صاحب الطلب.\n"
-                            "• رقم الواتساب: للتواصل معك في حال وجود مشكلة في الطلب أو لإرسال التحديثات.\n"
+                            "• رقم الواتساب: لتعريف حسابك وربط الطلبات والإشعارات داخل التطبيق.\n"
                             "• اسم مستخدم تيك توك (User/Link): لتوجيه الدعم/النقاط للحساب الصحيح.\n"
                             "• صور إيصالات التحويل: لإثبات الدفع وإتمام العملية.",
                       ),
@@ -117,21 +100,10 @@ class PrivacyScreen extends StatelessWidget {
                         ),
                       ),
 
-                      const SizedBox(height: 10),
-
-                      Text(
-                        "إذا كان لديك أي أسئلة حول سياسة الخصوصية أو تحتاج إلى مساعدة، اضغط للتواصل معانا.",
-                        style: TextStyle(
-                          color: TTColors.textGray,
-                          fontFamily: 'Cairo',
-                          height: 1.6,
-                        ),
-                      ),
-
                       const SizedBox(height: 15),
 
                       InkWell(
-                        onTap: _sendEmail,
+                        onTap: () => _openSupportChat(context),
                         borderRadius: BorderRadius.circular(10),
                         child: Container(
                           padding: const EdgeInsets.all(15),
@@ -154,7 +126,7 @@ class PrivacyScreen extends StatelessWidget {
 
                               Expanded(
                                 child: Text(
-                                  "اضغط للتواصل معانا",
+                                  "تواصل مع الدعم",
                                   style: TextStyle(
                                     color: TTColors.textWhite,
                                     fontFamily: 'Cairo',

@@ -16,6 +16,13 @@ class OneSignalWebBridge {
     await _callPromise('hrmstoreOneSignalLogin', [externalId]);
   }
 
+  // EN: Sets user tags for fallback targeting.
+  // AR: تضبط وسوم المستخدم للاستهداف الاحتياطي.
+  static Future<void> setTags(Map<String, String> tags) async {
+    if (tags.isEmpty) return;
+    await _callPromise('hrmstoreOneSignalSetTags', [tags]);
+  }
+
   // EN: Handles logout.
   // AR: تتعامل مع logout.
   static Future<void> logout() async {

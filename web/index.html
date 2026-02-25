@@ -137,6 +137,29 @@
       });
     };
 
+    window.hrmstoreOneSignalSetTags = function (tags) {
+      return new Promise(function (resolve) {
+        if (!hrmstoreOneSignalReady || !tags || typeof tags !== 'object') {
+          resolve(false);
+          return;
+        }
+        hrmstoreOneSignalWithSdk(async function (OneSignal) {
+          try {
+            if (OneSignal?.User?.addTags) {
+              await OneSignal.User.addTags(tags);
+            } else if (OneSignal?.User?.addTag) {
+              for (const [key, value] of Object.entries(tags)) {
+                await OneSignal.User.addTag(String(key), String(value));
+              }
+            }
+          } catch (e) {
+            console.warn('OneSignal set tags skipped', e);
+          }
+          resolve(true);
+        });
+      });
+    };
+
     window.hrmstoreOneSignalLogout = function () {
       return new Promise(function (resolve) {
         if (!hrmstoreOneSignalReady) { resolve(false); return; }

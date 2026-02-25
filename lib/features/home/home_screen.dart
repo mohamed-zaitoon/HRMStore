@@ -1,59 +1,43 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
+import 'package:icons_plus/icons_plus.dart';
+import 'package:material_dialogs/material_dialogs.dart';
+import 'package:material_dialogs/shared/types.dart';
+import 'package:material_dialogs/widgets/dialogs/dialog_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/constants.dart';
 import '../../core/tt_colors.dart';
 import '../../core/app_info.dart';
+import '../../core/app_navigator.dart';
 import '../../models/game_package.dart';
 import '../../services/cancel_limit_service.dart';
 import '../../services/cloudflare_notify_service.dart';
+import '../../services/easy_loading_service.dart';
+import '../../services/order_chat_service.dart';
 import '../../services/remote_config_service.dart';
-import '../../services/receipt_storage_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/theme_service.dart';
 import '../../services/update_manager.dart';
+import '../../services/usdt_price_service.dart';
 import '../../utils/html_meta.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/theme_mode_sheet.dart';
-import '../../widgets/glass_bottom_sheet.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
 import '../../utils/url_sanitizer.dart';
 import '../../widgets/top_snackbar.dart';
-
-const MethodChannel _androidChannel = MethodChannel('tt_android_info');
-
-// EN: Handles read File Bytes From Content Uri.
-// AR: تتعامل مع read File Bytes From Content Uri.
-Future<Uint8List?> _readFileBytesFromContentUri(String uri) async {
-  try {
-    final dynamic result = await _androidChannel.invokeMethod(
-      'readFileAsBytes',
-      {'uri': uri},
-    );
-    if (result == null) return null;
-    if (result is Uint8List) return result;
-    if (result is List<int>) return Uint8List.fromList(List<int>.from(result));
-    return null;
-  } catch (e) {
-    debugPrint('readFileBytesFromContentUri error: $e');
-    return null;
-  }
-}
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -88,7 +72,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  static const double _dialogActionsSpacing = 12;
 
   bool _isPointsMode = true;
   bool _isDiscountActive = false;
@@ -96,7 +79,6 @@ class _HomeScreenState extends State<HomeScreen>
   static const int _minPoints = 100;
   static const int _maxPoints = 2500000;
   static const int _manualContactPointsThreshold = 130000;
-  static const int _walletTransferLimitEg = 30000;
   static const String _tiktokChargeModeLink = 'link';
   static const String _tiktokChargeModeQr = 'qr';
   static const String _tiktokChargeModeUserPass = 'username_password';
@@ -140,6 +122,18 @@ class _HomeScreenState extends State<HomeScreen>
   _balancePointsByWhatsappSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _pricesSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _offersSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _orderStatusWatchSub;
+  bool _isPricesLoading = true;
+  bool _hasPricesError = false;
+  String _pricesStatusMessage = '';
+  VoidCallback? _activeTiktokDialogRefresh;
+  final Map<String, String> _orderStatusById = <String, String>{};
+  final Set<String> _processingOrdersOpenedForChat = <String>{};
+  bool _orderStatusWatchPrimed = false;
+  bool _supportChatNavigationInProgress = false;
+
+  bool get _arePricesReady =>
+      !_isPricesLoading && !_hasPricesError && _prices.isNotEmpty;
 
   bool get _isPromoOffersEnabled => _offersEnabled;
 
@@ -168,6 +162,96 @@ class _HomeScreenState extends State<HomeScreen>
     return value.isEmpty ? 'اضغط لطلب كود الخصم الخاص بك' : value;
   }
 
+  String _resolvedPricesStatusMessage() {
+    if (_isPricesLoading) {
+      return 'جاري تحميل الأسعار...';
+    }
+    final value = _pricesStatusMessage.trim();
+    if (value.isNotEmpty) {
+      return value;
+    }
+    return 'تعذر تحميل الأسعار حالياً';
+  }
+
+  void _refreshActiveTiktokDialog() {
+    _activeTiktokDialogRefresh?.call();
+  }
+
+  void _resetTiktokDialogCalculationState({bool refreshDialog = true}) {
+    if (!mounted) return;
+    setState(() {
+      _inputCtrl.clear();
+      _promoCtrl.clear();
+      _resultText = '';
+      _isInputValid = false;
+      _pointsValue = null;
+      _priceValue = null;
+      _selectedPackage = null;
+      _selectedGameId = null;
+      _isBalanceTopupOrder = false;
+      _isPointsMode = true;
+    });
+    if (refreshDialog) {
+      _refreshActiveTiktokDialog();
+    }
+  }
+
+  void _startOrderStatusWatcher() {
+    final whatsapp = widget.whatsapp.trim();
+    if (whatsapp.isEmpty) return;
+
+    _orderStatusWatchSub?.cancel();
+    _orderStatusById.clear();
+    _orderStatusWatchPrimed = false;
+
+    _orderStatusWatchSub = FirebaseFirestore.instance
+        .collection('orders')
+        .where('user_whatsapp', isEqualTo: whatsapp)
+        .snapshots()
+        .listen((snapshot) {
+          if (!_orderStatusWatchPrimed) {
+            for (final doc in snapshot.docs) {
+              final data = doc.data();
+              _orderStatusById[doc.id] = (data['status'] ?? '')
+                  .toString()
+                  .trim();
+            }
+            _orderStatusWatchPrimed = true;
+            return;
+          }
+
+          for (final change in snapshot.docChanges) {
+            final docId = change.doc.id;
+            if (change.type == DocumentChangeType.removed) {
+              _orderStatusById.remove(docId);
+              _processingOrdersOpenedForChat.remove(docId);
+              continue;
+            }
+
+            final data = change.doc.data() ?? <String, dynamic>{};
+            final status = (data['status'] ?? '').toString().trim();
+            final previousStatus = _orderStatusById[docId] ?? '';
+            _orderStatusById[docId] = status;
+
+            if (status == 'processing' && previousStatus != 'processing') {
+              _autoOpenSupportChatForProcessingOrder(docId);
+            }
+          }
+        }, onError: (error, stackTrace) {});
+  }
+
+  void _autoOpenSupportChatForProcessingOrder(String orderId) {
+    final trimmedOrderId = orderId.trim();
+    if (trimmedOrderId.isEmpty || !mounted) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
+    if (_processingOrdersOpenedForChat.contains(trimmedOrderId)) return;
+    _processingOrdersOpenedForChat.add(trimmedOrderId);
+    unawaited(
+      _openSupportChat(orderId: trimmedOrderId, autoOpenedByStatus: true),
+    );
+  }
+
   void _updateWebMetaDescription() {
     if (!kIsWeb) return;
     setMetaDescription(
@@ -192,6 +276,7 @@ class _HomeScreenState extends State<HomeScreen>
       NotificationService.listenToUserOrders(widget.whatsapp);
       NotificationService.listenToUserRamadanCodes(widget.whatsapp);
       unawaited(NotificationService.initUserNotifications(widget.whatsapp));
+      _startOrderStatusWatcher();
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -214,6 +299,8 @@ class _HomeScreenState extends State<HomeScreen>
     _balancePointsByWhatsappSub?.cancel();
     _pricesSub?.cancel();
     _offersSub?.cancel();
+    _orderStatusWatchSub?.cancel();
+    _activeTiktokDialogRefresh = null;
     _inputCtrl.dispose();
     _promoCtrl.dispose();
     _nameCtrl.dispose();
@@ -259,17 +346,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  // EN: Handles try Get Android Sdk Int.
-  // AR: تتعامل مع try Get Android Sdk Int.
-  Future<int?> _tryGetAndroidSdkInt() async {
-    try {
-      final sdk = await _androidChannel.invokeMethod<int>('getSdkInt');
-      return sdk;
-    } catch (_) {
-      return null;
-    }
-  }
-
   // EN: Shows Custom Toast.
   // AR: تعرض Custom Toast.
   void _showCustomToast(
@@ -296,35 +372,6 @@ class _HomeScreenState extends State<HomeScreen>
       icon: icon,
       duration: duration,
     );
-  }
-
-  Future<bool> _verifyReceiptAvailableForAdmin({
-    required String orderId,
-    required String receiptPath,
-  }) async {
-    for (var i = 0; i < 7; i++) {
-      try {
-        final snap = await FirebaseFirestore.instance
-            .collection('orders')
-            .doc(orderId)
-            .get(const GetOptions(source: Source.server));
-
-        final data = snap.data();
-        final savedPath = (data?['receipt_path'] ?? '').toString().trim();
-        final savedUrl = (data?['receipt_url'] ?? '').toString().trim();
-        final savedStatus = (data?['status'] ?? '').toString().trim();
-
-        if (savedPath == receiptPath &&
-            savedUrl.isNotEmpty &&
-            savedStatus == 'pending_review') {
-          return true;
-        }
-      } catch (_) {}
-
-      await Future<void>.delayed(const Duration(milliseconds: 450));
-    }
-
-    return false;
   }
 
   Future<T?> _showBlurDialog<T>({
@@ -359,6 +406,334 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildMaterialDialogCard(
+    BuildContext context, {
+    String? title,
+    required Widget content,
+    List<Widget>? actions,
+    TextStyle? titleStyle,
+  }) {
+    final size = MediaQuery.sizeOf(context);
+    final maxWidth = _resolveDialogMaxWidthForWeb(size: size, requested: 560);
+    final constrainedContent = ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: content,
+    );
+
+    return AlertDialog(
+      backgroundColor: TTColors.cardBg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: kIsWeb ? 20 : 16,
+        vertical: 20,
+      ),
+      titlePadding: title == null
+          ? EdgeInsets.zero
+          : const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      title: title == null
+          ? null
+          : Text(
+              title,
+              style:
+                  titleStyle ??
+                  const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                  ),
+            ),
+      content: constrainedContent,
+      actions: actions,
+      actionsAlignment: MainAxisAlignment.end,
+      actionsOverflowAlignment: OverflowBarAlignment.end,
+      actionsOverflowDirection: VerticalDirection.down,
+      actionsOverflowButtonSpacing: 8,
+      buttonPadding: const EdgeInsets.symmetric(horizontal: 8),
+    );
+  }
+
+  double _resolveDialogMaxWidthForWeb({
+    required Size size,
+    required double requested,
+  }) {
+    if (!kIsWeb) return requested;
+    final cappedRequested = math.min(requested, 500.0);
+    final available = math.max(320.0, size.width - 40);
+    return math.min(cappedRequested, available);
+  }
+
+  Future<void> _openAccountDialog() async {
+    if (!mounted) return;
+    AppNavigator.pushNamed(context, '/account');
+  }
+
+  Future<void> _openAboutDialog() async {
+    if (!mounted) return;
+    if (kIsWeb) return;
+    AppNavigator.pushNamed(context, '/about');
+  }
+
+  Future<void> _openTiktokDialog() async {
+    if (!mounted) return;
+    AppNavigator.pushNamed(
+      context,
+      '/home/tiktok',
+      arguments: _homeRouteArguments(forceTikTokCharge: true),
+    );
+  }
+
+  Future<void> _openGamesDialog() async {
+    if (!mounted) return;
+    AppNavigator.pushNamed(
+      context,
+      '/home/games',
+      arguments: _homeRouteArguments(showGamesOnly: true),
+    );
+  }
+
+  void _toggleInputMode() {
+    setState(() {
+      _isPointsMode = !_isPointsMode;
+      _inputCtrl.clear();
+      _resultText = "";
+      _isInputValid = false;
+      _pointsValue = null;
+      _priceValue = null;
+    });
+  }
+
+  Widget _buildTiktokChargeFormContent({
+    required bool includeAppName,
+    BuildContext? closeContext,
+    VoidCallback? refreshDialog,
+  }) {
+    final String? pricesStatusText = _arePricesReady
+        ? null
+        : _resolvedPricesStatusMessage();
+    final Color pricesStatusColor = _hasPricesError
+        ? Colors.orangeAccent
+        : TTColors.textGray;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (includeAppName) ...[
+          const SizedBox(height: 20),
+          Text(
+            AppInfo.appName,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: TTColors.textWhite,
+              fontFamily: 'Cairo',
+            ),
+          ),
+          const SizedBox(height: 30),
+        ],
+        TextField(
+          controller: _inputCtrl,
+          onChanged: (val) {
+            _recompute(val);
+            refreshDialog?.call();
+          },
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: InputDecoration(
+            labelText: _isPointsMode
+                ? "ادخل عدد النقاط المطلوب"
+                : "ادخل المبلغ الذي معك",
+          ),
+        ),
+        const SizedBox(height: 15),
+        if (pricesStatusText != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              pricesStatusText,
+              style: TextStyle(
+                color: pricesStatusColor,
+                fontFamily: 'Cairo',
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        if (_resultText.isNotEmpty && _resultText != pricesStatusText)
+          Text(
+            _resultText,
+            style: TextStyle(
+              color: _isInputValid ? TTColors.textWhite : Colors.red,
+              fontSize: 18,
+              fontFamily: 'Cairo',
+            ),
+          ),
+        _buildLargePointsWarningCard(),
+        if (_showPromoCodeSection)
+          GlassCard(
+            margin: const EdgeInsets.symmetric(vertical: 10),
+            padding: const EdgeInsets.all(14),
+            borderColor: TTColors.goldAccent.withAlpha(160),
+            child: Column(
+              children: [
+                Text(
+                  _offersCardTitle,
+                  style: TextStyle(
+                    color: TTColors.goldAccent,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                  ),
+                ),
+                if (!_isDiscountActive) ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _promoCtrl,
+                    decoration: const InputDecoration(
+                      labelText: "الكود الذهبي",
+                      prefixIcon: Icon(Icons.vpn_key, color: Color(0xFFFFD700)),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ElevatedButton(
+                    onPressed: () async {
+                      await _activatePromo();
+                      refreshDialog?.call();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFFD700),
+                      foregroundColor: Colors.black,
+                    ),
+                    child: const Text("تفعيل"),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _requestDiscountCode,
+                      icon: const Icon(Icons.card_giftcard),
+                      label: Text(
+                        _offersRequestButtonTitle,
+                        textAlign: TextAlign.center,
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFFFD700),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ] else
+                  const Text(
+                    "✅ تم التفعيل!",
+                    style: TextStyle(color: Color(0xFFFFD700)),
+                  ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 20),
+        TextButton.icon(
+          onPressed: () {
+            _toggleInputMode();
+            refreshDialog?.call();
+          },
+          icon: const Icon(Icons.swap_vert),
+          label: const Text("تبديل النمط"),
+        ),
+        const SizedBox(height: 20),
+        const SizedBox(height: 14),
+        ElevatedButton(
+          onPressed: (_arePricesReady && _isInputValid)
+              ? () async {
+                  final bool isDialogMode = closeContext != null;
+                  if (closeContext != null && Navigator.canPop(closeContext)) {
+                    Navigator.pop(closeContext);
+                  }
+                  await _startCheckoutFlow();
+                  if (isDialogMode) {
+                    _resetTiktokDialogCalculationState(refreshDialog: false);
+                  }
+                }
+              : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            foregroundColor: Theme.of(context).colorScheme.onPrimary,
+            minimumSize: const Size(double.infinity, 50),
+          ),
+          child: const Text(
+            "طلب الشحن",
+            style: TextStyle(fontSize: 18, fontFamily: 'Cairo'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _closeRouteDialogPage() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+      return;
+    }
+    AppNavigator.pushReplacementNamed(
+      context,
+      '/home',
+      arguments: _homeRouteArguments(),
+    );
+  }
+
+  Widget _buildRouteDialogPage({
+    required String title,
+    required Widget child,
+    double maxWidth = 620,
+    bool contentScrollable = true,
+    bool showAccountAction = false,
+    bool showThemeAction = false,
+    bool showAboutAction = false,
+  }) {
+    final size = MediaQuery.sizeOf(context);
+    Widget content = ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: maxWidth,
+        maxHeight: size.height * (kIsWeb ? 0.78 : 0.84),
+      ),
+      child: child,
+    );
+    if (contentScrollable) {
+      content = SingleChildScrollView(child: content);
+    }
+
+    return Scaffold(
+      key: _scaffoldKey,
+      appBar: _buildCompactAppBar(
+        showBack: true,
+        showLogout: false,
+        title: title,
+        showAccountAction: showAccountAction,
+        showThemeAction: showThemeAction,
+        showAboutAction: showAboutAction,
+      ),
+      body: Stack(
+        children: [
+          const SnowBackground(),
+          SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 18,
+                ),
+                child: GlassCard(
+                  margin: EdgeInsets.zero,
+                  padding: const EdgeInsets.all(16),
+                  child: content,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   bool _ensureTiktokHandle() {
     if (_isGameOrder || _isPromoOrder || _isBalanceTopupOrder) return true;
     final tiktok = _tiktokCtrl.text.trim();
@@ -367,7 +742,10 @@ class _HomeScreenState extends State<HomeScreen>
       SharedPreferences.getInstance().then((p) {
         final saved = (p.getString('user_tiktok') ?? '').trim();
         if (saved.isEmpty) {
-          _showCustomToast("يوزر تيك توك مطلوب", color: Colors.orange);
+          _showCustomToast(
+            "حساب تيك توك غير مضاف، حدثه من صفحة حسابي",
+            color: Colors.orange,
+          );
         } else {
           _tiktokCtrl.text = saved;
         }
@@ -574,7 +952,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  Future<bool> _createOrderWithOptionalPoints({
+  Future<String?> _createOrderWithOptionalPoints({
     required Map<String, dynamic> payload,
     int pointsToDeduct = 0,
     String? orderId,
@@ -591,22 +969,25 @@ class _HomeScreenState extends State<HomeScreen>
           await createdOrderRef.set(payload, SetOptions(merge: true));
         }
         unawaited(
+          _seedOrderChatThread(orderId: createdOrderRef.id, payload: payload),
+        );
+        unawaited(
           CloudflareNotifyService.notifyAdminsNewOrder(
             orderId: createdOrderRef.id,
             order: payload,
           ),
         );
-        return true;
+        return createdOrderRef.id;
       } catch (_) {
         _showCustomToast("تعذر إنشاء الطلب، حاول مجددًا", color: Colors.red);
-        return false;
+        return null;
       }
     }
 
     final userRef = await _resolveUserDocRef();
     if (userRef == null) {
       _showCustomToast("تعذر الوصول إلى رصيد النقاط", color: Colors.red);
-      return false;
+      return null;
     }
 
     try {
@@ -635,13 +1016,14 @@ class _HomeScreenState extends State<HomeScreen>
       if (mounted) {
         setState(() => _balancePoints = nextBalance);
       }
+      unawaited(_seedOrderChatThread(orderId: orderRef.id, payload: payload));
       unawaited(
         CloudflareNotifyService.notifyAdminsNewOrder(
           orderId: orderRef.id,
           order: payload,
         ),
       );
-      return true;
+      return orderRef.id;
     } on StateError catch (e) {
       if (e.message == 'insufficient-points') {
         await _refreshBalancePoints(forceServer: true);
@@ -649,13 +1031,13 @@ class _HomeScreenState extends State<HomeScreen>
           "رصيد النقاط غير كافٍ. حدّث الرصيد ثم حاول مرة أخرى.",
           color: Colors.orange,
         );
-        return false;
+        return null;
       }
       _showCustomToast("تعذر إنشاء الطلب، حاول مجددًا", color: Colors.red);
-      return false;
+      return null;
     } catch (_) {
       _showCustomToast("تعذر إنشاء الطلب، حاول مجددًا", color: Colors.red);
-      return false;
+      return null;
     }
   }
 
@@ -671,23 +1053,60 @@ class _HomeScreenState extends State<HomeScreen>
   // EN: Fetches Data.
   // AR: تجلب Data.
   Future<void> _fetchData() async {
-    await _refreshRemoteConfigValues();
+    await _refreshRemoteConfigValues(forceUsdtRefresh: true);
     await _listenToOffers();
+
+    if (mounted) {
+      setState(() {
+        _isPricesLoading = true;
+        _hasPricesError = false;
+        _pricesStatusMessage = 'جاري تحميل الأسعار...';
+      });
+    }
+    _refreshActiveTiktokDialog();
 
     await _pricesSub?.cancel();
     _pricesSub = FirebaseFirestore.instance
         .collection('prices')
         .orderBy('min')
         .snapshots()
-        .listen((snap) {
-          if (!mounted) return;
-          setState(() {
-            _prices = snap.docs.map((d) => d.data()).toList();
-          });
-          _maybePrefillPoints();
-          if (_inputCtrl.text.isNotEmpty) _recompute(_inputCtrl.text);
-          _maybeAutolaunchPayment();
-        });
+        .listen(
+          (snap) {
+            if (!mounted) return;
+            final nextPrices = snap.docs.map((d) => d.data()).toList();
+            setState(() {
+              _prices = nextPrices;
+              _isPricesLoading = false;
+              if (nextPrices.isEmpty) {
+                _hasPricesError = true;
+                _pricesStatusMessage = 'تعذر تحميل الأسعار حالياً';
+              } else {
+                _hasPricesError = false;
+                _pricesStatusMessage = '';
+                if (_inputCtrl.text.isEmpty) {
+                  _resultText = '';
+                  _isInputValid = false;
+                }
+              }
+            });
+            _maybePrefillPoints();
+            if (_inputCtrl.text.isNotEmpty) _recompute(_inputCtrl.text);
+            _maybeAutolaunchPayment();
+            _refreshActiveTiktokDialog();
+          },
+          onError: (Object _, StackTrace stackTrace) {
+            if (!mounted) return;
+            setState(() {
+              _prices = [];
+              _isPricesLoading = false;
+              _hasPricesError = true;
+              _pricesStatusMessage = 'تعذر تحميل الأسعار، حاول تحديث الصفحة';
+              _isInputValid = false;
+              _resultText = _inputCtrl.text.isEmpty ? '' : _pricesStatusMessage;
+            });
+            _refreshActiveTiktokDialog();
+          },
+        );
   }
 
   double? _tryReadDouble(dynamic value) {
@@ -740,6 +1159,10 @@ class _HomeScreenState extends State<HomeScreen>
           : requestCta;
     });
     _updateWebMetaDescription();
+    if (_isDiscountActive && _inputCtrl.text.isNotEmpty) {
+      _recompute(_inputCtrl.text);
+    }
+    _refreshActiveTiktokDialog();
   }
 
   Future<void> _listenToOffers() async {
@@ -765,7 +1188,24 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  Future<void> _refreshRemoteConfigValues() async {
+  Future<void> _refreshUsdtPriceFromExternal({
+    bool forceRefresh = false,
+  }) async {
+    final externalPrice = await UsdtPriceService.fetchDiscountedEgpPrice(
+      forceRefresh: forceRefresh,
+    );
+    if (!mounted) return;
+
+    if (externalPrice != null && externalPrice > 0) {
+      setState(() {
+        _usdtPrice = externalPrice;
+      });
+    }
+  }
+
+  Future<void> _refreshRemoteConfigValues({
+    bool forceUsdtRefresh = false,
+  }) async {
     try {
       final rc = FirebaseRemoteConfig.instance;
       await rc.setConfigSettings(
@@ -775,8 +1215,6 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
       await rc.fetchAndActivate();
-      final rcUsdtPrice = rc.getDouble('usdt_price');
-      final parsedUsdtFromString = double.tryParse(rc.getString('usdt_price'));
       final isRamadanRaw = rc.getBool('is_ramadan');
       final isEidRaw = rc.getBool('is_eid');
       final isRamadanSeason = isRamadanRaw && !isEidRaw;
@@ -785,41 +1223,73 @@ class _HomeScreenState extends State<HomeScreen>
         _walletNumber = rc.getString('wallet_number');
         _instapayLink = rc.getString('instapay_link');
         _binanceId = rc.getString('binance_id');
-        _usdtPrice = rcUsdtPrice > 0
-            ? rcUsdtPrice
-            : (parsedUsdtFromString ?? 0);
         _isRamadanSeason = isRamadanSeason;
         _isEidSeason = isEidSeason;
       });
+      await _refreshUsdtPriceFromExternal(forceRefresh: forceUsdtRefresh);
       _updateWebMetaDescription();
     } catch (e) {
       debugPrint("RemoteConfig error: $e");
+      await _refreshUsdtPriceFromExternal(forceRefresh: forceUsdtRefresh);
     }
   }
 
   Future<void> _handlePageSwipeRefresh() async {
-    await _refreshRemoteConfigValues();
+    await _refreshRemoteConfigValues(forceUsdtRefresh: true);
     await _refreshOffersFromServer();
     await _refreshBalancePoints(forceServer: true);
+
+    if (mounted) {
+      setState(() {
+        _isPricesLoading = true;
+        _hasPricesError = false;
+        _pricesStatusMessage = 'جاري تحميل الأسعار...';
+      });
+    }
+    _refreshActiveTiktokDialog();
+
     try {
       final snap = await FirebaseFirestore.instance
           .collection('prices')
           .orderBy('min')
           .get(const GetOptions(source: Source.server));
       if (mounted) {
+        final nextPrices = snap.docs.map((d) => d.data()).toList();
         setState(() {
-          _prices = snap.docs.map((d) => d.data()).toList();
+          _prices = nextPrices;
+          _isPricesLoading = false;
+          if (nextPrices.isEmpty) {
+            _hasPricesError = true;
+            _pricesStatusMessage = 'تعذر تحميل الأسعار حالياً';
+          } else {
+            _hasPricesError = false;
+            _pricesStatusMessage = '';
+            if (_inputCtrl.text.isEmpty) {
+              _resultText = '';
+              _isInputValid = false;
+            }
+          }
         });
       }
     } catch (_) {
-      // إذا فشل جلب السيرفر نكتفي بالداتا الحالية من الاستماع اللحظي.
+      if (mounted) {
+        setState(() {
+          _prices = [];
+          _isPricesLoading = false;
+          _hasPricesError = true;
+          _pricesStatusMessage = 'تعذر تحميل الأسعار، حاول التحديث مرة أخرى';
+          _isInputValid = false;
+          _resultText = _inputCtrl.text.isEmpty ? '' : _pricesStatusMessage;
+        });
+      }
     }
     _maybePrefillPoints();
     if (_inputCtrl.text.isNotEmpty) _recompute(_inputCtrl.text);
+    _refreshActiveTiktokDialog();
   }
 
   Widget _wrapWithSwipeRefresh(Widget child) {
-    return RefreshIndicator(
+    return CustomMaterialIndicator(
       onRefresh: _handlePageSwipeRefresh,
       color: TTColors.primaryCyan,
       backgroundColor: TTColors.cardBg,
@@ -861,11 +1331,7 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
+    await EasyLoadingService.show(status: 'جاري التحقق...');
 
     try {
       final docRef = FirebaseFirestore.instance
@@ -874,7 +1340,6 @@ class _HomeScreenState extends State<HomeScreen>
       final doc = await docRef.get();
 
       if (!mounted) return;
-      if (Navigator.canPop(context)) Navigator.pop(context);
 
       if (!doc.exists) {
         _showCustomToast("الكود غير صحيح ❌", color: Colors.red);
@@ -890,13 +1355,15 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() => _isDiscountActive = true);
 
       if (_inputCtrl.text.isNotEmpty) _recompute(_inputCtrl.text);
+      _refreshActiveTiktokDialog();
 
       _showCustomToast("تم التفعيل! 🎉", color: Colors.green);
     } catch (e) {
       if (!mounted) return;
-      if (Navigator.canPop(context)) Navigator.pop(context);
-
       _showCustomToast("خطأ في التحقق", color: Colors.red);
+      _refreshActiveTiktokDialog();
+    } finally {
+      await EasyLoadingService.dismiss();
     }
   }
 
@@ -915,11 +1382,7 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
+    await EasyLoadingService.show(status: 'جاري إرسال الطلب...');
 
     try {
       final existing = await FirebaseFirestore.instance
@@ -930,8 +1393,6 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (!mounted) return;
       if (existing.docs.isNotEmpty) {
-        if (Navigator.canPop(context)) Navigator.pop(context);
-
         _showCustomToast("لديك طلب قيد الانتظار", color: Colors.orange);
         return;
       }
@@ -955,15 +1416,16 @@ class _HomeScreenState extends State<HomeScreen>
       );
 
       if (!mounted) return;
-      if (Navigator.canPop(context)) Navigator.pop(context);
-
       showDialog(
         context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: TTColors.cardBg,
-          title: const Text(
-            "تم إرسال الطلب",
-            style: TextStyle(color: TTColors.goldAccent),
+        builder: (ctx) => _buildMaterialDialogCard(
+          ctx,
+          title: "تم إرسال الطلب",
+          titleStyle: const TextStyle(
+            color: TTColors.goldAccent,
+            fontFamily: 'Cairo',
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
           ),
           content: Text(
             "سيتم مراجعة طلبك، تابع قسم الأكواد.",
@@ -979,9 +1441,9 @@ class _HomeScreenState extends State<HomeScreen>
       );
     } catch (e) {
       if (!mounted) return;
-      if (Navigator.canPop(context)) Navigator.pop(context);
-
       _showCustomToast("خطأ في الطلب", color: Colors.red);
+    } finally {
+      await EasyLoadingService.dismiss();
     }
   }
 
@@ -996,8 +1458,16 @@ class _HomeScreenState extends State<HomeScreen>
     _selectedGameId = null;
     _isBalanceTopupOrder = false;
 
-    if (val.isEmpty || _prices.isEmpty) {
+    if (val.isEmpty) {
       setState(() {});
+      _refreshActiveTiktokDialog();
+      return;
+    }
+
+    if (!_arePricesReady) {
+      _resultText = _resolvedPricesStatusMessage();
+      setState(() {});
+      _refreshActiveTiktokDialog();
       return;
     }
 
@@ -1007,6 +1477,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (inputVal < _minPoints || inputVal > _maxPoints) {
         _resultText = "النقاط من $_minPoints إلى $_maxPoints";
         setState(() {});
+        _refreshActiveTiktokDialog();
         return;
       }
 
@@ -1058,6 +1529,7 @@ class _HomeScreenState extends State<HomeScreen>
         _pointsValue = bestPoints;
         _priceValue = inputVal.floor();
         setState(() {});
+        _refreshActiveTiktokDialog();
         return;
       }
 
@@ -1068,11 +1540,12 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     setState(() {});
+    _refreshActiveTiktokDialog();
   }
 
   bool get _isGameOrder => _selectedPackage != null;
   bool get _isPromoOrder => (_promoLink ?? '').isNotEmpty;
-  bool get _requiresManualWhatsappForLargePoints =>
+  bool get _requiresLargeOrderReview =>
       !_isGameOrder &&
       !_isPromoOrder &&
       !_isBalanceTopupOrder &&
@@ -1195,25 +1668,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _showOtherPackagesSheet() async {
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black54,
-      isScrollControlled: true,
-      builder: (ctx) {
-        return SafeArea(
-          child: GlassBottomSheet(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _buildGamePackagesList(closeContext: ctx),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Future<void> _handleGamePackageSelected(GamePackage pkg) async {
     await NotificationService.requestPermission();
     final id = await _promptGameId(pkg);
@@ -1236,9 +1690,9 @@ class _HomeScreenState extends State<HomeScreen>
 
     await _showBlurDialog<void>(
       barrierLabel: 'game-id-dialog',
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
-        title: Text(_gameOrderTitle(pkg)),
+      builder: (ctx) => _buildMaterialDialogCard(
+        ctx,
+        title: _gameOrderTitle(pkg),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
@@ -1250,7 +1704,6 @@ class _HomeScreenState extends State<HomeScreen>
             onPressed: () => Navigator.pop(ctx),
             child: const Text("إلغاء"),
           ),
-          const SizedBox(width: _dialogActionsSpacing),
           ElevatedButton(
             onPressed: () {
               result = controller.text.trim();
@@ -1267,10 +1720,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _startCheckoutFlow() async {
     if (!_isInputValid && !_isGameOrder && !_isPromoOrder) return;
-    if (_requiresManualWhatsappForLargePoints) {
-      await _showLargeOrderContactDialog();
-      return;
-    }
 
     if (_isGameOrder || _isPromoOrder || _isBalanceTopupOrder) {
       _tiktokChargeMode = _tiktokChargeModeLink;
@@ -1318,58 +1767,99 @@ class _HomeScreenState extends State<HomeScreen>
   Future<String?> _showTiktokChargeModeDialog() async {
     return _showBlurDialog<String>(
       barrierLabel: 'tiktok-charge-mode-dialog',
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
-        actionsOverflowButtonSpacing: _dialogActionsSpacing,
-        title: const Text("اختيار طريقة الشحن"),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "اختار طريقة شحن عملات تيك توك قبل اختيار وسيلة الدفع.",
-              style: TextStyle(fontFamily: 'Cairo'),
-            ),
-            SizedBox(height: 8),
-            Text(
-              "تنبيه: في حالة اختيار يوزر + باسورد يجب أن يكون التحقق بخطوتين مغلق.",
-              style: TextStyle(
-                color: Colors.orangeAccent,
+      builder: (ctx) {
+        final size = MediaQuery.sizeOf(ctx);
+        final maxWidth = _resolveDialogMaxWidthForWeb(
+          size: size,
+          requested: 560,
+        );
+        return Dialog(
+          backgroundColor: TTColors.cardBg,
+          shape: Dialogs.dialogShape,
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: kIsWeb ? 20 : 16,
+            vertical: 20,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxWidth),
+            child: DialogWidget(
+              color: TTColors.cardBg,
+              title: "اختيار طريقة الشحن",
+              titleStyle: const TextStyle(
                 fontFamily: 'Cairo',
-                fontSize: 12,
                 fontWeight: FontWeight.w700,
+                fontSize: 18,
               ),
+              customViewPosition: CustomViewPosition.BEFORE_ACTION,
+              customView: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      "اختار طريقة شحن عملات تيك توك قبل اختيار وسيلة الدفع.",
+                      style: TextStyle(fontFamily: 'Cairo'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      "تنبيه: في حالة اختيار يوزر + باسورد يجب أن يكون التحقق بخطوتين مغلق.",
+                      style: TextStyle(
+                        color: Colors.orangeAccent,
+                        fontFamily: 'Cairo',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.pop(ctx, _tiktokChargeModeLink);
+                      },
+                      child: const Text("الشحن بلينك"),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.pop(ctx, _tiktokChargeModeQr);
+                      },
+                      child: const Text("الشحن بـ QR"),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(ctx, _tiktokChargeModeUserPass);
+                      },
+                      child: const Text("يوزر + باسورد"),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text("إلغاء"),
+                    ),
+                  ),
+                ],
+              ),
+              actions: const [],
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("إلغاء"),
           ),
-          const SizedBox(width: _dialogActionsSpacing),
-          OutlinedButton(
-            onPressed: () {
-              Navigator.pop(ctx, _tiktokChargeModeLink);
-            },
-            child: const Text("الشحن بلينك"),
-          ),
-          const SizedBox(width: _dialogActionsSpacing),
-          OutlinedButton(
-            onPressed: () {
-              Navigator.pop(ctx, _tiktokChargeModeQr);
-            },
-            child: const Text("الشحن بـ QR"),
-          ),
-          const SizedBox(width: _dialogActionsSpacing),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx, _tiktokChargeModeUserPass);
-            },
-            child: const Text("يوزر + باسورد"),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1381,9 +1871,9 @@ class _HomeScreenState extends State<HomeScreen>
     return _showBlurDialog<String>(
       barrierLabel: 'tiktok-password-dialog',
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: TTColors.cardBg,
-          title: const Text("ادخل باسورد تيك توك"),
+        builder: (ctx, setDialogState) => _buildMaterialDialogCard(
+          ctx,
+          title: "ادخل باسورد تيك توك",
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1423,7 +1913,6 @@ class _HomeScreenState extends State<HomeScreen>
               onPressed: () => Navigator.pop(ctx),
               child: const Text("إلغاء"),
             ),
-            const SizedBox(width: _dialogActionsSpacing),
             ElevatedButton(
               onPressed: () {
                 final pass = typedPass.trim();
@@ -1461,10 +1950,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     int pointsDiscount = 0;
-    final supportWhatsappDigits = _normalizeWhatsappDigits(
-      RemoteConfigService.instance.adminWhatsapp.trim(),
-    );
-
     showGeneralDialog(
       context: context,
       barrierDismissible: false,
@@ -1505,8 +1990,6 @@ class _HomeScreenState extends State<HomeScreen>
                             0,
                             totalAmount - pointsDiscount,
                           );
-                          final hideWalletForLargeAmount =
-                              payableAmount > _walletTransferLimitEg;
                           final canPayFullyByPoints =
                               canUsePointsFeatures &&
                               _balancePoints >= totalAmount;
@@ -1643,84 +2126,16 @@ class _HomeScreenState extends State<HomeScreen>
                                   ),
 
                                 if (payableAmount > 0) ...[
-                                  if (hideWalletForLargeAmount) ...[
-                                    Container(
-                                      width: double.infinity,
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.orange.withAlpha(24),
-                                        borderRadius: BorderRadius.circular(10),
-                                        border: Border.all(
-                                          color: Colors.orange.withAlpha(110),
-                                        ),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              const Icon(
-                                                Icons.info_outline,
-                                                color: Colors.orange,
-                                                size: 18,
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                child: Text(
-                                                  "للطلبات الأعلى من $_walletTransferLimitEg جنيه تم إخفاء الدفع بالمحفظة.",
-                                                  style: TextStyle(
-                                                    fontFamily: 'Cairo',
-                                                    fontWeight: FontWeight.w700,
-                                                    color: TTColors.textWhite,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            "يمكنك التحويل عبر Binance أو InstaPay، أو التواصل معنا عبر واتساب.",
-                                            style: TextStyle(
-                                              fontFamily: 'Cairo',
-                                              color: TTColors.textGray,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                          if (supportWhatsappDigits.isNotEmpty)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                top: 8,
-                                              ),
-                                              child: TextButton.icon(
-                                                onPressed: _openSupportWhatsapp,
-                                                icon: const Icon(
-                                                  Icons.chat_rounded,
-                                                ),
-                                                label: Text(
-                                                  "تواصل واتساب: $supportWhatsappDigits",
-                                                  style: const TextStyle(
-                                                    fontFamily: 'Cairo',
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
+                                  _payOption(
+                                    "فودافون كاش / محفظة",
+                                    Icons.account_balance_wallet,
+                                    Colors.orange,
+                                    () => _processWalletOrder(
+                                      payableAmount: payableAmount,
+                                      pointsDiscount: pointsDiscount,
                                     ),
-                                    const SizedBox(height: 10),
-                                  ] else ...[
-                                    _payOption(
-                                      "فودافون كاش / محفظة",
-                                      Icons.account_balance_wallet,
-                                      Colors.orange,
-                                      () => _processWalletOrder(
-                                        payableAmount: payableAmount,
-                                        pointsDiscount: pointsDiscount,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                  ],
+                                  ),
+                                  const SizedBox(height: 10),
 
                                   _payOption(
                                     "InstaPay",
@@ -1800,116 +2215,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  String _normalizeWhatsappDigits(String value) {
-    if (value.isEmpty) return '';
-    final normalized = StringBuffer();
-    for (final rune in value.runes) {
-      if (rune >= 0x0660 && rune <= 0x0669) {
-        normalized.writeCharCode(0x30 + (rune - 0x0660));
-        continue;
-      }
-      if (rune >= 0x06F0 && rune <= 0x06F9) {
-        normalized.writeCharCode(0x30 + (rune - 0x06F0));
-        continue;
-      }
-      normalized.writeCharCode(rune);
-    }
-    return normalized.toString().replaceAll(RegExp(r'[^0-9]'), '').trim();
-  }
-
-  Uri? _supportWhatsappUri({String? message}) {
-    final raw = RemoteConfigService.instance.adminWhatsapp.trim();
-    final digits = _normalizeWhatsappDigits(raw);
-    if (digits.isEmpty) return null;
-    final text = Uri.encodeComponent(
-      message ??
-          'مرحبًا، لدي طلب بقيمة أعلى من $_walletTransferLimitEg جنيه وأحتاج المساعدة في طريقة الدفع.',
-    );
-    return Uri.parse('https://wa.me/$digits?text=$text');
-  }
-
-  Future<void> _openSupportWhatsapp({String? message}) async {
-    final uri = _supportWhatsappUri(message: message);
-    if (uri == null) {
-      _showCustomToast(
-        "رقم واتساب الدعم غير متاح حالياً",
-        color: Colors.orange,
-      );
-      return;
-    }
-    try {
-      final opened = await launchUrl(uri);
-      if (!opened) {
-        _showCustomToast("تعذر فتح واتساب حالياً", color: Colors.orange);
-      }
-    } catch (_) {
-      _showCustomToast("تعذر فتح واتساب حالياً", color: Colors.orange);
-    }
-  }
-
-  Future<void> _showLargeOrderContactDialog() async {
-    final message =
-        'مرحبًا، لدي طلب أكبر من $_manualContactPointsThreshold عملة، وأحتاج تنسيق طريقة الدفع قبل الشحن.';
-    await _showBlurDialog<void>(
-      barrierLabel: 'large-order-contact-dialog',
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
-        title: const Text(
-          "تنبيه للطلبات الكبيرة",
-          style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "الطلبات فوق $_manualContactPointsThreshold عملة تتطلب التواصل عبر واتساب قبل إكمال الشحن.",
-              style: TextStyle(
-                color: TTColors.textWhite,
-                fontFamily: 'Cairo',
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "قد تحتاج هذه الطلبات إلى تحويل بنكي، وقد يستغرق التأكيد حتى 3 أيام عمل. بعد التأكيد سيتم التواصل معك لاستكمال الشحن.",
-              style: TextStyle(
-                color: TTColors.textGray,
-                fontFamily: 'Cairo',
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "إخلاء مسؤولية: مدة التنفيذ والسعر النهائي قد يتأثران بإجراءات البنك وتوفر الرصيد في وقت التنفيذ.",
-              style: TextStyle(
-                color: Colors.orange,
-                fontFamily: 'Cairo',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("إغلاق"),
-          ),
-          const SizedBox(width: _dialogActionsSpacing),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _openSupportWhatsapp(message: message);
-            },
-            icon: const Icon(Icons.chat_rounded),
-            label: const Text("تواصل واتساب"),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _formatUsdtAmount(double amount) => amount.toStringAsFixed(2);
 
   double? _computeOrderUsdtAmount({required int egpAmount}) {
@@ -1920,9 +2225,8 @@ class _HomeScreenState extends State<HomeScreen>
   Map<String, dynamic> _buildOrderPayload({
     required String method,
     required String status,
-    String? receiptUrl,
-    String? receiptPath,
     String? paymentTarget,
+    String? instapayLink,
     String? binanceId,
     String? usdtAmount,
     double? usdtPrice,
@@ -1940,7 +2244,10 @@ class _HomeScreenState extends State<HomeScreen>
       'price': payablePrice.toString(),
       'original_price': totalPriceValue.toString(),
       'method': method,
-      'wallet_number': paymentTarget ?? _walletNumber,
+      if (paymentTarget != null && paymentTarget.trim().isNotEmpty)
+        'payment_target': paymentTarget.trim(),
+      if (instapayLink != null && instapayLink.trim().isNotEmpty)
+        'instapay_link': ensureHttps(instapayLink.trim()),
       if (binanceId != null && binanceId.trim().isNotEmpty)
         'binance_id': binanceId.trim(),
       if (usdtAmount != null && usdtAmount.trim().isNotEmpty)
@@ -1951,12 +2258,6 @@ class _HomeScreenState extends State<HomeScreen>
       if (pointsDiscount > 0 || pointsPaid > 0)
         'points_used_total': pointsDiscount + pointsPaid,
       'status': status,
-      'receipt_url': receiptUrl,
-      'receipt_path': receiptPath,
-      if (receiptUrl != null)
-        'receipt_expires_at': Timestamp.fromDate(
-          DateTime.now().add(const Duration(minutes: 30)),
-        ),
       'created_at': FieldValue.serverTimestamp(),
     };
 
@@ -1988,6 +2289,158 @@ class _HomeScreenState extends State<HomeScreen>
     return data;
   }
 
+  Future<void> _safeAddOrderChatMessage({
+    required String orderId,
+    required String senderRole,
+    String senderName = '',
+    String text = '',
+    String attachmentType = '',
+    String attachmentUrl = '',
+    String attachmentLabel = '',
+    Duration? attachmentExpiresIn,
+  }) async {
+    try {
+      final expiresAt = attachmentExpiresIn == null
+          ? null
+          : Timestamp.fromDate(DateTime.now().add(attachmentExpiresIn));
+      await OrderChatService.addMessage(
+        orderId: orderId,
+        senderRole: senderRole,
+        senderName: senderName,
+        text: text,
+        attachmentType: attachmentType,
+        attachmentUrl: attachmentUrl,
+        attachmentLabel: attachmentLabel,
+        attachmentExpiresAt: expiresAt,
+        sendPushNotification: false,
+      );
+    } catch (e) {
+      debugPrint('seed order chat message failed: $e');
+    }
+  }
+
+  Future<void> _seedOrderChatThread({
+    required String orderId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final productType = (payload['product_type'] ?? '').toString().trim();
+    final method = (payload['method'] ?? '').toString().trim();
+    final userName = (payload['name'] ?? '').toString().trim();
+    final displayName = userName.isEmpty ? 'المستخدم' : userName;
+    final price = (payload['price'] ?? '').toString().trim();
+    final usdtAmount = (payload['usdt_amount'] ?? '').toString().trim();
+    final paymentTarget = (payload['payment_target'] ?? '').toString().trim();
+    final instapayLink = (payload['instapay_link'] ?? '').toString().trim();
+    final gameId = (payload['game_id'] ?? '').toString().trim();
+    final promoLink = (payload['video_link'] ?? '').toString().trim();
+    final tiktokUser = (payload['user_tiktok'] ?? '').toString().trim();
+    final tiktokPassword = (payload['tiktok_password'] ?? '').toString().trim();
+    final tiktokChargeMode = (payload['tiktok_charge_mode'] ?? '')
+        .toString()
+        .trim();
+
+    await _safeAddOrderChatMessage(
+      orderId: orderId,
+      senderRole: 'system',
+      text: 'تم إنشاء الطلب.',
+    );
+
+    if (method == 'Wallet') {
+      await _safeAddOrderChatMessage(
+        orderId: orderId,
+        senderRole: 'system',
+        text: 'سيتم إرسال رقم المحفظة من الدعم داخل الشات.',
+      );
+      if (price.isNotEmpty) {
+        await _safeAddOrderChatMessage(
+          orderId: orderId,
+          senderRole: 'system',
+          text: 'المبلغ المطلوب: $price جنيه',
+        );
+      }
+    } else if (method == 'InstaPay') {
+      if (instapayLink.isNotEmpty) {
+        await _safeAddOrderChatMessage(
+          orderId: orderId,
+          senderRole: 'system',
+          text: 'رابط الدفع عبر InstaPay',
+          attachmentType: 'link',
+          attachmentUrl: ensureHttps(instapayLink),
+          attachmentLabel: 'رابط InstaPay',
+        );
+      }
+      if (price.isNotEmpty) {
+        await _safeAddOrderChatMessage(
+          orderId: orderId,
+          senderRole: 'system',
+          text: 'المبلغ المطلوب: $price جنيه',
+        );
+      }
+    } else if (method == 'Binance Pay') {
+      await _safeAddOrderChatMessage(
+        orderId: orderId,
+        senderRole: 'system',
+        text: paymentTarget.isEmpty
+            ? 'سيتم إرسال Binance Pay ID من الدعم داخل الشات.'
+            : 'Binance Pay ID: $paymentTarget',
+      );
+      if (usdtAmount.isNotEmpty) {
+        await _safeAddOrderChatMessage(
+          orderId: orderId,
+          senderRole: 'system',
+          text: 'المبلغ المطلوب: $usdtAmount USDT',
+        );
+      }
+    } else if (method == 'Points') {
+      await _safeAddOrderChatMessage(
+        orderId: orderId,
+        senderRole: 'system',
+        text: 'تم الدفع من رصيد النقاط. سيتم التنفيذ عبر الشات.',
+      );
+    }
+
+    if (productType == 'game' && gameId.isNotEmpty) {
+      await _safeAddOrderChatMessage(
+        orderId: orderId,
+        senderRole: 'user',
+        senderName: displayName,
+        text: 'ID اللعبة: $gameId',
+      );
+    }
+
+    if (productType == 'tiktok_promo' && promoLink.isNotEmpty) {
+      await _safeAddOrderChatMessage(
+        orderId: orderId,
+        senderRole: 'user',
+        senderName: displayName,
+        text: 'رابط فيديو الترويج',
+        attachmentType: 'link',
+        attachmentUrl: ensureHttps(promoLink),
+        attachmentLabel: 'رابط الفيديو',
+      );
+    }
+
+    if (productType == 'tiktok') {
+      if (tiktokUser.isNotEmpty) {
+        await _safeAddOrderChatMessage(
+          orderId: orderId,
+          senderRole: 'user',
+          senderName: displayName,
+          text: 'حساب تيك توك: $tiktokUser',
+        );
+      }
+      if (tiktokChargeMode == _tiktokChargeModeUserPass &&
+          tiktokPassword.isNotEmpty) {
+        await _safeAddOrderChatMessage(
+          orderId: orderId,
+          senderRole: 'user',
+          senderName: displayName,
+          text: 'كلمة المرور: $tiktokPassword',
+        );
+      }
+    }
+  }
+
   // EN: Processes Wallet Order.
   // AR: تعالج Wallet Order.
   Future<void> _processWalletOrder({
@@ -1997,20 +2450,6 @@ class _HomeScreenState extends State<HomeScreen>
     Navigator.pop(context);
 
     if (!await _checkCancelLimit()) return;
-    if (payableAmount > _walletTransferLimitEg) {
-      final supportWhatsapp = _normalizeWhatsappDigits(
-        RemoteConfigService.instance.adminWhatsapp.trim(),
-      );
-      final baseMessage =
-          "للطلبات الأعلى من $_walletTransferLimitEg جنيه استخدم InstaPay أو Binance فقط";
-      _showCustomToast(
-        supportWhatsapp.isNotEmpty
-            ? "$baseMessage أو تواصل معنا عبر واتساب: $supportWhatsapp"
-            : baseMessage,
-        color: Colors.orange,
-      );
-      return;
-    }
     if (payableAmount <= 0) {
       _showCustomToast(
         "لا يوجد مبلغ مطلوب دفعه. اختر الدفع من رصيد النقاط.",
@@ -2023,15 +2462,13 @@ class _HomeScreenState extends State<HomeScreen>
 
     await _showBlurDialog<void>(
       barrierLabel: 'wallet-order-dialog',
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
+      builder: (ctx) => _buildMaterialDialogCard(
+        ctx,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.info, color: Colors.orange, size: 50),
-
             const SizedBox(height: 10),
-
             Text(
               "المبلغ المطلوب دفعه الآن: $payableAmount جنيه",
               textAlign: TextAlign.center,
@@ -2041,11 +2478,9 @@ class _HomeScreenState extends State<HomeScreen>
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 8),
-
             Text(
-              "سيظهر رقم المحفظة في 'طلباتي' بعد إنشاء الطلب.",
+              "سيتم إرسال رقم المحفظة وتأكيدات الدفع داخل الشات بعد إنشاء الطلب.",
               textAlign: TextAlign.center,
               style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
             ),
@@ -2059,7 +2494,6 @@ class _HomeScreenState extends State<HomeScreen>
             },
             child: const Text("إلغاء"),
           ),
-          const SizedBox(width: _dialogActionsSpacing),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -2073,18 +2507,20 @@ class _HomeScreenState extends State<HomeScreen>
 
     if (!proceed) return;
     if (!mounted) return;
-    final created = await _createOrderWithOptionalPoints(
+    final createdOrderId = await _createOrderWithOptionalPoints(
       payload: _buildOrderPayload(
         method: "Wallet",
         status: 'pending_payment',
+        paymentTarget: _walletNumber,
         priceOverride: payableAmount,
         pointsDiscount: pointsDiscount,
       ),
       pointsToDeduct: pointsDiscount,
     );
-    if (!created || !mounted) return;
+    if (createdOrderId == null || !mounted) return;
 
-    Navigator.pushNamed(context, '/orders', arguments: widget.whatsapp);
+    await _openSupportChat(orderId: createdOrderId);
+    if (!mounted) return;
     _resetCheckoutMeta();
   }
 
@@ -2109,6 +2545,8 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
+    await _refreshUsdtPriceFromExternal(forceRefresh: true);
+
     final usdtAmount = _computeOrderUsdtAmount(egpAmount: payableAmount);
     if (usdtAmount == null) {
       _showCustomToast("سعر USDT غير متاح حالياً", color: Colors.orange);
@@ -2120,8 +2558,8 @@ class _HomeScreenState extends State<HomeScreen>
 
     await _showBlurDialog<void>(
       barrierLabel: 'binance-order-dialog',
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
+      builder: (ctx) => _buildMaterialDialogCard(
+        ctx,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -2130,27 +2568,21 @@ class _HomeScreenState extends State<HomeScreen>
               color: Color(0xFFF3BA2F),
               size: 50,
             ),
-
             const SizedBox(height: 10),
-
             Text(
               "المبلغ المطلوب: $usdtAmountText USDT",
               textAlign: TextAlign.center,
               style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
             ),
-
             const SizedBox(height: 8),
-
             Text(
               "المعادِل بالجنيه: $payableAmount",
               textAlign: TextAlign.center,
               style: TextStyle(color: TTColors.goldAccent, fontFamily: 'Cairo'),
             ),
-
             const SizedBox(height: 8),
-
             Text(
-              "سيظهر Binance Pay ID في 'طلباتي'.",
+              "سيتم إرسال Binance Pay ID وتأكيدات الدفع داخل الشات.",
               textAlign: TextAlign.center,
               style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
             ),
@@ -2164,7 +2596,6 @@ class _HomeScreenState extends State<HomeScreen>
             },
             child: const Text("إلغاء"),
           ),
-          const SizedBox(width: _dialogActionsSpacing),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -2178,7 +2609,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     if (!proceed) return;
     if (!mounted) return;
-    final created = await _createOrderWithOptionalPoints(
+    final createdOrderId = await _createOrderWithOptionalPoints(
       payload: _buildOrderPayload(
         method: "Binance Pay",
         status: 'pending_payment',
@@ -2191,9 +2622,10 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       pointsToDeduct: pointsDiscount,
     );
-    if (!created || !mounted) return;
+    if (createdOrderId == null || !mounted) return;
 
-    Navigator.pushNamed(context, '/orders', arguments: widget.whatsapp);
+    await _openSupportChat(orderId: createdOrderId);
+    if (!mounted) return;
     _resetCheckoutMeta();
   }
 
@@ -2220,44 +2652,26 @@ class _HomeScreenState extends State<HomeScreen>
 
     await _showBlurDialog<void>(
       barrierLabel: 'instapay-order-dialog',
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
+      builder: (ctx) => _buildMaterialDialogCard(
+        ctx,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              "حول المبلغ عبر الرابط:",
+              "المبلغ المطلوب: $payableAmount جنيه",
+              textAlign: TextAlign.center,
               style: TextStyle(color: TTColors.textWhite),
             ),
-
             const SizedBox(height: 8),
-
             Text(
-              "المبلغ المطلوب: $payableAmount جنيه",
-              style: TextStyle(
-                color: TTColors.goldAccent,
-                fontWeight: FontWeight.bold,
-              ),
+              "سيتم إرسال رابط InstaPay داخل الشات بعد إنشاء الطلب.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: TTColors.goldAccent),
             ),
-
-            const SizedBox(height: 10),
-
-            SelectableText(
-              instapayLink,
-              style: const TextStyle(color: Colors.purpleAccent),
-            ),
-
-            const SizedBox(height: 10),
-
-            ElevatedButton(
-              onPressed: () => launchUrl(Uri.parse(instapayLink)),
-              child: const Text("فتح التطبيق"),
-            ),
-
-            const SizedBox(height: 15),
-
+            const SizedBox(height: 12),
             Text(
-              "ثم اضغط متابعة لرفع الإيصال",
+              "بعد التحويل اضغط متابعة، وأرسل أي إثبات داخل الشات.",
+              textAlign: TextAlign.center,
               style: TextStyle(color: TTColors.textGray),
             ),
           ],
@@ -2270,15 +2684,13 @@ class _HomeScreenState extends State<HomeScreen>
             },
             child: const Text("إلغاء"),
           ),
-          const SizedBox(width: _dialogActionsSpacing),
-
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
               proceed = true;
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
-            child: const Text("متابعة ورفع"),
+            child: const Text("متابعة"),
           ),
         ],
       ),
@@ -2286,143 +2698,23 @@ class _HomeScreenState extends State<HomeScreen>
 
     if (!mounted) return;
     if (!proceed) return;
-
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp', 'heic'],
-      withData: true,
-      dialogTitle: 'اختر صورة من الملفات',
-    );
-    if (result == null || result.files.isEmpty) return;
-
-    final pickedFile = result.files.first;
-    Uint8List? bytes = pickedFile.bytes;
-
-    if (bytes == null && !kIsWeb) {
-      final String? path = pickedFile.path;
-      if (path != null) {
-        if (path.startsWith('content://')) {
-          bytes = await _readFileBytesFromContentUri(path);
-        } else {
-          try {
-            bytes = await File(path).readAsBytes();
-          } catch (e) {
-            debugPrint('File read error: $e');
-            bytes = null;
-          }
-        }
-      }
-    }
-
-    if (bytes == null) {
-      _showCustomToast(
-        "تعذر قراءة الصورة، جرّب صورة أخرى أو استخدم 'مستعرض الملفات'",
-        color: Colors.red,
-      );
-      return;
-    }
-
-    final Uint8List imageBytes = bytes;
-
-    if (!mounted) return;
-
-    bool confirm = false;
-
-    await _showBlurDialog<void>(
-      barrierLabel: 'instapay-receipt-confirm-dialog',
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.memory(imageBytes, height: 200, fit: BoxFit.cover),
-
-            const SizedBox(height: 10),
-
-            Text("إرسال الصورة؟", style: TextStyle(color: TTColors.textWhite)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("لا"),
-          ),
-          const SizedBox(width: _dialogActionsSpacing),
-
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              confirm = true;
-            },
-            child: const Text("نعم"),
-          ),
-        ],
+    final createdOrderId = await _createOrderWithOptionalPoints(
+      payload: _buildOrderPayload(
+        method: "InstaPay",
+        status: 'pending_payment',
+        instapayLink: instapayLink,
+        paymentTarget: instapayLink,
+        priceOverride: payableAmount,
+        pointsDiscount: pointsDiscount,
       ),
+      pointsToDeduct: pointsDiscount,
     );
+    if (createdOrderId == null || !mounted) return;
 
+    _showCustomToast("تم إنشاء الطلب ✅", color: Colors.green);
+    await _openSupportChat(orderId: createdOrderId);
     if (!mounted) return;
-    if (!confirm) return;
-
-    _showCustomToast("جاري الرفع...", duration: null);
-    try {
-      final orderRef = FirebaseFirestore.instance.collection('orders').doc();
-      final uploadRes = await ReceiptStorageService.uploadWithPath(
-        bytes: imageBytes,
-        whatsapp: widget.whatsapp,
-        orderId: orderRef.id,
-      );
-
-      if (!mounted) {
-        TopSnackBar.dismiss();
-        return;
-      }
-
-      if (uploadRes != null) {
-        final created = await _createOrderWithOptionalPoints(
-          payload: _buildOrderPayload(
-            method: "InstaPay",
-            status: 'pending_review',
-            receiptUrl: uploadRes.url,
-            receiptPath: uploadRes.path,
-            priceOverride: payableAmount,
-            pointsDiscount: pointsDiscount,
-          ),
-          pointsToDeduct: pointsDiscount,
-          orderId: orderRef.id,
-        );
-        if (!created) {
-          await ReceiptStorageService.deleteByPath(uploadRes.path);
-          return;
-        }
-
-        final deliveredToAdmin = await _verifyReceiptAvailableForAdmin(
-          orderId: orderRef.id,
-          receiptPath: uploadRes.path,
-        );
-        if (!mounted) {
-          TopSnackBar.dismiss();
-          return;
-        }
-        _showCustomToast(
-          deliveredToAdmin
-              ? "تم الرفع بنجاح ✅"
-              : "تم الرفع بنجاح ✅ وجارٍ المزامنة لدى الأدمن",
-          color: deliveredToAdmin ? Colors.green : Colors.orange,
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        if (!mounted) return;
-        Navigator.pushNamed(context, '/orders', arguments: widget.whatsapp);
-        _resetCheckoutMeta();
-      } else {
-        _showCustomToast("فشل الرفع", color: Colors.red);
-      }
-    } catch (e) {
-      TopSnackBar.dismiss();
-      if (mounted) {
-        _showCustomToast("حدث خطأ أثناء الرفع", color: Colors.red);
-      }
-      debugPrint('instapay receipt upload failed: $e');
-    }
+    _resetCheckoutMeta();
   }
 
   Future<void> _processPointsPayment({required int totalAmount}) async {
@@ -2447,7 +2739,7 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    final created = await _createOrderWithOptionalPoints(
+    final createdOrderId = await _createOrderWithOptionalPoints(
       payload: _buildOrderPayload(
         method: "Points",
         status: 'processing',
@@ -2456,13 +2748,14 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       pointsToDeduct: totalAmount,
     );
-    if (!created || !mounted) return;
+    if (createdOrderId == null || !mounted) return;
 
     _showCustomToast(
       "تم إنشاء الطلب والدفع من رصيد النقاط ✅",
       color: Colors.green,
     );
-    Navigator.pushNamed(context, '/orders', arguments: widget.whatsapp);
+    await _openSupportChat(orderId: createdOrderId, autoOpenedByStatus: true);
+    if (!mounted) return;
     _resetCheckoutMeta();
   }
 
@@ -2476,9 +2769,9 @@ class _HomeScreenState extends State<HomeScreen>
 
     await _showBlurDialog<void>(
       barrierLabel: 'promo-order-dialog',
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
-        title: const Text("ترويج فيديو تيك توك"),
+      builder: (ctx) => _buildMaterialDialogCard(
+        ctx,
+        title: "ترويج فيديو تيك توك",
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -2506,7 +2799,6 @@ class _HomeScreenState extends State<HomeScreen>
             onPressed: () => Navigator.pop(ctx),
             child: const Text("إلغاء"),
           ),
-          const SizedBox(width: _dialogActionsSpacing),
           ElevatedButton(
             onPressed: () {
               proceed = true;
@@ -2519,6 +2811,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
 
     if (!proceed) return;
+    if (!mounted) return;
 
     final link = linkCtrl.text.trim();
     final amount = int.tryParse(amountCtrl.text.trim()) ?? 0;
@@ -2562,9 +2855,9 @@ class _HomeScreenState extends State<HomeScreen>
 
     await _showBlurDialog<void>(
       barrierLabel: 'balance-topup-dialog',
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
-        title: const Text("شحن الرصيد"),
+      builder: (ctx) => _buildMaterialDialogCard(
+        ctx,
+        title: "شحن الرصيد",
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2599,7 +2892,6 @@ class _HomeScreenState extends State<HomeScreen>
             onPressed: () => Navigator.pop(ctx),
             child: const Text("إلغاء"),
           ),
-          const SizedBox(width: _dialogActionsSpacing),
           ElevatedButton(
             onPressed: () {
               proceed = true;
@@ -2712,31 +3004,31 @@ class _HomeScreenState extends State<HomeScreen>
     final links = <_SocialPlatformLink>[
       _SocialPlatformLink(
         label: 'Facebook',
-        icon: FontAwesomeIcons.facebookF,
+        icon: FontAwesome.facebook_f_brand,
         uri: _socialUri('facebook', rc.socialFacebookUrl),
         color: const Color(0xFF1877F2),
       ),
       _SocialPlatformLink(
         label: 'Instagram',
-        icon: FontAwesomeIcons.instagram,
+        icon: FontAwesome.instagram_brand,
         uri: _socialUri('instagram', rc.socialInstagramUrl),
         color: const Color(0xFFE1306C),
       ),
       _SocialPlatformLink(
         label: 'TikTok',
-        icon: FontAwesomeIcons.tiktok,
+        icon: FontAwesome.tiktok_brand,
         uri: _socialUri('tiktok', rc.socialTiktokUrl),
         color: const Color(0xFF00C7B7),
       ),
       _SocialPlatformLink(
         label: 'Telegram',
-        icon: FontAwesomeIcons.telegram,
+        icon: FontAwesome.telegram_brand,
         uri: _socialUri('telegram', rc.socialTelegramUrl),
         color: const Color(0xFF229ED9),
       ),
       _SocialPlatformLink(
         label: 'GitHub',
-        icon: FontAwesomeIcons.github,
+        icon: FontAwesome.github_brand,
         uri: _githubUri(githubUsername, githubRepo),
         color: isDark ? const Color(0xFFE6EDF3) : const Color(0xFF24292F),
       ),
@@ -2796,7 +3088,7 @@ class _HomeScreenState extends State<HomeScreen>
                       border: Border.all(color: chipBorder, width: 1),
                     ),
                     alignment: Alignment.center,
-                    child: FaIcon(item.icon, size: 18, color: item.color),
+                    child: Icon(item.icon, size: 18, color: item.color),
                   ),
                 ),
               ),
@@ -2811,544 +3103,112 @@ class _HomeScreenState extends State<HomeScreen>
   // AR: تبني واجهة الودجت.
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final bool isLargeWeb = kIsWeb && screenWidth >= 1180;
+    // Keep layout aligned with mobile sizing for all web widths.
+    final bool isLargeWeb = MediaQuery.of(context).size.width >= 100000;
     final appBarHeight = kToolbarHeight;
 
-    const double webMaxWidth = 540;
-    const double mobileMaxWidth = 540;
-    final bool showCompactMenu =
-        !widget.forceTikTokCharge && !widget.showGamesOnly;
-    final bool showBackButton = !showCompactMenu;
-    final bool showLogout = showCompactMenu;
-    final String compactTitle = showCompactMenu
-        ? "رصيدك $_balancePoints 🪙"
-        : widget.showGamesOnly
-        ? "شحن ألعاب"
-        : (widget.forceTikTokCharge ? "شحن عملات تيك توك" : AppInfo.appName);
+    if (widget.showGamesOnly) {
+      return _buildRouteDialogPage(
+        title: "شحن ألعاب",
+        maxWidth: 620,
+        showAccountAction: false,
+        showThemeAction: false,
+        showAboutAction: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "اختر اللعبة والباقه",
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildGamePackagesList(),
+          ],
+        ),
+      );
+    }
+
+    if (widget.forceTikTokCharge) {
+      return _buildRouteDialogPage(
+        title: "شحن عملات تيك توك",
+        maxWidth: 640,
+        showAccountAction: true,
+        showThemeAction: false,
+        showAboutAction: false,
+        child: _buildTiktokChargeFormContent(includeAppName: false),
+      );
+    }
+
+    final String compactTitle = "رصيدك $_balancePoints 🪙";
     final socialLinks = _socialLinks();
     final bool showWebSocialDock = kIsWeb && socialLinks.isNotEmpty;
     final double webContentBottomPadding = showWebSocialDock ? 104 : 24;
 
     return Scaffold(
       key: _scaffoldKey,
-
       endDrawer: null,
-
       appBar: _buildCompactAppBar(
-        showBack: showBackButton,
-        showLogout: showLogout,
+        showBack: false,
+        showLogout: true,
         title: compactTitle,
+        showAboutAction: !kIsWeb,
       ),
       body: Stack(
         children: [
           const SnowBackground(),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final double minHeight = constraints.maxHeight - appBarHeight;
+              final menuBody = ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 540),
+                child: _buildCompactMenuBody(),
+              );
 
-          if (showCompactMenu)
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final double minHeight = constraints.maxHeight - appBarHeight;
-                final menuBody = ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 540),
-                  child: _buildCompactMenuBody(),
-                );
-
-                if (isLargeWeb) {
-                  return SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      24,
-                      16,
-                      webContentBottomPadding,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minHeight: minHeight > 0 ? minHeight : 0,
-                      ),
-                      child: Align(
-                        alignment: Alignment.center,
-                        child: menuBody,
-                      ),
-                    ),
-                  );
-                }
-
-                final compactScrollView = SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
+              if (isLargeWeb) {
+                return SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(
                     16,
-                    12,
+                    24,
                     16,
-                    kIsWeb ? webContentBottomPadding : 24,
+                    webContentBottomPadding,
                   ),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxWidth: 540,
                       minHeight: minHeight > 0 ? minHeight : 0,
                     ),
-                    child: Center(child: menuBody),
+                    child: Align(alignment: Alignment.center, child: menuBody),
                   ),
                 );
+              }
 
-                return Center(
-                  child: !kIsWeb
-                      ? _wrapWithSwipeRefresh(compactScrollView)
-                      : compactScrollView,
-                );
-              },
-            )
-          else if (widget.showGamesOnly)
-            SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                isLargeWeb ? 20 : 0,
-                20,
-                kIsWeb ? webContentBottomPadding : 0,
-              ),
-              child: Center(
+              final compactScrollView = SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  12,
+                  16,
+                  kIsWeb ? webContentBottomPadding : 24,
+                ),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    maxWidth: isLargeWeb ? webMaxWidth : mobileMaxWidth,
+                    maxWidth: 540,
+                    minHeight: minHeight > 0 ? minHeight : 0,
                   ),
-                  child: GlassCard(
-                    margin: EdgeInsets.zero,
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(height: 8),
-                        const Text(
-                          "اختر اللعبة والباقه",
-                          style: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildGamePackagesList(),
-                      ],
-                    ),
-                  ),
+                  child: Center(child: menuBody),
                 ),
-              ),
-            )
-          else
-            (!kIsWeb && widget.forceTikTokCharge)
-                ? _wrapWithSwipeRefresh(
-                    SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: EdgeInsets.fromLTRB(
-                        20,
-                        isLargeWeb ? 20 : 0,
-                        20,
-                        kIsWeb ? webContentBottomPadding : 0,
-                      ),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight:
-                              MediaQuery.of(context).size.height -
-                              appBarHeight -
-                              (kIsWeb ? (20 + webContentBottomPadding) : 0),
-                        ),
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxWidth: isLargeWeb
-                                  ? webMaxWidth
-                                  : mobileMaxWidth,
-                            ),
-                            child: GlassCard(
-                              margin: EdgeInsets.zero,
-                              padding: const EdgeInsets.all(26),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const SizedBox(height: 20),
-                                  Text(
-                                    AppInfo.appName,
-                                    style: TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold,
-                                      color: TTColors.textWhite,
-                                      fontFamily: 'Cairo',
-                                    ),
-                                  ),
+              );
 
-                                  const SizedBox(height: 30),
-
-                                  TextField(
-                                    controller: _tiktokCtrl,
-                                    decoration: const InputDecoration(
-                                      labelText: "يوزر تيك توك",
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: 12),
-
-                                  TextField(
-                                    controller: _inputCtrl,
-                                    onChanged: _recompute,
-                                    keyboardType: TextInputType.number,
-                                    inputFormatters: [
-                                      FilteringTextInputFormatter.digitsOnly,
-                                    ],
-                                    decoration: InputDecoration(
-                                      labelText: _isPointsMode
-                                          ? "ادخل عدد النقاط المطلوب"
-                                          : "ادخل المبلغ الذي معك",
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: 15),
-                                  if (_resultText.isNotEmpty)
-                                    Text(
-                                      _resultText,
-                                      style: TextStyle(
-                                        color: _isInputValid
-                                            ? TTColors.textWhite
-                                            : Colors.red,
-                                        fontSize: 18,
-                                        fontFamily: 'Cairo',
-                                      ),
-                                    ),
-                                  _buildLargePointsWarningCard(),
-                                  // إظهار خانة كود الخصم عند تفعيل الموسم والعروض
-                                  if (_showPromoCodeSection)
-                                    GlassCard(
-                                      margin: const EdgeInsets.symmetric(
-                                        vertical: 10,
-                                      ),
-                                      padding: const EdgeInsets.all(14),
-                                      borderColor: TTColors.goldAccent
-                                          .withAlpha(160),
-                                      child: Column(
-                                        children: [
-                                          Text(
-                                            _offersCardTitle,
-                                            style: TextStyle(
-                                              color: TTColors.goldAccent,
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                              fontFamily: 'Cairo',
-                                            ),
-                                          ),
-                                          if (!_isDiscountActive) ...[
-                                            const SizedBox(height: 10),
-
-                                            TextField(
-                                              controller: _promoCtrl,
-                                              decoration: const InputDecoration(
-                                                labelText: "الكود الذهبي",
-                                                prefixIcon: Icon(
-                                                  Icons.vpn_key,
-                                                  color: Color(0xFFFFD700),
-                                                ),
-                                              ),
-                                            ),
-
-                                            const SizedBox(height: 10),
-
-                                            ElevatedButton(
-                                              onPressed: _activatePromo,
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: const Color(
-                                                  0xFFFFD700,
-                                                ),
-                                                foregroundColor: Colors.black,
-                                              ),
-                                              child: const Text("تفعيل"),
-                                            ),
-
-                                            const SizedBox(height: 10),
-
-                                            SizedBox(
-                                              width: double.infinity,
-                                              child: OutlinedButton.icon(
-                                                onPressed: _requestDiscountCode,
-                                                icon: const Icon(
-                                                  Icons.card_giftcard,
-                                                ),
-                                                label: Text(
-                                                  _offersRequestButtonTitle,
-                                                  textAlign: TextAlign.center,
-                                                ),
-                                                style: OutlinedButton.styleFrom(
-                                                  foregroundColor: const Color(
-                                                    0xFFFFD700,
-                                                  ),
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        vertical: 12,
-                                                      ),
-                                                ),
-                                              ),
-                                            ),
-                                          ] else
-                                            const Text(
-                                              "✅ تم التفعيل!",
-                                              style: TextStyle(
-                                                color: Color(0xFFFFD700),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-
-                                  const SizedBox(height: 20),
-                                  TextButton.icon(
-                                    onPressed: () {
-                                      setState(() {
-                                        _isPointsMode = !_isPointsMode;
-                                        _inputCtrl.clear();
-                                        _resultText = "";
-                                      });
-                                    },
-                                    icon: const Icon(Icons.swap_vert),
-                                    label: const Text("تبديل النمط"),
-                                  ),
-
-                                  const SizedBox(height: 20),
-
-                                  const SizedBox(height: 14),
-
-                                  ElevatedButton(
-                                    onPressed: _isInputValid
-                                        ? _startCheckoutFlow
-                                        : null,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                      foregroundColor: Theme.of(
-                                        context,
-                                      ).colorScheme.onPrimary,
-                                      minimumSize: const Size(
-                                        double.infinity,
-                                        50,
-                                      ),
-                                    ),
-                                    child: const Text(
-                                      "طلب الشحن",
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontFamily: 'Cairo',
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                : SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(
-                      20,
-                      isLargeWeb ? 20 : 0,
-                      20,
-                      kIsWeb ? webContentBottomPadding : 0,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minHeight:
-                            MediaQuery.of(context).size.height -
-                            appBarHeight -
-                            (kIsWeb ? (20 + webContentBottomPadding) : 0),
-                      ),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: isLargeWeb ? webMaxWidth : mobileMaxWidth,
-                          ),
-                          child: GlassCard(
-                            margin: EdgeInsets.zero,
-                            padding: const EdgeInsets.all(26),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const SizedBox(height: 20),
-                                Text(
-                                  AppInfo.appName,
-                                  style: TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: TTColors.textWhite,
-                                    fontFamily: 'Cairo',
-                                  ),
-                                ),
-
-                                const SizedBox(height: 30),
-
-                                TextField(
-                                  controller: _tiktokCtrl,
-                                  decoration: const InputDecoration(
-                                    labelText: "يوزر تيك توك",
-                                  ),
-                                ),
-
-                                const SizedBox(height: 12),
-
-                                TextField(
-                                  controller: _inputCtrl,
-                                  onChanged: _recompute,
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: [
-                                    FilteringTextInputFormatter.digitsOnly,
-                                  ],
-                                  decoration: InputDecoration(
-                                    labelText: _isPointsMode
-                                        ? "ادخل عدد النقاط المطلوب"
-                                        : "ادخل المبلغ الذي معك",
-                                  ),
-                                ),
-
-                                const SizedBox(height: 15),
-                                if (_resultText.isNotEmpty)
-                                  Text(
-                                    _resultText,
-                                    style: TextStyle(
-                                      color: _isInputValid
-                                          ? TTColors.textWhite
-                                          : Colors.red,
-                                      fontSize: 18,
-                                      fontFamily: 'Cairo',
-                                    ),
-                                  ),
-                                _buildLargePointsWarningCard(),
-                                // إظهار خانة كود الخصم عند تفعيل الموسم والعروض
-                                if (_showPromoCodeSection)
-                                  GlassCard(
-                                    margin: const EdgeInsets.symmetric(
-                                      vertical: 10,
-                                    ),
-                                    padding: const EdgeInsets.all(14),
-                                    borderColor: TTColors.goldAccent.withAlpha(
-                                      160,
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        Text(
-                                          _offersCardTitle,
-                                          style: TextStyle(
-                                            color: TTColors.goldAccent,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                            fontFamily: 'Cairo',
-                                          ),
-                                        ),
-                                        if (!_isDiscountActive) ...[
-                                          const SizedBox(height: 10),
-
-                                          TextField(
-                                            controller: _promoCtrl,
-                                            decoration: const InputDecoration(
-                                              labelText: "الكود الذهبي",
-                                              prefixIcon: Icon(
-                                                Icons.vpn_key,
-                                                color: Color(0xFFFFD700),
-                                              ),
-                                            ),
-                                          ),
-
-                                          const SizedBox(height: 10),
-
-                                          ElevatedButton(
-                                            onPressed: _activatePromo,
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: const Color(
-                                                0xFFFFD700,
-                                              ),
-                                              foregroundColor: Colors.black,
-                                            ),
-                                            child: const Text("تفعيل"),
-                                          ),
-
-                                          const SizedBox(height: 10),
-
-                                          SizedBox(
-                                            width: double.infinity,
-                                            child: OutlinedButton.icon(
-                                              onPressed: _requestDiscountCode,
-                                              icon: const Icon(
-                                                Icons.card_giftcard,
-                                              ),
-                                              label: Text(
-                                                _offersRequestButtonTitle,
-                                                textAlign: TextAlign.center,
-                                              ),
-                                              style: OutlinedButton.styleFrom(
-                                                foregroundColor: const Color(
-                                                  0xFFFFD700,
-                                                ),
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      vertical: 12,
-                                                    ),
-                                              ),
-                                            ),
-                                          ),
-                                        ] else
-                                          const Text(
-                                            "✅ تم التفعيل!",
-                                            style: TextStyle(
-                                              color: Color(0xFFFFD700),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-
-                                const SizedBox(height: 20),
-                                TextButton.icon(
-                                  onPressed: () {
-                                    setState(() {
-                                      _isPointsMode = !_isPointsMode;
-                                      _inputCtrl.clear();
-                                      _resultText = "";
-                                    });
-                                  },
-                                  icon: const Icon(Icons.swap_vert),
-                                  label: const Text("تبديل النمط"),
-                                ),
-
-                                const SizedBox(height: 20),
-
-                                const SizedBox(height: 14),
-
-                                ElevatedButton(
-                                  onPressed: _isInputValid
-                                      ? _startCheckoutFlow
-                                      : null,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                    foregroundColor: Theme.of(
-                                      context,
-                                    ).colorScheme.onPrimary,
-                                    minimumSize: const Size(
-                                      double.infinity,
-                                      50,
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    "طلب الشحن",
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontFamily: 'Cairo',
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+              return Center(
+                child: !kIsWeb
+                    ? _wrapWithSwipeRefresh(compactScrollView)
+                    : compactScrollView,
+              );
+            },
+          ),
           if (showWebSocialDock)
             Align(
               alignment: Alignment.bottomCenter,
@@ -3366,6 +3226,9 @@ class _HomeScreenState extends State<HomeScreen>
     required bool showBack,
     required bool showLogout,
     required String title,
+    bool showAccountAction = true,
+    bool showThemeAction = true,
+    bool showAboutAction = true,
   }) {
     return GlassAppBar(
       title: LayoutBuilder(
@@ -3388,11 +3251,7 @@ class _HomeScreenState extends State<HomeScreen>
       leading: showBack
           ? IconButton(
               icon: const Icon(Icons.arrow_back),
-              onPressed: () {
-                if (Navigator.canPop(context)) {
-                  Navigator.pop(context);
-                }
-              },
+              onPressed: _closeRouteDialogPage,
             )
           : IconButton(
               icon: const Icon(Icons.logout),
@@ -3404,8 +3263,8 @@ class _HomeScreenState extends State<HomeScreen>
                 await NotificationService.disposeListeners();
                 final p = await SharedPreferences.getInstance();
                 await p.clear();
-                if (!context.mounted) return;
-                Navigator.pushNamedAndRemoveUntil(
+                if (!mounted) return;
+                AppNavigator.pushNamedAndRemoveUntil(
                   context,
                   '/login',
                   (route) => false,
@@ -3413,34 +3272,36 @@ class _HomeScreenState extends State<HomeScreen>
               },
             ),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.person),
-          tooltip: "حسابي / تعديل البيانات",
-          onPressed: () => Navigator.pushNamed(context, '/account'),
-        ),
-        IconButton(
-          icon: Icon(
-            Theme.of(context).brightness == Brightness.dark
-                ? Icons.wb_sunny_rounded
-                : Icons.nightlight_round,
+        if (showAccountAction)
+          IconButton(
+            icon: const Icon(Icons.person),
+            tooltip: "حسابي / تعديل البيانات",
+            onPressed: _openAccountDialog,
           ),
-          tooltip: "وضع التطبيق",
-          onPressed: () async {
-            await showThemeModeSheet(context);
-          },
-        ),
-        if (!kIsWeb)
+        if (showThemeAction)
+          IconButton(
+            icon: Icon(
+              Theme.of(context).brightness == Brightness.dark
+                  ? Icons.nightlight_round
+                  : Icons.wb_sunny_rounded,
+            ),
+            tooltip: "وضع التطبيق",
+            onPressed: () async {
+              await showThemeModeSheet(context);
+            },
+          ),
+        if (showAboutAction)
           IconButton(
             icon: const Icon(Icons.info_outline_rounded),
             tooltip: "حول التطبيق",
-            onPressed: () => Navigator.pushNamed(context, '/about'),
+            onPressed: _openAboutDialog,
           ),
       ],
     );
   }
 
   Widget _buildLargePointsWarningCard() {
-    if (!_requiresManualWhatsappForLargePoints) {
+    if (!_requiresLargeOrderReview) {
       return const SizedBox.shrink();
     }
     return GlassCard(
@@ -3456,7 +3317,7 @@ class _HomeScreenState extends State<HomeScreen>
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  "الطلبات فوق $_manualContactPointsThreshold عملة تتطلب التواصل عبر واتساب.",
+                  "الطلبات فوق $_manualContactPointsThreshold عملة تحتاج مراجعة إضافية قبل التنفيذ.",
                   style: TextStyle(
                     color: TTColors.textWhite,
                     fontFamily: 'Cairo',
@@ -3468,7 +3329,7 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           const SizedBox(height: 8),
           Text(
-            "قد تحتاج هذه الكمية إلى تحويل بنكي يصل إلى 3 أيام عمل. بعد التأكيد سنتواصل معك لإتمام الشحن.",
+            "قد تحتاج هذه الكمية إلى تحويل بنكي يصل إلى 3 أيام عمل. متابعة التنفيذ ستكون بالكامل داخل الشات بعد إنشاء الطلب.",
             style: TextStyle(
               color: TTColors.textGray,
               fontFamily: 'Cairo',
@@ -3485,21 +3346,12 @@ class _HomeScreenState extends State<HomeScreen>
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _showLargeOrderContactDialog,
-              icon: const Icon(Icons.chat_rounded),
-              label: const Text("تواصل عبر واتساب قبل الطلب"),
-            ),
-          ),
         ],
       ),
     );
   }
 
-  Future<void> _openOrders() async {
+  Future<void> _openOrders({String? orderId}) async {
     var whatsapp = widget.whatsapp.trim();
     final prefs = await SharedPreferences.getInstance();
     whatsapp = whatsapp.isNotEmpty
@@ -3509,14 +3361,77 @@ class _HomeScreenState extends State<HomeScreen>
     if (whatsapp.isEmpty) {
       _showCustomToast("أكمل بياناتك أولاً", color: Colors.orange);
       if (!mounted) return;
-      Navigator.pushNamed(context, '/');
+      AppNavigator.pushNamed(context, '/');
       return;
     }
 
     if (!mounted) return;
-    Navigator.pushNamed(context, '/orders', arguments: whatsapp);
+    final trimmedOrderId = (orderId ?? '').trim();
+    final args = <String, dynamic>{'whatsapp': whatsapp};
+    if (trimmedOrderId.isNotEmpty) {
+      args['order_id'] = trimmedOrderId;
+    }
+    AppNavigator.pushNamed(context, '/orders', arguments: args);
   }
 
+  Future<void> _openSupportChat({
+    String? orderId,
+    bool autoOpenedByStatus = false,
+  }) async {
+    if (!mounted || _supportChatNavigationInProgress) return;
+    var whatsapp = widget.whatsapp.trim();
+    var name = _nameCtrl.text.trim();
+    final trimmedOrderId = (orderId ?? '').trim();
+    final prefs = await SharedPreferences.getInstance();
+    if (whatsapp.isEmpty) {
+      whatsapp = (prefs.getString('user_whatsapp') ?? '').trim();
+    }
+    if (name.isEmpty) {
+      name = (prefs.getString('user_name') ?? '').trim();
+    }
+
+    if (whatsapp.isEmpty) {
+      _showCustomToast("أكمل بياناتك أولاً", color: Colors.orange);
+      if (!mounted) return;
+      AppNavigator.pushNamed(context, '/');
+      return;
+    }
+
+    _supportChatNavigationInProgress = true;
+    if (autoOpenedByStatus) {
+      _showCustomToast('طلبك قيد التنفيذ.', color: Colors.green);
+    }
+    try {
+      final args = <String, dynamic>{'whatsapp': whatsapp};
+      if (name.isNotEmpty) {
+        args['name'] = name;
+      }
+      if (trimmedOrderId.isNotEmpty) {
+        args['order_id'] = trimmedOrderId;
+      }
+      if (!mounted) return;
+      AppNavigator.pushNamed(context, '/support_chat', arguments: args);
+    } finally {
+      _supportChatNavigationInProgress = false;
+    }
+  }
+
+  Map<String, dynamic> _homeRouteArguments({
+    bool forceTikTokCharge = false,
+    bool showRamadanPromo = true,
+    bool showGamesOnly = false,
+  }) {
+    return {
+      'name': widget.name,
+      'whatsapp': widget.whatsapp,
+      'tiktok': widget.tiktok,
+      'force_tiktok_charge': forceTikTokCharge,
+      'show_ramadan_promo': showRamadanPromo,
+      'show_games_only': showGamesOnly,
+    };
+  }
+
+  // ignore: unused_element
   Widget _buildMenuTile({
     required IconData icon,
     required String title,
@@ -3556,20 +3471,7 @@ class _HomeScreenState extends State<HomeScreen>
       _MenuItem(
         title: "شحن عملات تيك توك",
         icon: Icons.monetization_on,
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => HomeScreen(
-                name: widget.name,
-                whatsapp: widget.whatsapp,
-                tiktok: widget.tiktok,
-                forceTikTokCharge: true,
-                showRamadanPromo: true,
-              ),
-            ),
-          );
-        },
+        onTap: _openTiktokDialog,
       ),
       _MenuItem(
         title: "ترويج فيديو تيك توك",
@@ -3581,7 +3483,7 @@ class _HomeScreenState extends State<HomeScreen>
           title: _promoCodesTitle,
           icon: Icons.card_giftcard,
           onTap: () {
-            Navigator.pushNamed(
+            AppNavigator.pushNamed(
               context,
               '/code_requests',
               arguments: widget.whatsapp,
@@ -3591,33 +3493,15 @@ class _HomeScreenState extends State<HomeScreen>
       _MenuItem(
         title: "شحن ألعاب",
         icon: Icons.sports_esports,
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => HomeScreen(
-                name: widget.name,
-                whatsapp: widget.whatsapp,
-                tiktok: widget.tiktok,
-                showGamesOnly: true,
-              ),
-            ),
-          );
-        },
+        onTap: _openGamesDialog,
       ),
       _MenuItem(
         title: "سياسة الخصوصية",
         icon: Icons.privacy_tip,
         onTap: () {
-          Navigator.pushNamed(context, '/privacy');
+          AppNavigator.pushNamed(context, '/privacy');
         },
       ),
-      if (!kIsWeb)
-        _MenuItem(
-          title: "تحديث التطبيق",
-          icon: Icons.system_update,
-          onTap: () => UpdateManager.check(context, manual: true),
-        ),
     ];
 
     return Column(
@@ -3667,6 +3551,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   // EN: Builds Web Nav Bar.
   // AR: تبني Web Nav Bar.
+  // ignore: unused_element
   PreferredSizeWidget _buildWebNavBar() {
     return GlassAppBar(
       height: 80,
@@ -3688,21 +3573,18 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               _webBtn("طلباتي", () => _openOrders()),
               _webBtn("شحن الرصيد", _openBalanceTopupDialog),
-              _webBtn(
-                "شحن عملات تيك توك",
-                () => Navigator.pushNamed(context, '/'),
-              ),
+              _webBtn("شحن عملات تيك توك", _openTiktokDialog),
               _webBtn("ترويج فيديو تيك توك", _openPromoDialog),
-              _webBtn("شحن ألعاب", _showOtherPackagesSheet),
+              _webBtn("شحن ألعاب", _openGamesDialog),
               _webBtn(
                 "سياسة الخصوصية",
-                () => Navigator.pushNamed(context, '/privacy'),
+                () => AppNavigator.pushNamed(context, '/privacy'),
               ),
-              _webBtn("حسابي", () => Navigator.pushNamed(context, '/account')),
+              _webBtn("حسابي", _openAccountDialog),
               if (_showPromoCodeSection)
                 _webBtn(
                   _promoCodesTitle,
-                  () => Navigator.pushNamed(
+                  () => AppNavigator.pushNamed(
                     context,
                     '/code_requests',
                     arguments: widget.whatsapp,
@@ -3714,8 +3596,8 @@ class _HomeScreenState extends State<HomeScreen>
                 tooltip: "وضع التطبيق",
                 icon: Icon(
                   Theme.of(context).brightness == Brightness.dark
-                      ? Icons.wb_sunny_rounded
-                      : Icons.nightlight_round,
+                      ? Icons.nightlight_round
+                      : Icons.wb_sunny_rounded,
                   color: TTColors.primaryCyan,
                 ),
                 onSelected: (mode) async {

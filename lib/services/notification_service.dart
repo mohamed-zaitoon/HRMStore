@@ -19,10 +19,6 @@ class NotificationService {
   static const String _modeHybrid = 'hybrid';
   static const String _modeOneSignal = 'onesignal';
   static const String _modeRealtime = 'realtime';
-  static const String _cloudflareUrlDefine = String.fromEnvironment(
-    'CF_NOTIFY_URL',
-    defaultValue: '',
-  );
   static const String _adminOrdersLastSeenKey = 'notif_last_seen_admin_orders';
   static const String _adminCodesLastSeenKey = 'notif_last_seen_admin_codes';
   static const String _userOrdersLastSeenPrefix =
@@ -66,25 +62,19 @@ class NotificationService {
   }
 
   static bool _isOneSignalEnabled() {
-    try {
-      final hasCloudflareEndpoint =
-          RemoteConfigService.instance.cloudflareNotifyUrl.isNotEmpty ||
-          _cloudflareUrlDefine.trim().isNotEmpty;
-      final cloudflareEnabled =
-          RemoteConfigService.instance.cloudflareNotifyEnabled &&
-          hasCloudflareEndpoint;
-      if (cloudflareEnabled) return true;
-      return notificationMode != _modeRealtime;
-    } catch (_) {
-      return true;
-    }
+    // Keep push registration always enabled so notifications can arrive
+    // while the app is closed, regardless of in-app realtime mode.
+    return true;
   }
 
   static bool _isRealtimeEnabled() {
     try {
-      if (notificationMode != _modeRealtime) return false;
-      if (_isOneSignalEnabled()) return false;
-      return true;
+      final enabledByConfig =
+          RemoteConfigService.instance.notificationsEnableRealtime;
+      if (enabledByConfig) return true;
+      // Keep realtime listeners as a fallback so in-app notifications
+      // continue to work even when OneSignal mode is selected.
+      return notificationMode == _modeOneSignal;
     } catch (_) {
       return true;
     }
@@ -235,14 +225,14 @@ class NotificationService {
             _userOrderStatusById[doc.id] = status;
 
             if (!canReplayHistory) continue;
-            if (status.isEmpty || status == 'pending_payment') continue;
+            if (status.isEmpty) continue;
 
             final eventAt = _bestTimestamp(data, const [
               'updated_at',
               'created_at',
             ]);
             if (!_isAfterLastSeen(eventAt, lastSeen)) continue;
-            _showUserOrderStatusNotification(status: status);
+            _showUserOrderStatusNotification(status: status, orderId: doc.id);
             if (eventAt.isAfter(latestSeen)) {
               latestSeen = eventAt;
             }
@@ -276,10 +266,15 @@ class NotificationService {
             'updated_at',
             'created_at',
           ], fallback: DateTime.now());
-          if (!_isAfterLastSeen(eventAt, lastSeen)) continue;
+          final isTerminalStatus =
+              status == 'completed' || status == 'rejected';
+          final isNewerThanLastSeen = _isAfterLastSeen(eventAt, lastSeen);
+          if (!isTerminalStatus && !isNewerThanLastSeen) continue;
 
-          await _writeLastSeen(scopeKey, eventAt);
-          _showUserOrderStatusNotification(status: status);
+          if (isNewerThanLastSeen) {
+            await _writeLastSeen(scopeKey, eventAt);
+          }
+          _showUserOrderStatusNotification(status: status, orderId: docId);
         }
       },
       onError: (error) {
@@ -685,6 +680,13 @@ class NotificationService {
     if (kDebugMode) log('disposeListeners() -> listeners cancelled');
   }
 
+  static Future<void> stopListeningToUserOrders() async {
+    await _userOrdersSub?.cancel();
+    _userOrdersSub = null;
+    _userOrderStatusById.clear();
+    _userOrdersPrimed = false;
+  }
+
   static Future<void> _cancelAndClearUserStreams() async {
     await _userOrdersSub?.cancel();
     await _userCodesSub?.cancel();
@@ -848,28 +850,37 @@ class NotificationService {
     return 'طلب كود خصم جديد';
   }
 
-  static void _showUserOrderStatusNotification({required String status}) {
-    if (status == 'pending_payment') return;
-
+  static void _showUserOrderStatusNotification({
+    required String status,
+    required String orderId,
+  }) {
+    final trimmedOrderId = orderId.trim();
+    final orderIdSuffix = trimmedOrderId.isEmpty
+        ? ''
+        : ' (ID: $trimmedOrderId)';
     String message;
     IconData icon;
-    if (status == 'pending_review') {
-      message = 'تم استلام إيصالك وجارٍ المراجعة ⏳';
+    if (status == 'pending_payment') {
+      message = 'طلبك بانتظار الدفع 💳$orderIdSuffix';
+      icon = Icons.payments_outlined;
+    } else if (status == 'pending_review') {
+      message = 'تم استلام إيصالك وجارٍ المراجعة ⏳$orderIdSuffix';
       icon = Icons.receipt_long;
     } else if (status == 'processing') {
-      message = 'طلبك دخل مرحلة التنفيذ ⚙️';
+      message = 'طلبك دخل مرحلة التنفيذ ⚙️$orderIdSuffix';
       icon = Icons.settings;
     } else if (status == 'completed') {
-      message = 'تم تنفيذ طلبك بنجاح ✅';
+      message = 'تم تنفيذ طلبك بنجاح ✅$orderIdSuffix';
       icon = Icons.check_circle;
     } else if (status == 'rejected') {
-      message = 'تم رفض طلبك ❌';
+      message = 'تم رفض طلبك ❌$orderIdSuffix';
       icon = Icons.cancel;
     } else if (status == 'cancelled') {
-      message = 'تم إلغاء طلبك 🚫';
+      message = 'تم إلغاء طلبك 🚫$orderIdSuffix';
       icon = Icons.block;
     } else {
-      message = 'تم تحديث حالة طلبك: ${OrderStatusHelper.label(status)}';
+      message =
+          'تم تحديث حالة طلبك: ${OrderStatusHelper.label(status)}$orderIdSuffix';
       icon = Icons.notifications_active;
     }
 
@@ -877,6 +888,8 @@ class NotificationService {
       message,
       color: OrderStatusHelper.color(status),
       icon: icon,
+      dedupeKey: 'user_order_status:${orderId.trim()}:$status',
+      dedupeDuration: const Duration(hours: 24),
     );
   }
 
@@ -920,6 +933,8 @@ class NotificationService {
     String message, {
     required Color color,
     required IconData icon,
+    String? dedupeKey,
+    Duration dedupeDuration = const Duration(minutes: 10),
   }) {
     final context = AppNavigator.context;
     if (context == null) {
@@ -934,6 +949,8 @@ class NotificationService {
       backgroundColor: color,
       textColor: Colors.white,
       icon: icon,
+      dedupeKey: dedupeKey,
+      dedupeDuration: dedupeDuration,
     );
   }
 

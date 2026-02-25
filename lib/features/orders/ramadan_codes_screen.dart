@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -136,6 +137,96 @@ class _RamadanCodesScreenState extends State<RamadanCodesScreen> {
     );
   }
 
+  Widget _buildPromoCodeSection(String promoCode) {
+    final normalizedCode = promoCode.trim().toUpperCase();
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('promo_codes')
+          .doc(normalizedCode)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data() ?? const <String, dynamic>{};
+        final isUsed = data['is_used'] == true;
+        final codeColor = isUsed
+            ? const Color(0xFFFCA5A5)
+            : TTColors.goldAccent;
+        final borderColor = isUsed ? Colors.red : Colors.green;
+        final boxColor = isUsed
+            ? Colors.red.withAlpha(18)
+            : Colors.green.withAlpha(26);
+
+        return Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: boxColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: borderColor),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    "الكود الخاص بك هو:",
+                    style: TextStyle(color: TTColors.textGray, fontSize: 12),
+                  ),
+                  SelectableText(
+                    normalizedCode,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: codeColor,
+                      letterSpacing: 2,
+                      decoration: isUsed ? TextDecoration.lineThrough : null,
+                      decorationColor: codeColor,
+                      decorationThickness: isUsed ? 2 : null,
+                    ),
+                  ),
+                  if (isUsed)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 6),
+                      child: Text(
+                        "تم استخدامه",
+                        style: TextStyle(
+                          color: Color(0xFFEF4444),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              icon: Icon(isUsed ? Icons.check_circle : Icons.copy),
+              label: Text(isUsed ? "تم استخدامه" : "نسخ الكود"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isUsed
+                    ? Theme.of(context).disabledColor
+                    : TTColors.goldAccent,
+                foregroundColor: isUsed ? TTColors.textWhite : Colors.black,
+              ),
+              onPressed: isUsed
+                  ? null
+                  : () {
+                      Clipboard.setData(ClipboardData(text: normalizedCode));
+                      TopSnackBar.show(
+                        context,
+                        "تم نسخ الكود!",
+                        backgroundColor: TTColors.cardBg,
+                        textColor: TTColors.textWhite,
+                        icon: Icons.copy,
+                      );
+                    },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _handlePageSwipeRefresh() async {
     await _loadSeasonFlags();
   }
@@ -149,7 +240,7 @@ class _RamadanCodesScreenState extends State<RamadanCodesScreen> {
           const SnowBackground(),
           if (!_seasonLoaded)
             (!kIsWeb
-                ? RefreshIndicator(
+                ? CustomMaterialIndicator(
                     onRefresh: _handlePageSwipeRefresh,
                     color: TTColors.primaryCyan,
                     backgroundColor: TTColors.cardBg,
@@ -174,7 +265,7 @@ class _RamadanCodesScreenState extends State<RamadanCodesScreen> {
                   ))
           else if (!_isSeasonalPromoEnabled)
             (!kIsWeb
-                ? RefreshIndicator(
+                ? CustomMaterialIndicator(
                     onRefresh: _handlePageSwipeRefresh,
                     color: TTColors.primaryCyan,
                     backgroundColor: TTColors.cardBg,
@@ -209,7 +300,7 @@ class _RamadanCodesScreenState extends State<RamadanCodesScreen> {
                   ))
           else
             (!kIsWeb
-                ? RefreshIndicator(
+                ? CustomMaterialIndicator(
                     onRefresh: _handlePageSwipeRefresh,
                     color: TTColors.primaryCyan,
                     backgroundColor: TTColors.cardBg,
@@ -383,71 +474,7 @@ class _RamadanCodesScreenState extends State<RamadanCodesScreen> {
                                             ),
                                             if (promoCode != null &&
                                                 promoCode.isNotEmpty) ...[
-                                              Container(
-                                                width: double.infinity,
-                                                padding: const EdgeInsets.all(
-                                                  12,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.green.withAlpha(
-                                                    26,
-                                                  ),
-                                                  borderRadius:
-                                                      BorderRadius.circular(8),
-                                                  border: Border.all(
-                                                    color: Colors.green,
-                                                  ),
-                                                ),
-                                                child: Column(
-                                                  children: [
-                                                    Text(
-                                                      "الكود الخاص بك هو:",
-                                                      style: TextStyle(
-                                                        color:
-                                                            TTColors.textGray,
-                                                        fontSize: 12,
-                                                      ),
-                                                    ),
-                                                    SelectableText(
-                                                      promoCode,
-                                                      style: const TextStyle(
-                                                        fontSize: 24,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        color:
-                                                            TTColors.goldAccent,
-                                                        letterSpacing: 2,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                              const SizedBox(height: 10),
-                                              ElevatedButton.icon(
-                                                icon: const Icon(Icons.copy),
-                                                label: const Text("نسخ الكود"),
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor:
-                                                      TTColors.goldAccent,
-                                                  foregroundColor: Colors.black,
-                                                ),
-                                                onPressed: () {
-                                                  Clipboard.setData(
-                                                    ClipboardData(
-                                                      text: promoCode,
-                                                    ),
-                                                  );
-                                                  TopSnackBar.show(
-                                                    context,
-                                                    "تم نسخ الكود!",
-                                                    backgroundColor:
-                                                        TTColors.cardBg,
-                                                    textColor:
-                                                        TTColors.textWhite,
-                                                    icon: Icons.copy,
-                                                  );
-                                                },
-                                              ),
+                                              _buildPromoCodeSection(promoCode),
                                             ] else
                                               Text(
                                                 "سيظهر الكود هنا فور موافقة الإدارة.",
@@ -629,67 +656,7 @@ class _RamadanCodesScreenState extends State<RamadanCodesScreen> {
                                           ),
                                           if (promoCode != null &&
                                               promoCode.isNotEmpty) ...[
-                                            Container(
-                                              width: double.infinity,
-                                              padding: const EdgeInsets.all(12),
-                                              decoration: BoxDecoration(
-                                                color: Colors.green.withAlpha(
-                                                  26,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                border: Border.all(
-                                                  color: Colors.green,
-                                                ),
-                                              ),
-                                              child: Column(
-                                                children: [
-                                                  Text(
-                                                    "الكود الخاص بك هو:",
-                                                    style: TextStyle(
-                                                      color: TTColors.textGray,
-                                                      fontSize: 12,
-                                                    ),
-                                                  ),
-                                                  SelectableText(
-                                                    promoCode,
-                                                    style: const TextStyle(
-                                                      fontSize: 24,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      color:
-                                                          TTColors.goldAccent,
-                                                      letterSpacing: 2,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            const SizedBox(height: 10),
-                                            ElevatedButton.icon(
-                                              icon: const Icon(Icons.copy),
-                                              label: const Text("نسخ الكود"),
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor:
-                                                    TTColors.goldAccent,
-                                                foregroundColor: Colors.black,
-                                              ),
-                                              onPressed: () {
-                                                Clipboard.setData(
-                                                  ClipboardData(
-                                                    text: promoCode,
-                                                  ),
-                                                );
-                                                TopSnackBar.show(
-                                                  context,
-                                                  "تم نسخ الكود!",
-                                                  backgroundColor:
-                                                      TTColors.cardBg,
-                                                  textColor: TTColors.textWhite,
-                                                  icon: Icons.copy,
-                                                );
-                                              },
-                                            ),
+                                            _buildPromoCodeSection(promoCode),
                                           ] else
                                             Text(
                                               "سيظهر الكود هنا فور موافقة الإدارة.",

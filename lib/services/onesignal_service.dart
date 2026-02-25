@@ -79,6 +79,10 @@ class OneSignalService {
       final externalId = _buildExternalId(normalizedWhatsapp, isAdmin);
       if (kIsWeb) {
         await OneSignalWebBridge.login(externalId);
+        await OneSignalWebBridge.setTags({
+          'role': isAdmin ? 'admin' : 'user',
+          if (normalizedWhatsapp.isNotEmpty) 'whatsapp': normalizedWhatsapp,
+        });
         if (requestPermission) {
           await OneSignalWebBridge.requestPermission();
         }

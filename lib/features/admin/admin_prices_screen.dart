@@ -3,6 +3,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/app_navigator.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/snow_background.dart';
@@ -263,14 +264,14 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
             icon: const Icon(Icons.local_offer),
             tooltip: "عروض الأسعار",
             onPressed: () {
-              Navigator.pushNamed(context, '/admin/offers');
+              AppNavigator.pushNamed(context, '/admin/offers');
             },
           ),
           IconButton(
             icon: const Icon(Icons.calculate),
             tooltip: "حاسبة التكلفة اليدوية",
             onPressed: () {
-              Navigator.pushNamed(context, '/admin/cost-calculator');
+              AppNavigator.pushNamed(context, '/admin/cost-calculator');
             },
           ),
         ],

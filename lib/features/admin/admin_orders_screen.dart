@@ -4,15 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart' as launcher;
 import 'dart:async';
 
+import '../../core/app_navigator.dart';
 import '../../core/order_status.dart';
 import '../../core/tt_colors.dart';
 import '../../services/admin_session_service.dart';
 import '../../services/cloudflare_notify_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/order_chat_service.dart';
 import '../../services/receipt_storage_service.dart';
 import '../../models/game_package.dart';
 import '../../widgets/theme_mode_sheet.dart';
@@ -20,9 +24,11 @@ import '../../widgets/top_snackbar.dart';
 import '../../widgets/glass_bottom_sheet.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/order_chat_panel.dart';
 import '../../widgets/snow_background.dart';
 import '../../utils/url_sanitizer.dart';
-import 'admin_devices_screen.dart';
+
+enum _QrImageSourceOption { camera, files }
 
 class AdminOrdersScreen extends StatefulWidget {
   // EN: Creates AdminOrdersScreen.
@@ -85,7 +91,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
       await NotificationService.disposeListeners();
       await NotificationService.pushLogout();
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, '/admin', (route) => false);
+      AppNavigator.pushNamedAndRemoveUntil(context, '/admin', (route) => false);
       return;
     }
 
@@ -128,7 +134,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
     await AdminSessionService.clearLocalSession();
 
     if (mounted) {
-      Navigator.pushNamedAndRemoveUntil(context, '/admin', (route) => false);
+      AppNavigator.pushNamedAndRemoveUntil(context, '/admin', (route) => false);
     }
   }
 
@@ -152,11 +158,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
 
     if (!mounted) return;
 
-    Navigator.push(
-      context,
-
-      MaterialPageRoute(builder: (_) => AdminDevicesScreen(adminId: adminId)),
-    );
+    AppNavigator.pushNamed(context, '/admin/devices', arguments: adminId);
   }
 
   // EN: Shows Admin Menu Sheet.
@@ -179,7 +181,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                   title: "طلبات أكواد المستخدمين",
                   onTap: () {
                     Navigator.pop(ctx);
-                    Navigator.pushNamed(context, '/admin/requests');
+                    AppNavigator.pushNamed(context, '/admin/requests');
                   },
                 ),
 
@@ -188,7 +190,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                   title: "إدارة الأكواد",
                   onTap: () {
                     Navigator.pop(ctx);
-                    Navigator.pushNamed(context, '/admin/codes');
+                    AppNavigator.pushNamed(context, '/admin/codes');
                   },
                 ),
 
@@ -197,7 +199,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                   title: "تعديل الأسعار",
                   onTap: () {
                     Navigator.pop(ctx);
-                    Navigator.pushNamed(context, '/admin/prices');
+                    AppNavigator.pushNamed(context, '/admin/prices');
                   },
                 ),
 
@@ -206,7 +208,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                   title: "عروض الأسعار",
                   onTap: () {
                     Navigator.pop(ctx);
-                    Navigator.pushNamed(context, '/admin/offers');
+                    AppNavigator.pushNamed(context, '/admin/offers');
                   },
                 ),
 
@@ -215,7 +217,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                   title: "حاسبة التكلفة اليدوية",
                   onTap: () {
                     Navigator.pop(ctx);
-                    Navigator.pushNamed(context, '/admin/cost-calculator');
+                    AppNavigator.pushNamed(context, '/admin/cost-calculator');
                   },
                 ),
 
@@ -224,7 +226,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                   title: "شحن الألعاب",
                   onTap: () {
                     Navigator.pop(ctx);
-                    Navigator.pushNamed(context, '/admin/games');
+                    AppNavigator.pushNamed(context, '/admin/games');
                   },
                 ),
 
@@ -233,7 +235,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                   title: "بيانات المستخدمين",
                   onTap: () {
                     Navigator.pop(ctx);
-                    Navigator.pushNamed(context, '/admin/users');
+                    AppNavigator.pushNamed(context, '/admin/users');
                   },
                 ),
 
@@ -242,7 +244,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                   title: "مواعيد العمل / الصيانة",
                   onTap: () {
                     Navigator.pop(ctx);
-                    Navigator.pushNamed(context, '/admin/availability');
+                    AppNavigator.pushNamed(context, '/admin/availability');
                   },
                 ),
 
@@ -256,18 +258,27 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                 ),
 
                 _menuTile(
+                  icon: Icons.support_agent,
+                  title: "شات الاستفسارات",
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    AppNavigator.pushNamed(context, '/admin/support_inquiries');
+                  },
+                ),
+
+                _menuTile(
                   icon: Icons.account_balance_wallet,
                   title: "المحافظ",
                   onTap: () {
                     Navigator.pop(ctx);
-                    Navigator.pushNamed(context, '/admin/wallets');
+                    AppNavigator.pushNamed(context, '/admin/wallets');
                   },
                 ),
 
                 _menuTile(
                   icon: Theme.of(context).brightness == Brightness.dark
-                      ? Icons.wb_sunny_rounded
-                      : Icons.nightlight_round,
+                      ? Icons.nightlight_round
+                      : Icons.wb_sunny_rounded,
                   title: "وضع التطبيق",
                   onTap: () async {
                     Navigator.pop(ctx);
@@ -342,7 +353,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           icon: Icon(Icons.card_giftcard, color: colorScheme.tertiary),
           tooltip: "طلبات أكواد المستخدمين",
           onPressed: () {
-            Navigator.pushNamed(context, '/admin/requests');
+            AppNavigator.pushNamed(context, '/admin/requests');
           },
         ),
 
@@ -350,7 +361,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           icon: Icon(Icons.confirmation_number, color: colorScheme.primary),
           tooltip: "إدارة الأكواد",
           onPressed: () {
-            Navigator.pushNamed(context, '/admin/codes');
+            AppNavigator.pushNamed(context, '/admin/codes');
           },
         ),
 
@@ -358,7 +369,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           icon: Icon(Icons.price_change, color: colorScheme.secondary),
           tooltip: "تعديل الأسعار",
           onPressed: () {
-            Navigator.pushNamed(context, '/admin/prices');
+            AppNavigator.pushNamed(context, '/admin/prices');
           },
         ),
 
@@ -366,7 +377,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           icon: Icon(Icons.local_offer, color: colorScheme.tertiary),
           tooltip: "عروض الأسعار",
           onPressed: () {
-            Navigator.pushNamed(context, '/admin/offers');
+            AppNavigator.pushNamed(context, '/admin/offers');
           },
         ),
 
@@ -374,7 +385,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           icon: Icon(Icons.calculate, color: colorScheme.primary),
           tooltip: "حاسبة التكلفة اليدوية",
           onPressed: () {
-            Navigator.pushNamed(context, '/admin/cost-calculator');
+            AppNavigator.pushNamed(context, '/admin/cost-calculator');
           },
         ),
 
@@ -382,6 +393,14 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           icon: Icon(Icons.devices, color: colorScheme.onSurface),
           tooltip: "الأجهزة المسجّل منها",
           onPressed: _openDevicesScreen,
+        ),
+
+        IconButton(
+          icon: Icon(Icons.support_agent, color: colorScheme.primary),
+          tooltip: "شات الاستفسارات",
+          onPressed: () {
+            AppNavigator.pushNamed(context, '/admin/support_inquiries');
+          },
         ),
 
         IconButton(
@@ -502,7 +521,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                     }),
                 ];
 
-                return RefreshIndicator(
+                return CustomMaterialIndicator(
                   onRefresh: () async =>
                       Future.delayed(const Duration(milliseconds: 500)),
                   child: ListView(
@@ -535,10 +554,16 @@ class _AdminOrderCard extends StatefulWidget {
 }
 
 class _AdminOrderCardState extends State<_AdminOrderCard> {
-  late TextEditingController _linkCtrl;
-  late TextEditingController _walletCtrl;
+  static const Duration _deliveryAccessLifetime = Duration(seconds: 20);
+  final ImagePicker _imagePicker = ImagePicker();
   bool _isUpdating = false;
   bool _showTiktokPassword = false;
+
+  bool get _cameraCaptureSupported {
+    if (kIsWeb) return true;
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+  }
 
   // EN: Handles is Final Status.
   // AR: تتعامل مع is Final Status.
@@ -561,6 +586,37 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     if (raw is int) return raw;
     if (raw is num) return raw.toInt();
     return int.tryParse((raw ?? '').toString().trim()) ?? 0;
+  }
+
+  Timestamp _newDeliveryExpiryTimestamp() {
+    return Timestamp.fromDate(DateTime.now().add(_deliveryAccessLifetime));
+  }
+
+  bool _isChatSupportedOrderType(String productType) {
+    return productType == 'tiktok' ||
+        productType == 'game' ||
+        productType == 'tiktok_promo' ||
+        productType == 'balance_topup';
+  }
+
+  bool _isExecutionChatOpen(String status) {
+    return status == 'pending_payment' ||
+        status == 'pending_review' ||
+        status == 'processing';
+  }
+
+  String _chatDisabledHint({
+    required String status,
+    required bool supportsChat,
+  }) {
+    if (!supportsChat) return 'هذا النوع من الطلبات لا يدعم الشات.';
+    if (status == 'completed') return 'تم إغلاق الشات لأن الطلب مكتمل ✅';
+    if (status == 'rejected') return 'تم إغلاق الشات لأن الطلب مرفوض ❌';
+    if (status == 'cancelled') return 'تم إغلاق الشات لأن الطلب ملغي.';
+    if (status == 'pending_payment') {
+      return 'يمكن للمستخدم إرسال إثبات الدفع عبر الشات.';
+    }
+    return 'الشات غير متاح حالياً لهذا الطلب.';
   }
 
   int _extractPointsUsed(Map<String, dynamic> orderData) {
@@ -695,124 +751,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     return creditedNow;
   }
 
-  // EN: Initializes widget state.
-  // AR: تهيّئ حالة الودجت.
-  @override
-  void initState() {
-    super.initState();
-    _linkCtrl = TextEditingController(text: widget.data['delivery_link'] ?? '');
-    _walletCtrl = TextEditingController(
-      text: widget.data['wallet_number'] ?? '',
-    );
-  }
-
-  // EN: Releases resources.
-  // AR: تفرّغ الموارد.
-  @override
-  void dispose() {
-    _linkCtrl.dispose();
-    _walletCtrl.dispose();
-    super.dispose();
-  }
-
-  // EN: Shows image dialog.
-  // AR: تعرض نافذة الصورة.
-  Future<void> _showImageDialog(String url, {required String title}) async {
-    final safeUrl = ensureHttps(url);
-    if (!mounted) return;
-    await showDialog(
-      context: context,
-      builder: (ctx) {
-        final size = MediaQuery.of(ctx).size;
-        final colorScheme = Theme.of(ctx).colorScheme;
-        return Dialog(
-          backgroundColor: colorScheme.surface,
-          insetPadding: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: 640,
-              maxHeight: size.height * 0.8,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.image, color: colorScheme.primary),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: const TextStyle(
-                            fontFamily: 'Cairo',
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        icon: const Icon(Icons.close),
-                        tooltip: "إغلاق",
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                Flexible(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: InteractiveViewer(
-                      minScale: 0.8,
-                      maxScale: 4,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.network(
-                          safeUrl,
-                          fit: BoxFit.contain,
-                          loadingBuilder: (context, child, loadingProgress) {
-                            if (loadingProgress == null) return child;
-                            return Center(
-                              child: CircularProgressIndicator(
-                                value:
-                                    loadingProgress.expectedTotalBytes == null
-                                    ? null
-                                    : loadingProgress.cumulativeBytesLoaded /
-                                          loadingProgress.expectedTotalBytes!,
-                              ),
-                            );
-                          },
-                          errorBuilder: (context, error, stackTrace) {
-                            return Center(
-                              child: Text(
-                                "تعذر تحميل الصورة",
-                                style: TextStyle(
-                                  color: colorScheme.onSurfaceVariant,
-                                  fontFamily: 'Cairo',
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   // EN: Updates Status.
   // AR: تحدّث Status.
   Future<void> _updateStatus(String newStatus) async {
@@ -831,6 +769,8 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
 
     setState(() => _isUpdating = true);
     try {
+      final isPromoOrder =
+          (widget.data['product_type'] ?? '').toString() == 'tiktok_promo';
       final isBalanceTopupOrder =
           (widget.data['product_type'] ?? '').toString() == 'balance_topup';
       int creditedPoints = 0;
@@ -843,6 +783,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
             .doc(widget.id)
             .update({
               'status': newStatus,
+              if (newStatus == 'completed' && isPromoOrder) 'video_link': null,
+              if (newStatus == 'completed' && isPromoOrder)
+                'video_link_removed_at': FieldValue.serverTimestamp(),
               'updated_at': FieldValue.serverTimestamp(),
             });
       }
@@ -850,6 +793,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
       if (mounted) {
         setState(() {
           widget.data['status'] = newStatus;
+          if (newStatus == 'completed' && isPromoOrder) {
+            widget.data['video_link'] = null;
+          }
           if (newStatus == 'completed' && isBalanceTopupOrder) {
             widget.data['balance_points_applied'] = true;
           }
@@ -861,6 +807,14 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
               userWhatsapp: userWhatsapp,
               orderId: widget.id,
               status: newStatus,
+            ),
+          );
+        }
+        if (newStatus == 'processing') {
+          unawaited(
+            OrderChatService.addSystemMessage(
+              orderId: widget.id,
+              text: "بدأ تنفيذ الطلب. الشات مفتوح بين المستخدم والدعم.",
             ),
           );
         }
@@ -910,91 +864,33 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     }
   }
 
-  // EN: Saves Wallet.
-  // AR: تحفظ Wallet.
-  Future<void> _saveWallet() async {
-    if (_isFinalStatus) {
-      if (mounted) {
-        TopSnackBar.show(
-          context,
-          "لا يمكن تعديل بيانات طلب مكتمل أو مرفوض",
-          backgroundColor: Colors.red,
-          textColor: Colors.white,
-          icon: Icons.block,
-        );
-      }
-      return;
-    }
-
-    if (_walletCtrl.text.isEmpty) return;
-
-    setState(() => _isUpdating = true);
-    await FirebaseFirestore.instance.collection('orders').doc(widget.id).update(
-      {'wallet_number': _walletCtrl.text.trim()},
-    );
-
-    if (mounted) {
-      setState(() => _isUpdating = false);
-      TopSnackBar.show(
-        context,
-        "تم تحديث رقم المحفظة ✅",
-        backgroundColor: Colors.green,
-        textColor: Colors.white,
-        icon: Icons.check_circle,
-      );
-    }
+  Future<void> _markOrderAsProcessingAndClearLegacyDelivery() async {
+    await FirebaseFirestore.instance.collection('orders').doc(widget.id).set({
+      'status': 'processing',
+      'updated_at': FieldValue.serverTimestamp(),
+      'delivery_link': null,
+      'delivery_qr_url': null,
+      'delivery_qr_path': null,
+      'delivery_expires_at': null,
+      'delivery_expired_at': null,
+      'delivery_refresh_requested_at': null,
+      'delivery_refresh_requested_by': null,
+    }, SetOptions(merge: true));
   }
 
-  // EN: Saves Link.
-  // AR: تحفظ Link.
-  Future<void> _saveLink() async {
-    if (_isFinalStatus) {
-      if (mounted) {
-        TopSnackBar.show(
-          context,
-          "لا يمكن تعديل بيانات طلب مكتمل أو مرفوض",
-          backgroundColor: Colors.red,
-          textColor: Colors.white,
-          icon: Icons.block,
-        );
-      }
-      return;
-    }
-
-    if (_linkCtrl.text.isEmpty) return;
-
-    setState(() => _isUpdating = true);
-    await FirebaseFirestore.instance
-        .collection('orders')
-        .doc(widget.id)
-        .update({
-          'delivery_link': _linkCtrl.text.trim(),
-          'status': 'processing',
-          'updated_at': FieldValue.serverTimestamp(),
-        });
+  Future<void> _notifyUserProcessingStatus() async {
     final userWhatsapp = _orderUserWhatsapp(widget.data);
-    if (userWhatsapp.isNotEmpty) {
-      unawaited(
-        CloudflareNotifyService.notifyUserOrderStatus(
-          userWhatsapp: userWhatsapp,
-          orderId: widget.id,
-          status: 'processing',
-        ),
-      );
-    }
-    if (mounted) {
-      setState(() => _isUpdating = false);
-      TopSnackBar.show(
-        context,
-        "تم الحفظ وتحويل الحالة لجاري التنفيذ ✅",
-        backgroundColor: Colors.green,
-        textColor: Colors.white,
-        icon: Icons.check_circle,
-      );
-    }
+    if (userWhatsapp.isEmpty) return;
+    unawaited(
+      CloudflareNotifyService.notifyUserOrderStatus(
+        userWhatsapp: userWhatsapp,
+        orderId: widget.id,
+        status: 'processing',
+      ),
+    );
   }
 
-  Future<void> _uploadDeliveryQr() async {
+  Future<void> _sendDeliveryLoginLinkViaChat() async {
     if (_isFinalStatus) {
       if (mounted) {
         TopSnackBar.show(
@@ -1008,27 +904,114 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
       return;
     }
 
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp', 'heic'],
-      withData: true,
-      dialogTitle: 'اختر صورة QR من الملفات',
+    final linkCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    final result = await showDialog<(String, String)>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(ctx).colorScheme.surface,
+        title: const Text(
+          'إرسال لينك تسجيل الدخول',
+          style: TextStyle(fontFamily: 'Cairo'),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: linkCtrl,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'الرابط',
+                hintText: 'https://...',
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: noteCtrl,
+              maxLines: 2,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(labelText: 'ملاحظة (اختياري)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("إلغاء"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final value = linkCtrl.text.trim();
+              if (value.isEmpty) return;
+              Navigator.pop(ctx, (value, noteCtrl.text.trim()));
+            },
+            child: const Text("إرسال"),
+          ),
+        ],
+      ),
     );
-    if (result == null || result.files.isEmpty) return;
 
-    final Uint8List? bytes = result.files.first.bytes;
-    if (bytes == null) {
+    if (!mounted || result == null) return;
+
+    final safeLink = ensureHttps(result.$1);
+    final note = result.$2;
+    setState(() => _isUpdating = true);
+    try {
+      await OrderChatService.addMessage(
+        orderId: widget.id,
+        senderRole: 'admin',
+        senderName: '',
+        text: note,
+        attachmentType: 'link',
+        attachmentUrl: safeLink,
+        attachmentLabel: 'لينك تسجيل الدخول',
+        attachmentExpiresAt: _newDeliveryExpiryTimestamp(),
+        recipientUserWhatsapp: _orderUserWhatsapp(widget.data),
+      );
+      await _markOrderAsProcessingAndClearLegacyDelivery();
+      await _notifyUserProcessingStatus();
+      if (!mounted) return;
+      setState(() {
+        _isUpdating = false;
+        widget.data['status'] = 'processing';
+      });
+      TopSnackBar.show(
+        context,
+        "تم إرسال لينك تسجيل الدخول داخل الشات ✅",
+        backgroundColor: Colors.green,
+        textColor: Colors.white,
+        icon: Icons.check_circle,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isUpdating = false);
+      TopSnackBar.show(
+        context,
+        "حدث خطأ أثناء إرسال الرابط",
+        backgroundColor: Colors.red,
+        textColor: Colors.white,
+        icon: Icons.error_outline,
+      );
+      debugPrint('send delivery login link via chat failed: $e');
+    }
+  }
+
+  Future<void> _sendDeliveryQrViaChat() async {
+    if (_isFinalStatus) {
       if (mounted) {
         TopSnackBar.show(
           context,
-          "تعذر قراءة الصورة، حاول صورة أخرى",
+          "لا يمكن تعديل بيانات طلب مكتمل أو مرفوض",
           backgroundColor: Colors.red,
           textColor: Colors.white,
-          icon: Icons.error,
+          icon: Icons.block,
         );
       }
       return;
     }
+
+    final bytes = await _pickQrImageBytes();
+    if (bytes == null || !mounted) return;
 
     bool confirm = false;
     if (!mounted) return;
@@ -1041,7 +1024,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
           children: [
             Image.memory(bytes, height: 200, fit: BoxFit.contain),
             const SizedBox(height: 10),
-            const Text("إرسال صورة QR للمستخدم؟"),
+            const Text("إرسال صورة QR داخل الشات؟"),
           ],
         ),
         actions: [
@@ -1059,121 +1042,205 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         ],
       ),
     );
-
     if (!confirm || !mounted) return;
 
     setState(() => _isUpdating = true);
     try {
-      final oldPath = (widget.data['delivery_qr_path'] ?? '').toString().trim();
       final uploadRes = await ReceiptStorageService.uploadWithPath(
         bytes: bytes,
         whatsapp: _orderUserWhatsapp(widget.data),
-        orderId: 'delivery_qr_${widget.id}',
+        orderId:
+            'chat_qr_${widget.id}_${DateTime.now().millisecondsSinceEpoch}',
       );
 
       if (uploadRes == null) {
-        if (mounted) {
-          setState(() => _isUpdating = false);
+        if (!mounted) return;
+        setState(() => _isUpdating = false);
+        TopSnackBar.show(
+          context,
+          "فشل رفع صورة QR",
+          backgroundColor: Colors.red,
+          textColor: Colors.white,
+          icon: Icons.error,
+        );
+        return;
+      }
+
+      await OrderChatService.addMessage(
+        orderId: widget.id,
+        senderRole: 'admin',
+        senderName: '',
+        text: 'QR تسجيل الدخول',
+        attachmentType: 'image',
+        attachmentUrl: uploadRes.url,
+        attachmentPath: uploadRes.path,
+        attachmentLabel: 'QR تسجيل الدخول',
+        attachmentExpiresAt: _newDeliveryExpiryTimestamp(),
+        recipientUserWhatsapp: _orderUserWhatsapp(widget.data),
+      );
+      await _markOrderAsProcessingAndClearLegacyDelivery();
+      await _notifyUserProcessingStatus();
+      if (!mounted) return;
+      setState(() {
+        _isUpdating = false;
+        widget.data['status'] = 'processing';
+      });
+      TopSnackBar.show(
+        context,
+        "تم إرسال QR داخل الشات ✅",
+        backgroundColor: Colors.green,
+        textColor: Colors.white,
+        icon: Icons.qr_code_2,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isUpdating = false);
+      TopSnackBar.show(
+        context,
+        "حدث خطأ أثناء إرسال QR",
+        backgroundColor: Colors.red,
+        textColor: Colors.white,
+        icon: Icons.error_outline,
+      );
+      debugPrint('send delivery qr via chat failed: $e');
+    }
+  }
+
+  Future<_QrImageSourceOption?> _promptQrImageSource() {
+    return showDialog<_QrImageSourceOption>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(ctx).colorScheme.surface,
+        title: const Text(
+          'مصدر صورة QR',
+          style: TextStyle(fontFamily: 'Cairo'),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text(
+                'التقاط بالكاميرا',
+                style: TextStyle(fontFamily: 'Cairo'),
+              ),
+              onTap: () => Navigator.pop(ctx, _QrImageSourceOption.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_open_rounded),
+              title: const Text(
+                'اختيار من الملفات',
+                style: TextStyle(fontFamily: 'Cairo'),
+              ),
+              onTap: () => Navigator.pop(ctx, _QrImageSourceOption.files),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<Uint8List?> _pickQrImageBytes() async {
+    final source = _cameraCaptureSupported
+        ? await _promptQrImageSource()
+        : _QrImageSourceOption.files;
+    if (source == null) return null;
+
+    if (source == _QrImageSourceOption.camera) {
+      try {
+        final picked = await _imagePicker.pickImage(
+          source: ImageSource.camera,
+          preferredCameraDevice: CameraDevice.rear,
+          imageQuality: 95,
+          maxWidth: 2200,
+        );
+        if (picked == null) return null;
+        final bytes = await picked.readAsBytes();
+        if (bytes.isEmpty) {
+          if (!mounted) return null;
           TopSnackBar.show(
             context,
-            "فشل رفع صورة QR",
+            "تعذر قراءة الصورة الملتقطة",
             backgroundColor: Colors.red,
             textColor: Colors.white,
             icon: Icons.error,
           );
+          return null;
         }
-        return;
-      }
-
-      await FirebaseFirestore.instance.collection('orders').doc(widget.id).set({
-        'delivery_qr_url': uploadRes.url,
-        'delivery_qr_path': uploadRes.path,
-        'status': 'processing',
-        'updated_at': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      final userWhatsapp = _orderUserWhatsapp(widget.data);
-      if (userWhatsapp.isNotEmpty) {
-        unawaited(
-          CloudflareNotifyService.notifyUserOrderStatus(
-            userWhatsapp: userWhatsapp,
-            orderId: widget.id,
-            status: 'processing',
-          ),
-        );
-      }
-      if (oldPath.isNotEmpty && oldPath != uploadRes.path) {
-        await ReceiptStorageService.deleteByPath(oldPath);
-      }
-
-      if (mounted) {
-        setState(() => _isUpdating = false);
+        return bytes;
+      } catch (e) {
+        if (!mounted) return null;
         TopSnackBar.show(
           context,
-          "تم إرسال QR للمستخدم ✅",
-          backgroundColor: Colors.green,
-          textColor: Colors.white,
-          icon: Icons.qr_code_2,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isUpdating = false);
-        TopSnackBar.show(
-          context,
-          "حدث خطأ أثناء إرسال QR",
+          "تعذر فتح الكاميرا الآن",
           backgroundColor: Colors.red,
           textColor: Colors.white,
           icon: Icons.error_outline,
         );
+        debugPrint('pick qr via camera failed: $e');
+        return null;
       }
-      debugPrint('upload delivery qr failed: $e');
     }
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp', 'heic'],
+      withData: true,
+      dialogTitle: 'اختر صورة QR من الملفات',
+    );
+    if (result == null || result.files.isEmpty) return null;
+
+    final bytes = result.files.first.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      if (!mounted) return null;
+      TopSnackBar.show(
+        context,
+        "تعذر قراءة الصورة، حاول صورة أخرى",
+        backgroundColor: Colors.red,
+        textColor: Colors.white,
+        icon: Icons.error,
+      );
+      return null;
+    }
+    return bytes;
   }
 
   Future<String?> _promptRejectReason() async {
     String value = '';
-    String? errorText;
-
     return showDialog<String>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: Theme.of(ctx).colorScheme.surface,
-          title: const Text("سبب الرفض"),
-          content: TextField(
-            autofocus: true,
-            minLines: 2,
-            maxLines: 4,
-            onChanged: (v) => value = v,
-            decoration: InputDecoration(
-              labelText: "اكتب سبب الرفض للعميل",
-              errorText: errorText,
-            ),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(ctx).colorScheme.surface,
+        title: const Text("سبب الرفض (اختياري)"),
+        content: TextField(
+          autofocus: true,
+          minLines: 2,
+          maxLines: 4,
+          onChanged: (v) => value = v,
+          decoration: const InputDecoration(
+            labelText: "اكتب سبب الرفض للعميل (اختياري)",
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("إلغاء"),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(ctx).colorScheme.error,
-                foregroundColor: Theme.of(ctx).colorScheme.onError,
-              ),
-              onPressed: () {
-                final reason = value.trim();
-                if (reason.isEmpty) {
-                  setDialogState(() {
-                    errorText = "اكتب سبب الرفض أولاً";
-                  });
-                  return;
-                }
-                Navigator.pop(ctx, reason);
-              },
-              child: const Text("رفض الطلب"),
-            ),
-          ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("إلغاء"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, value.trim()),
+            child: const Text("رفض الطلب"),
+          ),
+        ],
       ),
     );
   }
@@ -1214,6 +1281,8 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         final orderSnap = await tx.get(orderRef);
         final orderData = orderSnap.data() ?? latestOrderData;
         final status = (orderData['status'] ?? '').toString();
+        final isPromoOrder =
+            (orderData['product_type'] ?? '').toString() == 'tiktok_promo';
         if (status == 'completed' || status == 'cancelled') {
           throw StateError('final-status');
         }
@@ -1258,6 +1327,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
           'status': 'rejected',
           'rejection_reason': reason,
           'rejected_at': FieldValue.serverTimestamp(),
+          if (isPromoOrder) 'video_link': null,
+          if (isPromoOrder)
+            'video_link_removed_at': FieldValue.serverTimestamp(),
           'updated_at': FieldValue.serverTimestamp(),
           if (pointsUsed > 0) 'points_refunded': true,
           if (pointsUsed > 0 && !alreadyRefunded)
@@ -1272,6 +1344,10 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         _isUpdating = false;
         widget.data['status'] = 'rejected';
         widget.data['rejection_reason'] = reason;
+        if ((latestOrderData['product_type'] ?? '').toString() ==
+            'tiktok_promo') {
+          widget.data['video_link'] = null;
+        }
         if (pointsUsed > 0) {
           widget.data['points_refunded'] = true;
         }
@@ -1302,7 +1378,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         bgColor = Colors.orange;
         icon = Icons.info_outline;
       } else {
-        message = "تم رفض الطلب وإرسال السبب للعميل";
+        message = reason.isEmpty
+            ? "تم رفض الطلب"
+            : "تم رفض الطلب وإرسال السبب للعميل";
         bgColor = Colors.red;
         icon = Icons.info_outline;
       }
@@ -1350,12 +1428,8 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final status = widget.data['status'] ?? 'unknown';
+    final status = (widget.data['status'] ?? 'unknown').toString();
     final bool isFinalStatus = _isFinalStatus;
-    final receiptUrl = widget.data['receipt_url'];
-    final String deliveryQrUrl = (widget.data['delivery_qr_url'] ?? '')
-        .toString()
-        .trim();
     final String method = (widget.data['method'] ?? '').toString();
     final bool isBinanceMethod = method == 'Binance Pay';
     final bool isPointsMethod = method == 'Points';
@@ -1364,6 +1438,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     final bool isGameOrder = productType == 'game';
     final bool isPromoOrder = productType == 'tiktok_promo';
     final bool isBalanceTopupOrder = productType == 'balance_topup';
+    final bool supportsOrderChat = _isChatSupportedOrderType(productType);
+    final bool shouldShowChatSection = supportsOrderChat && !isFinalStatus;
+    final bool isExecutionChatOpen = _isExecutionChatOpen(status);
     final String egpPriceText = (widget.data['price'] ?? '').toString().trim();
     final String originalEgpPriceText =
         (widget.data['original_price'] ?? widget.data['price'] ?? '')
@@ -1434,7 +1511,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     final String tiktokChargeMode = (widget.data['tiktok_charge_mode'] ?? '')
         .toString()
         .trim();
-    final bool isQrChargeMode = tiktokChargeMode == 'qr';
     final String rejectionReason = (widget.data['rejection_reason'] ?? '')
         .toString()
         .trim();
@@ -1445,6 +1521,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         : tiktokChargeMode == 'link'
         ? 'لينك'
         : '';
+    final String userDisplayName = (widget.data['name'] ?? '')
+        .toString()
+        .trim();
     final statusColor = OrderStatusHelper.color(status);
     final statusTextColor =
         ThemeData.estimateBrightnessForColor(statusColor) == Brightness.dark
@@ -1601,7 +1680,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
               children: [
                 Expanded(
                   child: SelectableText(
-                    "يوزر تيك توك: ${tiktokUser.isEmpty ? '-' : tiktokUser}",
+                    "حساب تيك توك: ${tiktokUser.isEmpty ? '-' : tiktokUser}",
                     style: TextStyle(
                       color: colorScheme.onSurfaceVariant,
                       fontSize: 12,
@@ -1615,14 +1694,14 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
                           Clipboard.setData(ClipboardData(text: tiktokUser));
                           TopSnackBar.show(
                             this.context,
-                            "تم نسخ يوزر تيك توك",
+                            "تم نسخ حساب تيك توك",
                             backgroundColor: colorScheme.surface,
                             textColor: colorScheme.onSurface,
                             icon: Icons.check_circle,
                           );
                         },
                   icon: const Icon(Icons.copy, size: 18),
-                  tooltip: "نسخ يوزر تيك توك",
+                  tooltip: "نسخ حساب تيك توك",
                 ),
               ],
             ),
@@ -1672,18 +1751,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
                   ),
                 ],
               ),
-            if (deliveryQrUrl.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.qr_code_2),
-                  label: const Text("عرض QR المرسل للمستخدم"),
-                  onPressed: () =>
-                      _showImageDialog(deliveryQrUrl, title: "QR الشحن"),
-                ),
-              ),
-            ],
           ],
 
           if (isGameOrder && gameId.isNotEmpty) ...[
@@ -1761,109 +1828,50 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
 
           const SizedBox(height: 12),
 
-          if (receiptUrl != null)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.image),
-                label: const Text("عرض صورة التحويل"),
-                onPressed: () => _showImageDialog(
-                  receiptUrl.toString(),
-                  title: "صورة التحويل",
+          if (!isFinalStatus && !isBalanceTopupOrder) ...[
+            if (!isGameOrder && !isPromoOrder) ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _sendDeliveryLoginLinkViaChat,
+                  icon: const Icon(Icons.link),
+                  label: const Text(
+                    "إرسال لينك تسجيل الدخول داخل الشات",
+                    style: TextStyle(fontFamily: 'Cairo'),
+                  ),
                 ),
               ),
-            )
-          else if (method == "Points")
-            Text(
-              "تم الدفع من رصيد النقاط - لا يحتاج إيصال",
-              style: TextStyle(color: colorScheme.onSurfaceVariant),
-            )
-          else
-            Text(
-              "⚠️ العميل لم يرفع الإيصال",
-              style: TextStyle(color: colorScheme.error),
-            ),
-
-          const SizedBox(height: 12),
-
-          if (method == "Wallet") ...[
-            TextField(
-              controller: _walletCtrl,
-              keyboardType: TextInputType.phone,
-              readOnly: isFinalStatus,
-              decoration: InputDecoration(
-                labelText: "رقم المحفظة",
-                prefixIcon: const Icon(Icons.account_balance_wallet),
-                suffixIcon: isFinalStatus
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.save),
-                        onPressed: _saveWallet,
-                      ),
+              const SizedBox(height: 10),
+            ],
+            if (!isGameOrder && !isPromoOrder) ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _sendDeliveryQrViaChat,
+                  icon: const Icon(Icons.qr_code_2),
+                  label: const Text(
+                    "إرسال QR داخل الشات",
+                    style: TextStyle(fontFamily: 'Cairo'),
+                  ),
+                ),
               ),
-            ),
-
-            const SizedBox(height: 10),
+              const SizedBox(height: 12),
+            ],
           ],
 
-          if (!isGameOrder && !isPromoOrder && !isBalanceTopupOrder) ...[
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: isFinalStatus ? null : _uploadDeliveryQr,
-                icon: const Icon(Icons.qr_code_2),
-                label: Text(
-                  deliveryQrUrl.isEmpty
-                      ? "رفع QR وإرساله للمستخدم"
-                      : "تحديث صورة QR",
-                ),
+          if (shouldShowChatSection) ...[
+            OrderChatPanel(
+              orderId: widget.id,
+              isAdmin: true,
+              userDisplayName: userDisplayName,
+              userWhatsapp: _orderUserWhatsapp(widget.data),
+              adminDisplayName: 'الدعم',
+              chatEnabled: isExecutionChatOpen,
+              disabledHint: _chatDisabledHint(
+                status: status,
+                supportsChat: supportsOrderChat,
               ),
             ),
-            const SizedBox(height: 10),
-          ],
-
-          if (!isBalanceTopupOrder) ...[
-            TextField(
-              controller: _linkCtrl,
-              readOnly: isFinalStatus,
-              decoration: InputDecoration(
-                labelText: isPromoOrder
-                    ? "رابط فيديو الترويج"
-                    : (isQrChargeMode
-                          ? "رابط الشحن (اختياري مع QR)"
-                          : "رابط الشحن"),
-                prefixIcon: const Icon(Icons.link),
-                suffixIcon: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.copy),
-                      tooltip: "نسخ الرابط",
-                      onPressed: _linkCtrl.text.trim().isEmpty
-                          ? null
-                          : () {
-                              Clipboard.setData(
-                                ClipboardData(text: _linkCtrl.text.trim()),
-                              );
-                              TopSnackBar.show(
-                                this.context,
-                                "تم نسخ الرابط",
-                                backgroundColor: colorScheme.surface,
-                                textColor: colorScheme.onSurface,
-                                icon: Icons.check_circle,
-                              );
-                            },
-                    ),
-                    if (!isFinalStatus)
-                      IconButton(
-                        icon: const Icon(Icons.save),
-                        onPressed: _saveLink,
-                      ),
-                  ],
-                ),
-              ),
-            ),
-
             const SizedBox(height: 12),
           ],
 

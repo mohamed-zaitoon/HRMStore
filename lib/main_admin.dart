@@ -13,6 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 import 'services/onesignal_service.dart';
 import 'services/app_check_service.dart';
+import 'services/app_links_service.dart';
+import 'services/easy_loading_service.dart';
 import 'services/remote_config_service.dart';
 import 'services/theme_service.dart';
 import 'services/admin_session_service.dart';
@@ -39,6 +41,7 @@ Future<void> main() async {
 
   final prefs = await SharedPreferences.getInstance();
   ThemeService.init(prefs);
+  EasyLoadingService.configure();
   final adminSession = await AdminSessionService.getLocalSession();
   final whatsapp =
       (adminSession?.whatsapp ?? prefs.getString('admin_whatsapp') ?? '')
@@ -51,6 +54,7 @@ Future<void> main() async {
 
   runApp(HrmStoreApp(prefs: prefs, isAdminApp: isAdmin));
 
+  unawaited(AppLinksService.start(isAdminApp: isAdmin));
   unawaited(_postInit(whatsapp: whatsapp, isAdmin: isAdmin));
 }
 

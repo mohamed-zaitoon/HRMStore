@@ -10,6 +10,7 @@ import '../../services/device_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/admin_session_service.dart';
 import '../../core/app_info.dart';
+import '../../core/app_navigator.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/snow_background.dart';
@@ -93,7 +94,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       }
 
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/admin/orders');
+      AppNavigator.pushReplacementNamed(context, '/admin/orders');
     } catch (_) {
       await AdminSessionService.clearLocalSession();
       if (mounted) {
@@ -241,7 +242,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
 
       // 8️⃣ الانتقال للوحة الأدمن
       if (mounted) {
-        Navigator.pushReplacementNamed(context, '/admin/orders');
+        AppNavigator.pushReplacementNamed(context, '/admin/orders');
       }
     } catch (e) {
       String message = "حدث خطأ أثناء تسجيل الدخول";
@@ -299,8 +300,8 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
             onPressed: _loading ? null : () => showThemeModeSheet(context),
             icon: Icon(
               Theme.of(context).brightness == Brightness.dark
-                  ? Icons.wb_sunny_rounded
-                  : Icons.nightlight_round,
+                  ? Icons.nightlight_round
+                  : Icons.wb_sunny_rounded,
             ),
           ),
         ],

@@ -1,9 +1,11 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
+import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:universal_html/html.dart' as html;
@@ -14,12 +16,15 @@ import '../services/theme_service.dart';
 import '../widgets/connection_blocker.dart';
 import '../widgets/access_blocker.dart';
 import '../widgets/availability_blocker.dart';
+import '../widgets/pull_to_retry.dart';
 
 import '../features/home/home_screen.dart';
 import '../features/orders/orders_screen.dart';
 import '../features/home/privacy_screen.dart';
 import '../features/auth/account_screen.dart';
 import '../features/auth/user_auth_screen.dart';
+import '../features/support/support_chat_screen.dart';
+import '../features/support/support_inquiry_screen.dart';
 
 import '../features/admin/admin_login_screen.dart';
 import '../features/admin/admin_orders_screen.dart';
@@ -32,6 +37,8 @@ import '../features/admin/admin_availability_screen.dart';
 import '../features/admin/admin_game_packages_screen.dart';
 import '../features/admin/admin_users_screen.dart';
 import '../features/admin/admin_wallets_screen.dart';
+import '../features/admin/admin_devices_screen.dart';
+import '../features/admin/admin_support_inquiries_screen.dart';
 import '../features/admin/admin_route_guard.dart';
 
 import '../features/platform/android_landing_page.dart';
@@ -44,182 +51,470 @@ class HrmStoreApp extends StatelessWidget {
   final SharedPreferences prefs;
   final bool isAdminApp;
   final NavigatorObserver _titleObserver;
+  late final RootStackRouter _appRouter = RootStackRouter.build(
+    navigatorKey: AppNavigator.key,
+    routes: [
+      NamedRouteDef(
+        path: '/',
+        name: 'RootRoute',
+        builder: (context, data) => _buildRootPage('/'),
+      ),
+      NamedRouteDef(
+        path: '/login',
+        name: 'LoginRoute',
+        builder: (context, data) => _buildRootPage('/login'),
+      ),
+      NamedRouteDef(
+        path: '/android',
+        name: 'AndroidLandingRoute',
+        builder: (context, data) => const AndroidLandingPage(),
+      ),
+      NamedRouteDef(
+        path: '/home',
+        name: 'HomeRoute',
+        builder: (context, data) => _buildHomePage(data, '/home'),
+      ),
+      NamedRouteDef(
+        path: '/home/tiktok',
+        name: 'HomeTikTokRoute',
+        builder: (context, data) => _buildHomePage(data, '/home/tiktok'),
+      ),
+      NamedRouteDef(
+        path: '/home/games',
+        name: 'HomeGamesRoute',
+        builder: (context, data) => _buildHomePage(data, '/home/games'),
+      ),
+      NamedRouteDef(
+        path: '/orders',
+        name: 'OrdersRoute',
+        builder: (context, data) => _buildOrdersPage(data),
+      ),
+      NamedRouteDef(
+        path: '/support_chat',
+        name: 'SupportChatRoute',
+        builder: (context, data) => _buildSupportChatPage(data),
+      ),
+      NamedRouteDef(
+        path: '/support_inquiry',
+        name: 'SupportInquiryRoute',
+        builder: (context, data) => _buildSupportInquiryPage(data),
+      ),
+      NamedRouteDef(
+        path: '/account',
+        name: 'AccountRoute',
+        builder: (context, data) =>
+            _withAndroidLanding('/account', AccountScreen()),
+      ),
+      if (!kIsWeb)
+        NamedRouteDef(
+          path: '/about',
+          name: 'AboutRoute',
+          builder: (context, data) =>
+              _withAndroidLanding('/about', const AboutAppScreen()),
+        ),
+      NamedRouteDef(
+        path: '/privacy',
+        name: 'PrivacyRoute',
+        builder: (context, data) =>
+            _withAndroidLanding('/privacy', const PrivacyScreen()),
+      ),
+      NamedRouteDef(
+        path: '/privacy_policy',
+        name: 'PrivacyPolicyRoute',
+        builder: (context, data) =>
+            _withAndroidLanding('/privacy_policy', const PrivacyScreen()),
+      ),
+      NamedRouteDef(
+        path: '/code_requests',
+        name: 'CodeRequestsRoute',
+        builder: (context, data) => _buildCodeRequestsPage(data),
+      ),
+      NamedRouteDef(
+        path: '/admin',
+        name: 'AdminRootRoute',
+        builder: (context, data) => const AdminLoginScreen(),
+      ),
+      NamedRouteDef(
+        path: '/admin/login',
+        name: 'AdminLoginRoute',
+        builder: (context, data) => const AdminLoginScreen(),
+      ),
+      NamedRouteDef(
+        path: '/admin/orders',
+        name: 'AdminOrdersRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminOrdersScreen()),
+      ),
+      NamedRouteDef(
+        path: '/admin/codes',
+        name: 'AdminCodesRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminPromoCodesScreen()),
+      ),
+      NamedRouteDef(
+        path: '/admin/requests',
+        name: 'AdminRequestsRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminCodeRequestsScreen()),
+      ),
+      NamedRouteDef(
+        path: '/admin/prices',
+        name: 'AdminPricesRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminPricesScreen()),
+      ),
+      NamedRouteDef(
+        path: '/admin/offers',
+        name: 'AdminOffersRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminOffersScreen()),
+      ),
+      NamedRouteDef(
+        path: '/admin/cost-calculator',
+        name: 'AdminCostCalculatorRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminCostCalculatorScreen()),
+      ),
+      NamedRouteDef(
+        path: '/admin/availability',
+        name: 'AdminAvailabilityRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminAvailabilityScreen()),
+      ),
+      NamedRouteDef(
+        path: '/admin/games',
+        name: 'AdminGamesRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminGamePackagesScreen()),
+      ),
+      NamedRouteDef(
+        path: '/admin/users',
+        name: 'AdminUsersRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminUsersScreen()),
+      ),
+      NamedRouteDef(
+        path: '/admin/wallets',
+        name: 'AdminWalletsRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminWalletsScreen()),
+      ),
+      NamedRouteDef(
+        path: '/admin/devices',
+        name: 'AdminDevicesRoute',
+        builder: (context, data) => _buildAdminDevicesPage(data),
+      ),
+      NamedRouteDef(
+        path: '/admin/support_inquiries',
+        name: 'AdminSupportInquiriesRoute',
+        builder: (context, data) =>
+            const AdminRouteGuard(child: AdminSupportInquiriesScreen()),
+      ),
+      NamedRouteDef(
+        path: '*',
+        name: 'NotFoundRoute',
+        builder: (context, data) =>
+            _withAndroidLanding(data.match, const _NotFoundScreen()),
+      ),
+    ],
+  );
 
   // EN: Creates HrmStoreApp.
   // AR: ينشئ HrmStoreApp.
   HrmStoreApp({super.key, required this.prefs, required this.isAdminApp})
     : _titleObserver = _WebTitleObserver(isAdminApp: isAdminApp);
 
-  // EN: Handles Generate Route.
-  // AR: تتعامل مع Generate Route.
-  Route<dynamic> _onGenerateRoute(RouteSettings settings) {
-    String name = settings.name ?? '/';
-    final parsed = Uri.tryParse(name);
-    if (parsed != null) {
-      name = parsed.path;
+  Widget _buildRootPage(String routeName) {
+    if (isAdminApp) {
+      return const AdminLoginScreen();
     }
-    name = _normalizeRoute(name);
+    return _withAndroidLanding(routeName, const UserAuthScreen());
+  }
 
-    if (_shouldForceAndroidLanding(name)) {
-      return MaterialPageRoute(builder: (_) => const AndroidLandingPage());
+  Widget _buildHomePage(RouteData data, String routeName) {
+    final args = _resolveArgsMap(data, routeName);
+    final query = data.queryParams;
+
+    final name =
+        _stringArg(args, 'name') ??
+        query.optString('name') ??
+        prefs.getString('user_name') ??
+        '';
+    final whatsapp =
+        _stringArg(args, 'whatsapp') ??
+        query.optString('whatsapp') ??
+        prefs.getString('user_whatsapp') ??
+        '';
+    final tiktok =
+        _stringArg(args, 'tiktok') ??
+        query.optString('tiktok') ??
+        prefs.getString('user_tiktok') ??
+        '';
+
+    if (name.isEmpty || whatsapp.isEmpty) {
+      return _withAndroidLanding(routeName, const UserAuthScreen());
     }
 
-    switch (name) {
-      case '/':
-        if (isAdminApp) {
-          return MaterialPageRoute(builder: (_) => const AdminLoginScreen());
-        } else {
-          return MaterialPageRoute(builder: (_) => const UserAuthScreen());
-        }
+    final bool routeForTikTok = routeName == '/home/tiktok';
+    final bool routeForGames = routeName == '/home/games';
+    final bool forceTikTokCharge =
+        _boolArg(args, 'force_tiktok_charge') ??
+        _boolText(query.optString('force_tiktok_charge')) ??
+        routeForTikTok;
+    final bool showRamadanPromo =
+        _boolArg(args, 'show_ramadan_promo') ??
+        _boolText(query.optString('show_ramadan_promo')) ??
+        true;
+    final bool showGamesOnly =
+        _boolArg(args, 'show_games_only') ??
+        _boolText(query.optString('show_games_only')) ??
+        routeForGames;
 
-      case '/login':
-        return MaterialPageRoute(builder: (_) => const UserAuthScreen());
+    final int? prefillPoints =
+        _intArg(args, 'prefill_points') ?? query.optInt('prefill_points');
+    final bool autolaunchPayment =
+        _boolArg(args, 'autolaunch_payment') ??
+        _boolText(query.optString('autolaunch_payment')) ??
+        false;
 
-      case '/android':
-        return MaterialPageRoute(builder: (_) => const AndroidLandingPage());
+    return _withAndroidLanding(
+      routeName,
+      HomeScreen(
+        name: name,
+        whatsapp: whatsapp,
+        tiktok: tiktok,
+        forceTikTokCharge: forceTikTokCharge,
+        showRamadanPromo: showRamadanPromo,
+        showGamesOnly: showGamesOnly,
+        prefillPoints: prefillPoints,
+        autolaunchPayment: autolaunchPayment,
+      ),
+    );
+  }
 
-      case '/home':
-        {
-          final args = settings.arguments as Map<String, dynamic>?;
+  Widget _buildOrdersPage(RouteData data) {
+    final args = _resolveArgsMap(data, '/orders');
+    final routeArgs = _resolveRawArgs(data, '/orders');
+    String? whatsapp = _stringFromDynamic(routeArgs);
+    whatsapp ??= _stringArg(args, 'whatsapp');
+    whatsapp ??= data.queryParams.optString('whatsapp');
+    whatsapp ??= prefs.getString('user_whatsapp');
+    final orderId =
+        _stringArg(args, 'order_id') ?? data.queryParams.optString('order_id');
+    final resolved = (whatsapp ?? '').trim();
+    final resolvedOrderId = (orderId ?? '').trim();
 
-          final name =
-              (args != null ? args['name'] as String? : null) ??
-              prefs.getString('user_name') ??
-              '';
-          final whatsapp =
-              (args != null ? args['whatsapp'] as String? : null) ??
-              prefs.getString('user_whatsapp') ??
-              '';
-          final tiktok =
-              (args != null ? args['tiktok'] as String? : null) ??
-              prefs.getString('user_tiktok') ??
-              '';
-
-          if (name.isEmpty || whatsapp.isEmpty) {
-            return MaterialPageRoute(builder: (_) => const UserAuthScreen());
-          }
-
-          return MaterialPageRoute(
-            builder: (_) => HomeScreen(
-              name: name,
-              whatsapp: whatsapp,
-              tiktok: tiktok,
-              prefillPoints: args?['prefill_points'] as int?,
-              autolaunchPayment:
-                  (args?['autolaunch_payment'] as bool?) ?? false,
-            ),
-          );
-        }
-
-      case '/orders':
-        {
-          String? whatsappArg = settings.arguments as String?;
-          whatsappArg ??= prefs.getString('user_whatsapp');
-
-          final String whatsapp = whatsappArg ?? '';
-
-          if (whatsapp.isEmpty) {
-            return MaterialPageRoute(builder: (_) => const UserAuthScreen());
-          }
-
-          return MaterialPageRoute(
-            builder: (_) => OrdersScreen(whatsapp: whatsapp),
-          );
-        }
-
-      case '/account':
-        return MaterialPageRoute(builder: (_) => AccountScreen());
-
-      case '/about':
-        if (kIsWeb) {
-          return MaterialPageRoute(builder: (_) => const _NotFoundScreen());
-        }
-        return MaterialPageRoute(builder: (_) => const AboutAppScreen());
-
-      case '/privacy':
-      case '/privacy_policy':
-        return MaterialPageRoute(builder: (_) => const PrivacyScreen());
-
-      case '/code_requests':
-        {
-          String? whatsappArg = settings.arguments as String?;
-          whatsappArg ??= prefs.getString('user_whatsapp');
-
-          final name = prefs.getString('user_name') ?? '';
-          final tiktok = prefs.getString('user_tiktok') ?? '';
-
-          final String whatsapp = whatsappArg ?? '';
-
-          if (whatsapp.isEmpty || name.isEmpty) {
-            return MaterialPageRoute(builder: (_) => const UserAuthScreen());
-          }
-
-          return MaterialPageRoute(
-            builder: (_) => RamadanCodesScreen(
-              name: name,
-              whatsapp: whatsapp,
-              tiktok: tiktok,
-            ),
-          );
-        }
-
-      case '/admin':
-      case '/admin/login':
-        return MaterialPageRoute(builder: (_) => const AdminLoginScreen());
-
-      case '/admin/orders':
-        return MaterialPageRoute(
-          builder: (_) => const AdminRouteGuard(child: AdminOrdersScreen()),
-        );
-
-      case '/admin/codes':
-        return MaterialPageRoute(
-          builder: (_) => const AdminRouteGuard(child: AdminPromoCodesScreen()),
-        );
-
-      case '/admin/requests':
-        return MaterialPageRoute(
-          builder: (_) =>
-              const AdminRouteGuard(child: AdminCodeRequestsScreen()),
-        );
-
-      case '/admin/prices':
-        return MaterialPageRoute(
-          builder: (_) => const AdminRouteGuard(child: AdminPricesScreen()),
-        );
-      case '/admin/offers':
-        return MaterialPageRoute(
-          builder: (_) => const AdminRouteGuard(child: AdminOffersScreen()),
-        );
-      case '/admin/cost-calculator':
-        return MaterialPageRoute(
-          builder: (_) =>
-              const AdminRouteGuard(child: AdminCostCalculatorScreen()),
-        );
-
-      case '/admin/availability':
-        return MaterialPageRoute(
-          builder: (_) =>
-              const AdminRouteGuard(child: AdminAvailabilityScreen()),
-        );
-
-      case '/admin/games':
-        return MaterialPageRoute(
-          builder: (_) =>
-              const AdminRouteGuard(child: AdminGamePackagesScreen()),
-        );
-      case '/admin/users':
-        return MaterialPageRoute(
-          builder: (_) => const AdminRouteGuard(child: AdminUsersScreen()),
-        );
-      case '/admin/wallets':
-        return MaterialPageRoute(
-          builder: (_) => const AdminRouteGuard(child: AdminWalletsScreen()),
-        );
-
-      default:
-        return MaterialPageRoute(builder: (_) => const _NotFoundScreen());
+    if (resolved.isEmpty) {
+      return _withAndroidLanding('/orders', const UserAuthScreen());
     }
+
+    return _withAndroidLanding(
+      '/orders',
+      OrdersScreen(
+        whatsapp: resolved,
+        initialOrderId: resolvedOrderId.isEmpty ? null : resolvedOrderId,
+      ),
+    );
+  }
+
+  Widget _buildCodeRequestsPage(RouteData data) {
+    final args = _resolveArgsMap(data, '/code_requests');
+    final routeArgs = _resolveRawArgs(data, '/code_requests');
+    String? whatsapp = _stringFromDynamic(routeArgs);
+    whatsapp ??= _stringArg(args, 'whatsapp');
+    whatsapp ??= data.queryParams.optString('whatsapp');
+    whatsapp ??= prefs.getString('user_whatsapp');
+
+    final name =
+        _stringArg(args, 'name') ??
+        data.queryParams.optString('name') ??
+        prefs.getString('user_name') ??
+        '';
+    final tiktok =
+        _stringArg(args, 'tiktok') ??
+        data.queryParams.optString('tiktok') ??
+        prefs.getString('user_tiktok') ??
+        '';
+    final resolvedWhatsapp = (whatsapp ?? '').trim();
+
+    if (resolvedWhatsapp.isEmpty || name.isEmpty) {
+      return _withAndroidLanding('/code_requests', const UserAuthScreen());
+    }
+
+    return _withAndroidLanding(
+      '/code_requests',
+      RamadanCodesScreen(
+        name: name,
+        whatsapp: resolvedWhatsapp,
+        tiktok: tiktok,
+      ),
+    );
+  }
+
+  Widget _buildSupportChatPage(RouteData data) {
+    final args = _resolveArgsMap(data, '/support_chat');
+    final query = data.queryParams;
+    final name =
+        _stringArg(args, 'name') ??
+        query.optString('name') ??
+        prefs.getString('user_name') ??
+        '';
+    final whatsapp =
+        _stringArg(args, 'whatsapp') ??
+        query.optString('whatsapp') ??
+        prefs.getString('user_whatsapp') ??
+        '';
+    final initialOrderId =
+        _stringArg(args, 'order_id') ?? query.optString('order_id') ?? '';
+    final resolvedName = name.trim();
+    final resolvedWhatsapp = whatsapp.trim();
+    final resolvedOrderId = initialOrderId.trim();
+
+    if (resolvedName.isEmpty || resolvedWhatsapp.isEmpty) {
+      return _withAndroidLanding('/support_chat', const UserAuthScreen());
+    }
+
+    return _withAndroidLanding(
+      '/support_chat',
+      SupportChatScreen(
+        name: resolvedName,
+        whatsapp: resolvedWhatsapp,
+        initialOrderId: resolvedOrderId.isEmpty ? null : resolvedOrderId,
+      ),
+    );
+  }
+
+  Widget _buildSupportInquiryPage(RouteData data) {
+    final args = _resolveArgsMap(data, '/support_inquiry');
+    final query = data.queryParams;
+    final name =
+        _stringArg(args, 'name') ??
+        query.optString('name') ??
+        prefs.getString('user_name') ??
+        '';
+    final whatsapp =
+        _stringArg(args, 'whatsapp') ??
+        query.optString('whatsapp') ??
+        prefs.getString('user_whatsapp') ??
+        '';
+    final resolvedName = name.trim();
+    final resolvedWhatsapp = whatsapp.trim();
+
+    if (resolvedName.isEmpty || resolvedWhatsapp.isEmpty) {
+      return _withAndroidLanding('/support_inquiry', const UserAuthScreen());
+    }
+
+    return _withAndroidLanding(
+      '/support_inquiry',
+      SupportInquiryScreen(name: resolvedName, whatsapp: resolvedWhatsapp),
+    );
+  }
+
+  Widget _buildAdminDevicesPage(RouteData data) {
+    final routeArgs = _resolveRawArgs(data, '/admin/devices');
+    final adminId = _extractAdminId(
+      args: routeArgs,
+      queryParams: data.queryParams.rawMap,
+    );
+    if (adminId.isEmpty) {
+      return const AdminRouteGuard(child: AdminOrdersScreen());
+    }
+    return AdminRouteGuard(child: AdminDevicesScreen(adminId: adminId));
+  }
+
+  Widget _withAndroidLanding(String routeName, Widget child) {
+    if (_shouldForceAndroidLanding(routeName)) {
+      return const AndroidLandingPage();
+    }
+    return _withGlobalPullToRefresh(routeName, child);
+  }
+
+  Widget _withGlobalPullToRefresh(String routeName, Widget child) {
+    final normalized = _normalizeRoute(routeName);
+    const localRefreshRoutes = <String>{
+      '/home',
+      '/home/tiktok',
+      '/home/games',
+      '/orders',
+      '/code_requests',
+      '/support_inquiry',
+      '/admin/orders',
+    };
+    if (localRefreshRoutes.contains(normalized)) {
+      return child;
+    }
+    return PullToRetry(child: child);
+  }
+
+  Map<String, dynamic>? _mapArgs(Object? args) {
+    if (args is Map<String, dynamic>) return args;
+    return null;
+  }
+
+  Object? _resolveRawArgs(RouteData data, String routeName) {
+    return data.args ?? AppNavigator.argsForPath(routeName);
+  }
+
+  Map<String, dynamic>? _resolveArgsMap(RouteData data, String routeName) {
+    final fromCache = _mapArgs(AppNavigator.argsForPath(routeName));
+    final fromData = _mapArgs(data.args);
+    if (fromCache == null) return fromData;
+    if (fromData == null) return fromCache;
+    return <String, dynamic>{...fromCache, ...fromData};
+  }
+
+  String? _stringArg(Map<String, dynamic>? args, String key) {
+    final value = args?[key];
+    if (value == null) return null;
+    final text = value.toString().trim();
+    if (text.isEmpty) return null;
+    return text;
+  }
+
+  String? _stringFromDynamic(Object? value) {
+    if (value is String) {
+      final text = value.trim();
+      return text.isEmpty ? null : text;
+    }
+    return null;
+  }
+
+  int? _intArg(Map<String, dynamic>? args, String key) {
+    final value = args?[key];
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value.trim());
+    return null;
+  }
+
+  bool? _boolArg(Map<String, dynamic>? args, String key) {
+    final value = args?[key];
+    if (value is bool) return value;
+    if (value is String) {
+      return _boolText(value);
+    }
+    return null;
+  }
+
+  bool? _boolText(String? value) {
+    if (value == null) return null;
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1') return true;
+    if (normalized == 'false' || normalized == '0') return false;
+    return null;
+  }
+
+  String _extractAdminId({
+    required dynamic args,
+    required Map<String, dynamic> queryParams,
+  }) {
+    if (args is String) return args.trim();
+    if (args is Map<String, dynamic>) {
+      final raw = args['admin_id'];
+      if (raw is String) return raw.trim();
+    }
+    final queryRaw = queryParams['admin_id'];
+    if (queryRaw is String) return queryRaw.trim();
+    return '';
   }
 
   String _normalizeRoute(String name) {
@@ -238,8 +533,33 @@ class HrmStoreApp extends StatelessWidget {
   bool _shouldForceAndroidLanding(String route) {
     if (!kIsWeb || isAdminApp) return false;
     if (route == '/android' || route.startsWith('/admin')) return false;
-    final userAgent = html.window.navigator.userAgent.toLowerCase();
-    return userAgent.contains('android');
+    final userAgent = html.window.navigator.userAgent;
+    final lowered = userAgent.toLowerCase();
+    if (!lowered.contains('android')) return false;
+
+    // EN: Force Android landing only for Android versions > 9.
+    // AR: فرض صفحة تحميل التطبيق فقط لإصدارات أندرويد الأعلى من 9.
+    final majorVersion = _extractAndroidMajorVersion(userAgent);
+    if (majorVersion == null) return false;
+    return majorVersion > 9;
+  }
+
+  int? _extractAndroidMajorVersion(String userAgent) {
+    final match = RegExp(
+      r'Android\s+(\d+)',
+      caseSensitive: false,
+    ).firstMatch(userAgent);
+    if (match == null) return null;
+    return int.tryParse(match.group(1) ?? '');
+  }
+
+  Future<Uri> _normalizeDeepLink(Uri uri) async {
+    final path = _normalizeRoute(uri.path);
+    if (kIsWeb && !isAdminApp && path == '/about') {
+      return uri.replace(path: '/home');
+    }
+    if (path == uri.path) return uri;
+    return uri.replace(path: path);
   }
 
   // EN: Builds widget UI.
@@ -252,13 +572,14 @@ class HrmStoreApp extends StatelessWidget {
         return ValueListenableBuilder<ThemeMode>(
           valueListenable: ThemeService.modeNotifier,
           builder: (context, mode, _) {
-            return MaterialApp(
+            return MaterialApp.router(
               title: AppInfo.appName,
               debugShowCheckedModeBanner: false,
-              navigatorKey: AppNavigator.key,
-              initialRoute: kIsWeb
-                  ? (Uri.base.path.isEmpty ? '/' : Uri.base.path)
-                  : '/',
+              routerConfig: _appRouter.config(
+                includePrefixMatches: false,
+                deepLinkTransformer: _normalizeDeepLink,
+                navigatorObservers: () => [_titleObserver],
+              ),
               theme: _buildTheme(Brightness.light, lightDynamic),
               darkTheme: _buildTheme(Brightness.dark, darkDynamic),
               themeMode: mode,
@@ -269,9 +590,6 @@ class HrmStoreApp extends StatelessWidget {
                 GlobalWidgetsLocalizations.delegate,
                 GlobalCupertinoLocalizations.delegate,
               ],
-              onGenerateRoute: _onGenerateRoute,
-              navigatorObservers: [_titleObserver],
-
               builder: (context, child) {
                 final content = child ?? const SizedBox.shrink();
 
@@ -303,10 +621,11 @@ class HrmStoreApp extends StatelessWidget {
 
                 final gated = AccessBlocker(child: availabilityWrapped);
 
-                return AnnotatedRegion<SystemUiOverlayStyle>(
+                final appContent = AnnotatedRegion<SystemUiOverlayStyle>(
                   value: overlayStyle,
                   child: gated,
                 );
+                return EasyLoading.init()(context, appContent);
               },
             );
           },

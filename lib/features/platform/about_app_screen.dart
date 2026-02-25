@@ -1,19 +1,23 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:icons_plus/icons_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_info.dart';
 import '../../core/constants.dart';
 import '../../services/remote_config_service.dart';
+import '../../services/update_manager.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/snow_background.dart';
+import '../../widgets/top_snackbar.dart';
 
 class AboutAppScreen extends StatefulWidget {
-  const AboutAppScreen({super.key});
+  final bool embedded;
+
+  const AboutAppScreen({super.key, this.embedded = false});
 
   @override
   State<AboutAppScreen> createState() => _AboutAppScreenState();
@@ -71,14 +75,16 @@ class _AboutAppScreenState extends State<AboutAppScreen> {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
+      TopSnackBar.show(
         context,
-      ).showSnackBar(const SnackBar(content: Text('تعذر فتح الرابط')));
+        'تعذر فتح الرابط',
+        backgroundColor: Colors.orange,
+        icon: Icons.warning_amber_rounded,
+      );
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildAboutContent(BuildContext context) {
     final textColor = Theme.of(context).colorScheme.onSurface;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final rc = RemoteConfigService.instance;
@@ -92,125 +98,154 @@ class _AboutAppScreenState extends State<AboutAppScreen> {
     final socialLinks = <_SocialLink>[
       _SocialLink(
         label: 'Facebook',
-        icon: FontAwesomeIcons.facebookF,
+        icon: FontAwesome.facebook_f_brand,
         uri: _platformUri('facebook', rc.socialFacebookUrl),
       ),
       _SocialLink(
         label: 'Instagram',
-        icon: FontAwesomeIcons.instagram,
+        icon: FontAwesome.instagram_brand,
         uri: _platformUri('instagram', rc.socialInstagramUrl),
       ),
       _SocialLink(
         label: 'TikTok',
-        icon: FontAwesomeIcons.tiktok,
+        icon: FontAwesome.tiktok_brand,
         uri: _platformUri('tiktok', rc.socialTiktokUrl),
       ),
       _SocialLink(
         label: 'Telegram',
-        icon: FontAwesomeIcons.telegram,
+        icon: FontAwesome.telegram_brand,
         uri: _platformUri('telegram', rc.socialTelegramUrl),
       ),
     ].where((item) => item.uri != null).toList();
 
-    return Scaffold(
-      appBar: const GlassAppBar(title: Text('حول التطبيق')),
-      body: Stack(
-        children: [
-          const SnowBackground(),
-          Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 540),
-                child: GlassCard(
-                  margin: EdgeInsets.zero,
-                  padding: const EdgeInsets.all(18),
-                  child: FutureBuilder<PackageInfo>(
-                    future: _infoFuture,
-                    builder: (context, snapshot) {
-                      final info = snapshot.data;
-                      final version = info?.version ?? '...';
-                      final build = info?.buildNumber ?? '...';
+    final card = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 540),
+      child: GlassCard(
+        margin: EdgeInsets.zero,
+        padding: const EdgeInsets.all(18),
+        child: FutureBuilder<PackageInfo>(
+          future: _infoFuture,
+          builder: (context, snapshot) {
+            final info = snapshot.data;
+            final version = info?.version ?? '...';
+            final build = info?.buildNumber ?? '...';
 
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            AppInfo.appName,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: textColor,
-                              fontFamily: 'Cairo',
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          _InfoRow(label: 'الإصدار', value: version),
-                          const SizedBox(height: 10),
-                          _InfoRow(label: 'رقم البناء', value: build),
-                          const SizedBox(height: 10),
-                          const _InfoRow(
-                            label: 'تم التطوير بواسطة',
-                            value: 'Mohamed Zaitoon',
-                          ),
-                          const SizedBox(height: 10),
-                          Center(
-                            child: _LinkRow(
-                              label: 'GitHub',
-                              icon: FontAwesomeIcons.github,
-                              accentColor: isDark
-                                  ? const Color(0xFFE6EDF3)
-                                  : const Color(0xFF24292F),
-                              onTap: () => _openLink(githubUri),
-                            ),
-                          ),
-                          if (socialLinks.isNotEmpty) ...[
-                            const SizedBox(height: 16),
-                            Text(
-                              'صفحات التواصل',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                                fontFamily: 'Cairo',
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Wrap(
-                              alignment: WrapAlignment.center,
-                              spacing: 10,
-                              runSpacing: 12,
-                              children: socialLinks
-                                  .map(
-                                    (item) => _LinkRow(
-                                      label: item.label,
-                                      icon: item.icon,
-                                      accentColor: switch (item.label) {
-                                        'Facebook' => const Color(0xFF1877F2),
-                                        'Instagram' => const Color(0xFFE1306C),
-                                        'TikTok' => const Color(0xFF00C7B7),
-                                        'Telegram' => const Color(0xFF229ED9),
-                                        _ => null,
-                                      },
-                                      onTap: () => _openLink(item.uri!),
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                          ],
-                        ],
-                      );
-                    },
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  AppInfo.appName,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: textColor,
+                    fontFamily: 'Cairo',
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              ),
-            ),
-          ),
-        ],
+                const SizedBox(height: 14),
+                _InfoRow(label: 'الإصدار', value: version),
+                const SizedBox(height: 10),
+                _InfoRow(label: 'رقم البناء', value: build),
+                const SizedBox(height: 10),
+                const _InfoRow(
+                  label: 'تم التطوير بواسطة',
+                  value: 'Mohamed Zaitoon',
+                ),
+                const SizedBox(height: 10),
+                Center(
+                  child: _LinkRow(
+                    label: 'GitHub',
+                    icon: FontAwesome.github_brand,
+                    accentColor: isDark
+                        ? const Color(0xFFE6EDF3)
+                        : const Color(0xFF24292F),
+                    onTap: () => _openLink(githubUri),
+                  ),
+                ),
+                if (socialLinks.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'صفحات التواصل',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontFamily: 'Cairo',
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 10,
+                    runSpacing: 12,
+                    children: socialLinks
+                        .map(
+                          (item) => _LinkRow(
+                            label: item.label,
+                            icon: item.icon,
+                            accentColor: switch (item.label) {
+                              'Facebook' => const Color(0xFF1877F2),
+                              'Instagram' => const Color(0xFFE1306C),
+                              'TikTok' => const Color(0xFF00C7B7),
+                              'Telegram' => const Color(0xFF229ED9),
+                              _ => null,
+                            },
+                            onTap: () => _openLink(item.uri!),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => UpdateManager.check(context, manual: true),
+                    icon: const Icon(Icons.system_update),
+                    label: const Text('تحديث التطبيق'),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
+    );
+
+    if (widget.embedded) {
+      return SingleChildScrollView(
+        padding: EdgeInsets.zero,
+        child: Center(child: card),
+      );
+    }
+
+    final body = LayoutBuilder(
+      builder: (context, constraints) {
+        final minHeight = constraints.maxHeight > 32
+            ? constraints.maxHeight - 32
+            : 0.0;
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: minHeight),
+            child: Center(child: card),
+          ),
+        );
+      },
+    );
+
+    return Stack(children: [const SnowBackground(), body]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return _buildAboutContent(context);
+    }
+    return Scaffold(
+      appBar: const GlassAppBar(title: Text('حول التطبيق')),
+      body: _buildAboutContent(context),
     );
   }
 }
@@ -303,7 +338,7 @@ class _LinkRow extends StatelessWidget {
                     ],
                   ),
                   alignment: Alignment.center,
-                  child: FaIcon(icon, size: 22, color: accent),
+                  child: Icon(icon, size: 22, color: accent),
                 ),
                 const SizedBox(height: 6),
                 Text(

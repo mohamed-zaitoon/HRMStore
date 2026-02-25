@@ -1,21 +1,22 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_login/flutter_login.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:crypto/crypto.dart';
-import 'dart:convert';
 
 import '../../core/app_info.dart';
+import '../../core/app_navigator.dart';
 import '../../core/tt_colors.dart';
 import '../../services/notification_service.dart';
-import '../../widgets/top_snackbar.dart';
-import '../../widgets/glass_card.dart';
-import '../../widgets/snow_background.dart';
-import '../../widgets/theme_mode_sheet.dart';
 import '../../utils/html_meta.dart';
+import '../../widgets/theme_mode_sheet.dart';
 
 class _UserLookup {
   const _UserLookup(this.docId, this.data);
@@ -29,8 +30,6 @@ class _UserLookup {
   String get passwordHash => (data['password_hash'] ?? '').toString();
 }
 
-enum _AuthLoadingAction { none, login, register, resetPassword }
-
 class UserAuthScreen extends StatefulWidget {
   const UserAuthScreen({super.key});
 
@@ -39,30 +38,14 @@ class UserAuthScreen extends StatefulWidget {
 }
 
 class _UserAuthScreenState extends State<UserAuthScreen> {
-  final _signupKey = GlobalKey<FormState>();
-  final _loginKey = GlobalKey<FormState>();
-
-  final _nameCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _whatsappCtrl = TextEditingController();
-  final _usernameCtrl = TextEditingController();
-  final _passwordCtrl = TextEditingController();
-
-  final _loginIdCtrl = TextEditingController();
-  final _loginPassCtrl = TextEditingController();
-
-  bool _isLogin = false;
-  bool _loading = false;
-  _AuthLoadingAction _loadingAction = _AuthLoadingAction.none;
   bool _checkingSession = true;
-  String? _error;
 
   @override
   void initState() {
     super.initState();
 
     if (kIsWeb) {
-      setPageTitle('${AppInfo.appName}');
+      setPageTitle(AppInfo.appName);
       setMetaDescription(
         'إنشاء حساب أو تسجيل الدخول إلى ${AppInfo.appName}. منصة موثوقة لشحن خدمات تيك توك والألعاب ومتابعة الطلبات بسهولة.',
       );
@@ -71,20 +54,26 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     _checkExistingSession();
   }
 
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _emailCtrl.dispose();
-    _whatsappCtrl.dispose();
-    _usernameCtrl.dispose();
-    _passwordCtrl.dispose();
-    _loginIdCtrl.dispose();
-    _loginPassCtrl.dispose();
-    super.dispose();
-  }
-
   String _normalizeWhatsapp(String input) {
     return input.replaceAll(RegExp(r'[^0-9+]'), '').trim();
+  }
+
+  String _normalizeDisplayName(String input) {
+    return input.trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String _normalizeTiktokHandle(String input) {
+    var out = input.trim();
+    if (out.isEmpty) return '';
+    if (out.startsWith('http://') || out.startsWith('https://')) {
+      final uri = Uri.tryParse(out);
+      if (uri != null && uri.pathSegments.isNotEmpty) {
+        out = uri.pathSegments.last;
+      }
+    }
+    out = out.replaceFirst(RegExp(r'^@+'), '');
+    out = out.replaceAll(RegExp(r'[^a-zA-Z0-9._]'), '');
+    return out.trim();
   }
 
   String _hashPassword(String password) {
@@ -116,43 +105,28 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     }
   }
 
-  void _showMessage(String msg, {Color color = TTColors.primaryCyan}) {
-    if (!mounted) return;
-    TopSnackBar.show(
-      context,
-      msg,
-      backgroundColor: color,
-      icon: Icons.info_outline,
-    );
-  }
-
-  void _setError(String message) {
-    setState(() => _error = message);
-  }
-
-  Widget _buildButtonProgress({
-    required bool loading,
-    required String label,
-    Color? spinnerColor,
+  String _deriveDisplayName({
+    required String email,
+    required String whatsapp,
+    String? fallback,
   }) {
-    if (!loading) {
-      return Text(label, style: const TextStyle(fontFamily: 'Cairo'));
-    }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.2,
-            color: spinnerColor,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Text(label, style: const TextStyle(fontFamily: 'Cairo')),
-      ],
+    final preferred = (fallback ?? '').trim();
+    if (preferred.length >= 3) return preferred;
+
+    final localPart = email.split('@').first.trim();
+    final sanitizedLocalPart = localPart.replaceAll(
+      RegExp(r'[^a-zA-Z0-9_\-.\u0600-\u06FF]'),
+      '',
     );
+    if (sanitizedLocalPart.length >= 3) {
+      return sanitizedLocalPart;
+    }
+
+    final digits = whatsapp.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length >= 4) {
+      return 'user_${digits.substring(digits.length - 4)}';
+    }
+    return 'مستخدم';
   }
 
   Future<void> _checkExistingSession() async {
@@ -162,7 +136,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     final tiktok = prefs.getString('user_tiktok') ?? '';
 
     if (name.isNotEmpty && whatsapp.isNotEmpty && mounted) {
-      Navigator.pushReplacementNamed(
+      AppNavigator.pushReplacementNamed(
         context,
         '/home',
         arguments: {'name': name, 'whatsapp': whatsapp, 'tiktok': tiktok},
@@ -170,16 +144,21 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
       return;
     }
 
-    if (mounted) setState(() => _checkingSession = false);
+    if (mounted) {
+      setState(() => _checkingSession = false);
+    }
   }
 
   Future<void> _saveUserPrefs(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
+    final savedUsername = (data['username'] ?? '').toString().trim();
+    final savedTiktok = (data['tiktok'] ?? savedUsername).toString().trim();
     await prefs.setBool('is_admin', false);
     await prefs.setString('user_uid', (data['uid'] ?? '').toString());
     await prefs.setString('user_name', (data['name'] ?? '').toString());
     await prefs.setString('user_email', (data['email'] ?? '').toString());
-    await prefs.setString('user_username', (data['username'] ?? '').toString());
+    await prefs.setString('user_username', savedUsername);
+    await prefs.setString('user_tiktok', savedTiktok);
     await prefs.setString(
       'user_whatsapp',
       _normalizeWhatsapp((data['whatsapp'] ?? '').toString()),
@@ -195,22 +174,6 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
         .get();
     if (snap.docs.isEmpty) return null;
     return _UserLookup(snap.docs.first.id, snap.docs.first.data());
-  }
-
-  Future<_UserLookup?> _findUserByIdentifier(String identifier) async {
-    final trimmed = identifier.trim();
-    if (trimmed.isEmpty) return null;
-
-    if (_isValidEmail(trimmed)) {
-      return _findByField('email', trimmed.toLowerCase());
-    }
-
-    final usernameSnap = await _findByField('username', trimmed);
-    if (usernameSnap != null) return usernameSnap;
-
-    final normalized = _normalizeWhatsapp(trimmed);
-    if (normalized.isEmpty) return null;
-    return _findByField('whatsapp', normalized);
   }
 
   Future<_UserLookup?> _getUserByUidOrEmail({
@@ -238,7 +201,6 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
   }
 
   Future<void> _persistAndNavigate(Map<String, dynamic> data) async {
-    // تأكد من وجود uid في البيانات المحفوظة للتفضيلات
     if (!data.containsKey('uid')) {
       data = Map<String, dynamic>.from(data);
       data['uid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -254,14 +216,14 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     }
 
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, '/home');
+    AppNavigator.pushReplacementNamed(context, '/home');
   }
 
-  Future<void> _handleAuthSuccess(User? user, {String? fallbackEmail}) async {
-    if (user == null) {
-      setState(() => _error = 'فشل تسجيل الدخول');
-      return;
-    }
+  Future<String?> _handleAuthSuccess(
+    User? user, {
+    String? fallbackEmail,
+  }) async {
+    if (user == null) return 'فشل تسجيل الدخول';
 
     final email = (user.email ?? fallbackEmail ?? '').toLowerCase();
     final users = FirebaseFirestore.instance.collection('users');
@@ -275,7 +237,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
         }, SetOptions(merge: true));
       }
       await _persistAndNavigate(existing.data);
-      return;
+      return null;
     }
 
     final minimal = {
@@ -291,6 +253,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
       'updated_at': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     await _persistAndNavigate(minimal);
+    return null;
   }
 
   Future<bool> _migrateLegacyUser(String email, String password) async {
@@ -325,269 +288,60 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     }
   }
 
-  Future<String?> _promptLinkEmail() async {
-    if (!mounted) return null;
-    final controller = TextEditingController();
-    String? result;
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
-        title: const Text('ربط البريد الإلكتروني'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(labelText: 'البريد الإلكتروني'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final email = controller.text.trim().toLowerCase();
-              if (!_isValidEmail(email)) {
-                _showMessage('بريد إلكتروني غير صحيح', color: Colors.orange);
-                return;
-              }
-              result = email;
-              Navigator.pop(ctx);
-            },
-            child: const Text('تأكيد'),
-          ),
-        ],
-      ),
-    );
-
-    return result;
-  }
-
-  Future<void> _register() async {
-    if (!_signupKey.currentState!.validate()) return;
-
-    setState(() {
-      _loading = true;
-      _loadingAction = _AuthLoadingAction.register;
-      _error = null;
-    });
-
-    final name = _nameCtrl.text.trim();
-    final email = _emailCtrl.text.trim().toLowerCase();
-    final whatsapp = _normalizeWhatsapp(_whatsappCtrl.text);
-    final username = _usernameCtrl.text.trim();
-    final password = _passwordCtrl.text;
-    final passwordHash = _hashPassword(password);
-
-    try {
-      final users = FirebaseFirestore.instance.collection('users');
-
-      final emailDoc = await _findByField('email', email);
-      final usernameDoc = await _findByField('username', username);
-      final whatsappDoc = await _findByField('whatsapp', whatsapp);
-
-      if (usernameDoc != null &&
-          (emailDoc == null || usernameDoc.docId != emailDoc.docId)) {
-        _setError('اليوزر مستخدم بالفعل');
-        return;
-      }
-
-      if (whatsappDoc != null &&
-          (emailDoc == null || whatsappDoc.docId != emailDoc.docId)) {
-        if (whatsappDoc.uid.isNotEmpty) {
-          _setError('هذا الحساب مسجل بالفعل');
-        } else {
-          _setError('رقم الواتساب مستخدم بالفعل');
-        }
-        return;
-      }
-
-      if (emailDoc != null) {
-        if (emailDoc.uid.isNotEmpty) {
-          _setError('البريد الإلكتروني مستخدم بالفعل');
-          return;
-        }
-        if (emailDoc.whatsapp.isNotEmpty && emailDoc.whatsapp != whatsapp) {
-          _setError('البريد مرتبط برقم واتساب آخر');
-          return;
-        }
-      }
-
-      // إنشاء مستخدم في Firebase Auth
-      final authCred = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(email: email, password: password);
-      final uid = authCred.user?.uid ?? '';
-
-      if (emailDoc != null) {
-        await users.doc(emailDoc.docId).set({
-          'name': name,
-          'email': email,
-          'whatsapp': whatsapp,
-          'username': username,
-          'uid': uid,
-          'password_hash': passwordHash,
-          'created_at':
-              emailDoc.data['created_at'] ?? FieldValue.serverTimestamp(),
-          'updated_at': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-        await _saveUserPrefs({
-          'name': name,
-          'email': email,
-          'whatsapp': whatsapp,
-          'username': username,
-        });
-
-        await NotificationService.initUserNotifications(
-          whatsapp,
-          requestPermission: true,
-        );
-
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/home');
-        return;
-      }
-
-      if (whatsappDoc != null && whatsappDoc.uid.isEmpty) {
-        if (whatsappDoc.email.isNotEmpty && whatsappDoc.email != email) {
-          _setError('رقم الواتساب مرتبط ببريد آخر');
-          return;
-        }
-
-        await users.doc(whatsappDoc.docId).set({
-          'name': name,
-          'email': email,
-          'whatsapp': whatsapp,
-          'username': username,
-          'uid': uid,
-          'password_hash': passwordHash,
-          'created_at':
-              whatsappDoc.data['created_at'] ?? FieldValue.serverTimestamp(),
-          'updated_at': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-        await _saveUserPrefs({
-          'name': name,
-          'email': email,
-          'whatsapp': whatsapp,
-          'username': username,
-        });
-
-        await NotificationService.initUserNotifications(
-          whatsapp,
-          requestPermission: true,
-        );
-
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/home');
-        return;
-      }
-
-      if (usernameDoc != null && usernameDoc.uid.isEmpty) {
-        if (usernameDoc.email.isNotEmpty && usernameDoc.email != email) {
-          _setError('اليوزر مرتبط ببريد آخر');
-          return;
-        }
-
-        await users.doc(usernameDoc.docId).set({
-          'name': name,
-          'email': email,
-          'whatsapp': whatsapp,
-          'username': username,
-          'uid': uid,
-          'password_hash': passwordHash,
-          'created_at':
-              usernameDoc.data['created_at'] ?? FieldValue.serverTimestamp(),
-          'updated_at': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-        await _saveUserPrefs({
-          'name': name,
-          'email': email,
-          'whatsapp': whatsapp,
-          'username': username,
-        });
-
-        await NotificationService.initUserNotifications(
-          whatsapp,
-          requestPermission: true,
-        );
-
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/home');
-        return;
-      }
-
-      final String docId =
-          emailDoc?.docId ??
-          whatsappDoc?.docId ??
-          usernameDoc?.docId ??
-          (uid.isNotEmpty ? uid : whatsapp);
-
-      await users.doc(docId).set({
-        'name': name,
-        'email': email,
-        'whatsapp': whatsapp,
-        'username': username,
-        'uid': uid,
-        'password_hash': passwordHash,
-        'created_at': FieldValue.serverTimestamp(),
-        'updated_at': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      await _saveUserPrefs({
-        'name': name,
-        'email': email,
-        'whatsapp': whatsapp,
-        'username': username,
-      });
-
-      await NotificationService.initUserNotifications(
-        whatsapp,
-        requestPermission: true,
-      );
-
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/home');
-    } on FirebaseAuthException catch (e) {
-      String msg = 'فشل إنشاء الحساب';
-      if (e.code == 'email-already-in-use') {
-        msg = 'البريد الإلكتروني مستخدم بالفعل';
-      } else if (e.code == 'weak-password') {
-        msg = 'كلمة السر ضعيفة';
-      } else {
-        msg = _mapAuthError(e);
-      }
-      setState(() => _error = msg);
-    } catch (_) {
-      setState(() => _error = 'حدث خطأ أثناء إنشاء الحساب');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _loadingAction = _AuthLoadingAction.none;
-        });
-      }
+  String _temporaryRecoveryPassword() {
+    const letters =
+        'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789';
+    final random = Random.secure();
+    final buffer = StringBuffer('Tmp@');
+    for (var i = 0; i < 14; i++) {
+      buffer.write(letters[random.nextInt(letters.length)]);
     }
+    buffer.write('9!');
+    return buffer.toString();
   }
 
-  Future<void> _login() async {
-    if (!_loginKey.currentState!.validate()) return;
+  Future<bool> _bootstrapLegacyAuthForRecovery(String email) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    final legacy = await _findByField('email', normalizedEmail);
+    if (legacy == null) return false;
 
-    final identifier = _loginIdCtrl.text.trim();
-    final password = _loginPassCtrl.text;
+    UserCredential? credential;
+    try {
+      credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: normalizedEmail,
+        password: _temporaryRecoveryPassword(),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        // حساب التوثيق موجود بالفعل، يكفي إرسال رابط إعادة التعيين.
+        return true;
+      }
+      rethrow;
+    }
+
+    final uid = credential.user?.uid ?? '';
+    if (uid.isNotEmpty) {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(legacy.docId)
+          .set({
+            'uid': uid,
+            'email': normalizedEmail,
+            'updated_at': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    }
+
+    await FirebaseAuth.instance.signOut();
+    return true;
+  }
+
+  Future<String?> _login(LoginData data) async {
+    final identifier = data.name.trim();
+    final password = data.password;
 
     if (!_isValidEmail(identifier)) {
-      setState(() => _error = 'أدخل بريدًا إلكترونيًا صحيحًا');
-      return;
+      return 'أدخل بريدًا إلكترونيًا صحيحًا';
     }
-
-    setState(() {
-      _loading = true;
-      _loadingAction = _AuthLoadingAction.login;
-      _error = null;
-    });
 
     try {
       final email = identifier.toLowerCase();
@@ -595,86 +349,337 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
         email: email,
         password: password,
       );
-      await _handleAuthSuccess(credential.user, fallbackEmail: email);
+      return _handleAuthSuccess(credential.user, fallbackEmail: email);
     } on FirebaseAuthException catch (e) {
       if (e.code == 'user-not-found') {
         final migrated = await _migrateLegacyUser(identifier, password);
-        if (!migrated) {
-          setState(() => _error = 'بيانات الدخول غير صحيحة');
-        }
-      } else if (e.code == 'wrong-password') {
-        setState(() => _error = 'بيانات الدخول غير صحيحة');
-      } else {
-        setState(() => _error = _mapAuthError(e));
+        if (migrated) return null;
+        return 'بيانات الدخول غير صحيحة';
       }
+      if (e.code == 'wrong-password') {
+        return 'بيانات الدخول غير صحيحة';
+      }
+      return _mapAuthError(e);
     } catch (_) {
-      setState(() => _error = 'حدث خطأ أثناء تسجيل الدخول');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _loadingAction = _AuthLoadingAction.none;
-        });
-      }
+      return 'حدث خطأ أثناء تسجيل الدخول';
     }
   }
 
-  Future<void> _sendPasswordReset() async {
-    final email = _loginIdCtrl.text.trim().toLowerCase();
-    if (!_isValidEmail(email)) {
-      _showMessage("أدخل بريدًا إلكترونيًا صحيحًا", color: Colors.orange);
-      return;
-    }
+  Future<String?> _register(SignupData data) async {
+    final email = (data.name ?? '').trim().toLowerCase();
+    final password = data.password ?? '';
+    final additional = data.additionalSignupData ?? const <String, String>{};
+    final inputDisplayName = _normalizeDisplayName(
+      (additional['display_name'] ?? '').toString(),
+    );
+    final inputTiktok = _normalizeTiktokHandle(
+      (additional['tiktok_username'] ?? '').toString(),
+    );
+    final whatsapp = _normalizeWhatsapp(additional['whatsapp'] ?? '');
+    final passwordHash = _hashPassword(password);
 
-    setState(() {
-      _loading = true;
-      _loadingAction = _AuthLoadingAction.resetPassword;
-      _error = null;
-    });
+    if (!_isValidEmail(email)) return 'بريد إلكتروني غير صحيح';
+    if (inputDisplayName.length < 3) return 'الاسم قصير جدا';
+    if (inputTiktok.isEmpty) return 'يوزر تيك توك مطلوب';
+    if (whatsapp.isEmpty) return 'رقم الواتساب مطلوب';
+    if (password.length < 6) return 'كلمة السر لا تقل عن 6 أحرف';
+
+    try {
+      final users = FirebaseFirestore.instance.collection('users');
+
+      final emailDoc = await _findByField('email', email);
+      final whatsappDoc = await _findByField('whatsapp', whatsapp);
+
+      if (whatsappDoc != null &&
+          (emailDoc == null || whatsappDoc.docId != emailDoc.docId)) {
+        if (whatsappDoc.uid.isNotEmpty) {
+          return 'هذا الحساب مسجل بالفعل';
+        }
+        return 'رقم الواتساب مستخدم بالفعل';
+      }
+
+      if (emailDoc != null) {
+        if (emailDoc.uid.isNotEmpty) {
+          return 'البريد الإلكتروني مستخدم بالفعل';
+        }
+        if (emailDoc.whatsapp.isNotEmpty && emailDoc.whatsapp != whatsapp) {
+          return 'البريد مرتبط برقم واتساب آخر';
+        }
+      }
+
+      final existingName = (emailDoc?.data['name'] ?? whatsappDoc?.data['name'])
+          .toString()
+          .trim();
+      final existingUsername =
+          (emailDoc?.data['username'] ??
+                  whatsappDoc?.data['username'] ??
+                  emailDoc?.data['tiktok'] ??
+                  whatsappDoc?.data['tiktok'])
+              .toString()
+              .trim();
+      final name = inputDisplayName.isNotEmpty
+          ? inputDisplayName
+          : _deriveDisplayName(
+              email: email,
+              whatsapp: whatsapp,
+              fallback: existingName,
+            );
+      final username = inputTiktok.isNotEmpty ? inputTiktok : existingUsername;
+
+      final authCred = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(email: email, password: password);
+      final uid = authCred.user?.uid ?? '';
+
+      Future<void> persistInDoc({
+        required String docId,
+        required dynamic createdAt,
+      }) async {
+        await users.doc(docId).set({
+          'name': name,
+          'email': email,
+          'whatsapp': whatsapp,
+          'username': username,
+          'tiktok': username,
+          'uid': uid,
+          'password_hash': passwordHash,
+          'created_at': createdAt ?? FieldValue.serverTimestamp(),
+          'updated_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      if (emailDoc != null) {
+        await persistInDoc(
+          docId: emailDoc.docId,
+          createdAt: emailDoc.data['created_at'],
+        );
+        await _persistAndNavigate({
+          'name': name,
+          'email': email,
+          'whatsapp': whatsapp,
+          'username': username,
+          'tiktok': username,
+          'uid': uid,
+        });
+        return null;
+      }
+
+      if (whatsappDoc != null && whatsappDoc.uid.isEmpty) {
+        if (whatsappDoc.email.isNotEmpty && whatsappDoc.email != email) {
+          return 'رقم الواتساب مرتبط ببريد آخر';
+        }
+
+        await persistInDoc(
+          docId: whatsappDoc.docId,
+          createdAt: whatsappDoc.data['created_at'],
+        );
+        await _persistAndNavigate({
+          'name': name,
+          'email': email,
+          'whatsapp': whatsapp,
+          'username': username,
+          'tiktok': username,
+          'uid': uid,
+        });
+        return null;
+      }
+
+      final docId =
+          emailDoc?.docId ??
+          whatsappDoc?.docId ??
+          (uid.isNotEmpty ? uid : whatsapp);
+
+      await persistInDoc(docId: docId, createdAt: null);
+      await _persistAndNavigate({
+        'name': name,
+        'email': email,
+        'whatsapp': whatsapp,
+        'username': username,
+        'tiktok': username,
+        'uid': uid,
+      });
+      return null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        return 'البريد الإلكتروني مستخدم بالفعل';
+      }
+      if (e.code == 'weak-password') {
+        return 'كلمة السر ضعيفة';
+      }
+      return _mapAuthError(e);
+    } catch (_) {
+      return 'حدث خطأ أثناء إنشاء الحساب';
+    }
+  }
+
+  Future<String?> _recoverPassword(String emailInput) async {
+    final email = emailInput.trim().toLowerCase();
+    if (!_isValidEmail(email)) {
+      return "أدخل بريدًا إلكترونيًا صحيحًا";
+    }
 
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      _showMessage("تم إرسال رابط إعادة التعيين إلى بريدك");
+      return null;
     } on FirebaseAuthException catch (e) {
       if (e.code == 'user-not-found') {
-        _showMessage(
-          "لم يتم العثور على الحساب في النظام الجديد. سجّل الدخول مرة ليتم ترحيل حسابك ثم أعد المحاولة.",
-          color: Colors.orange,
-        );
-      } else {
-        _showMessage(
-          "تعذّر إرسال رابط التعيين، حاول لاحقًا",
-          color: Colors.orange,
-        );
+        try {
+          final restored = await _bootstrapLegacyAuthForRecovery(email);
+          if (!restored) {
+            return "لم يتم العثور على الحساب";
+          }
+          await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+          return null;
+        } on FirebaseAuthException catch (legacyError) {
+          if (legacyError.code == 'operation-not-allowed') {
+            return "تم تعطيل إعادة التعيين عبر البريد من Firebase";
+          }
+          return "تعذّر تجهيز حسابك القديم، حاول لاحقًا";
+        } catch (_) {
+          return "تعذّر تجهيز حسابك القديم، حاول لاحقًا";
+        }
       }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _loadingAction = _AuthLoadingAction.none;
-        });
-      }
+      return "تعذّر إرسال رابط التعيين، حاول لاحقًا";
+    } catch (_) {
+      return "تعذّر إرسال رابط التعيين، حاول لاحقًا";
     }
   }
 
-  Widget _buildToggle() {
-    return Row(
-      children: [
-        Expanded(
-          child: OutlinedButton(
-            onPressed: _loading ? null : () => setState(() => _isLogin = false),
-            child: const Text('إنشاء حساب'),
-          ),
+  LoginTheme _buildLoginTheme(Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
+    return LoginTheme(
+      pageColorLight: TTColors.backgroundFor(brightness),
+      pageColorDark: TTColors.backgroundFor(brightness),
+      primaryColor: TTColors.cardBgFor(brightness),
+      accentColor: TTColors.primaryCyan,
+      errorColor: const Color(0xFFDC2626),
+      cardTheme: CardTheme(
+        color: TTColors.cardBgFor(brightness),
+        elevation: isDark ? 8 : 4,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      ),
+      inputTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: TTColors.cardBgFor(brightness),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: OutlinedButton(
-            onPressed: _loading ? null : () => setState(() => _isLogin = true),
-            child: const Text('تسجيل الدخول'),
-          ),
-        ),
-      ],
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      titleStyle: TextStyle(
+        fontFamily: 'Cairo',
+        fontWeight: FontWeight.w700,
+        fontSize: 32,
+        color: TTColors.textFor(brightness),
+      ),
+      textFieldStyle: TextStyle(
+        fontFamily: 'Cairo',
+        color: TTColors.textFor(brightness),
+      ),
+      bodyStyle: TextStyle(
+        fontFamily: 'Cairo',
+        color: TTColors.textMutedFor(brightness),
+      ),
+      buttonStyle: TextStyle(
+        fontFamily: 'Cairo',
+        fontWeight: FontWeight.w700,
+        color: TTColors.textWhite,
+      ),
+      switchAuthTextColor: TTColors.textFor(brightness),
+      authButtonPadding: const EdgeInsets.symmetric(
+        horizontal: 30,
+        vertical: 10,
+      ),
+      buttonTheme: LoginButtonTheme(
+        backgroundColor: TTColors.primaryCyan,
+        iconColor: TTColors.textWhite,
+        splashColor: TTColors.primaryCyan.withValues(alpha: 0.25),
+        highlightColor: TTColors.primaryCyan.withValues(alpha: 0.15),
+        elevation: isDark ? 6 : 4,
+        highlightElevation: isDark ? 3 : 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
     );
+  }
+
+  LoginMessages _buildLoginMessages() {
+    return LoginMessages(
+      userHint: 'البريد الإلكتروني',
+      passwordHint: 'كلمة السر',
+      confirmPasswordHint: 'تأكيد كلمة السر',
+      loginButton: 'دخول',
+      signupButton: 'إنشاء حساب',
+      forgotPasswordButton: 'نسيت كلمة السر؟',
+      recoverPasswordButton: 'إرسال رابط التعيين',
+      recoverPasswordIntro: 'إعادة تعيين كلمة السر',
+      recoverPasswordDescription:
+          'اكتب بريدك الإلكتروني لإرسال رابط إعادة التعيين.',
+      goBackButton: 'رجوع',
+      confirmPasswordError: 'كلمتا السر غير متطابقتين',
+      recoverPasswordSuccess: 'تم إرسال رابط إعادة التعيين',
+      flushbarTitleError: 'خطأ',
+      flushbarTitleSuccess: 'نجاح',
+      signUpSuccess: 'تم إنشاء الحساب بنجاح',
+      providersTitleFirst: '',
+      providersTitleSecond: '',
+      additionalSignUpFormDescription:
+          'أدخل الاسم ويوزر تيك توك ورقم الواتساب لإكمال إنشاء الحساب',
+      additionalSignUpSubmitButton: 'تأكيد البيانات',
+    );
+  }
+
+  String? _emailValidator(String? input) {
+    final value = (input ?? '').trim();
+    if (!_isValidEmail(value)) return 'أدخل بريدًا إلكترونيًا صحيحًا';
+    return null;
+  }
+
+  String? _passwordValidator(String? input) {
+    final value = input ?? '';
+    if (value.length < 6) return 'كلمة السر لا تقل عن 6 أحرف';
+    return null;
+  }
+
+  List<UserFormField> _buildSignupFields() {
+    return const [
+      UserFormField(
+        keyName: 'display_name',
+        displayName: 'الاسم بالكامل',
+        userType: LoginUserType.name,
+        fieldValidator: _validateSignupName,
+      ),
+      UserFormField(
+        keyName: 'tiktok_username',
+        displayName: 'يوزر تيك توك',
+        userType: LoginUserType.name,
+        fieldValidator: _validateSignupTiktok,
+      ),
+      UserFormField(
+        keyName: 'whatsapp',
+        displayName: 'رقم الواتساب',
+        userType: LoginUserType.phone,
+        fieldValidator: _validateSignupWhatsapp,
+      ),
+    ];
+  }
+
+  static String? _validateSignupName(String? value) {
+    final normalized = value?.trim() ?? '';
+    if (normalized.length < 3) return 'الاسم قصير جدا';
+    return null;
+  }
+
+  static String? _validateSignupTiktok(String? value) {
+    final normalized = value?.trim().replaceFirst(RegExp(r'^@+'), '') ?? '';
+    if (normalized.isEmpty) return 'يوزر تيك توك مطلوب';
+    return null;
+  }
+
+  static String? _validateSignupWhatsapp(String? value) {
+    final normalized = (value ?? '').replaceAll(RegExp(r'[^0-9+]'), '').trim();
+    if (normalized.isEmpty) return 'رقم الواتساب مطلوب';
+    return null;
   }
 
   @override
@@ -688,281 +693,51 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
       );
     }
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          const SnowBackground(),
-          SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 420),
-                  child: GlassCard(
-                    margin: EdgeInsets.zero,
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Align(
-                          alignment: AlignmentDirectional.centerEnd,
-                          child: IconButton(
-                            tooltip: 'تغيير الثيم',
-                            onPressed: _loading
-                                ? null
-                                : () => showThemeModeSheet(context),
-                            icon: Icon(
-                              Theme.of(context).brightness == Brightness.dark
-                                  ? Icons.wb_sunny_rounded
-                                  : Icons.nightlight_round,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Icon(
-                          Icons.person,
-                          size: 56,
-                          color: TTColors.primaryCyan,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          AppInfo.appName,
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'Cairo',
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _isLogin ? 'تسجيل الدخول' : 'إنشاء حساب جديد',
-                          style: TextStyle(
-                            color: TTColors.textGray,
-                            fontFamily: 'Cairo',
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        _buildToggle(),
-                        const SizedBox(height: 16),
-                        if (_error != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Text(
-                              _error!,
-                              style: const TextStyle(
-                                color: Colors.red,
-                                fontFamily: 'Cairo',
-                              ),
-                            ),
-                          ),
-                        if (_isLogin)
-                          Form(
-                            key: _loginKey,
-                            child: Column(
-                              children: [
-                                TextFormField(
-                                  controller: _loginIdCtrl,
-                                  keyboardType: TextInputType.emailAddress,
-                                  decoration: const InputDecoration(
-                                    labelText: 'البريد الإلكتروني',
-                                  ),
-                                  validator: (v) {
-                                    if (v == null || !_isValidEmail(v.trim())) {
-                                      return 'أدخل بريدًا إلكترونيًا صحيحًا';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _loginPassCtrl,
-                                  obscureText: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'كلمة السر',
-                                  ),
-                                  validator: (v) {
-                                    if (v == null || v.length < 6) {
-                                      return 'كلمة السر غير صحيحة';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 18),
-                                ElevatedButton(
-                                  onPressed: _loading ? null : _login,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                    foregroundColor: Theme.of(
-                                      context,
-                                    ).colorScheme.onPrimary,
-                                    minimumSize: const Size(
-                                      double.infinity,
-                                      48,
-                                    ),
-                                  ),
-                                  child: _buildButtonProgress(
-                                    loading:
-                                        _loadingAction ==
-                                        _AuthLoadingAction.login,
-                                    label:
-                                        _loadingAction ==
-                                            _AuthLoadingAction.login
-                                        ? 'جاري الدخول...'
-                                        : 'دخول',
-                                    spinnerColor: Theme.of(
-                                      context,
-                                    ).colorScheme.onPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                TextButton(
-                                  onPressed: _loading
-                                      ? null
-                                      : _sendPasswordReset,
-                                  child: _buildButtonProgress(
-                                    loading:
-                                        _loadingAction ==
-                                        _AuthLoadingAction.resetPassword,
-                                    label:
-                                        _loadingAction ==
-                                            _AuthLoadingAction.resetPassword
-                                        ? 'جاري الإرسال...'
-                                        : 'نسيت كلمة السر؟',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        else
-                          Form(
-                            key: _signupKey,
-                            child: Column(
-                              children: [
-                                TextFormField(
-                                  controller: _nameCtrl,
-                                  decoration: const InputDecoration(
-                                    labelText: 'الاسم بالكامل',
-                                  ),
-                                  validator: (v) {
-                                    if (v == null || v.trim().length < 3) {
-                                      return 'الاسم مطلوب';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _emailCtrl,
-                                  keyboardType: TextInputType.emailAddress,
-                                  decoration: const InputDecoration(
-                                    labelText: 'البريد الإلكتروني',
-                                  ),
-                                  validator: (v) {
-                                    if (v == null || !_isValidEmail(v.trim())) {
-                                      return 'بريد إلكتروني غير صحيح';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _whatsappCtrl,
-                                  keyboardType: TextInputType.phone,
-                                  decoration: const InputDecoration(
-                                    labelText: 'رقم الواتساب',
-                                  ),
-                                  validator: (v) {
-                                    if (v == null ||
-                                        _normalizeWhatsapp(v).isEmpty) {
-                                      return 'رقم الواتساب مطلوب';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _usernameCtrl,
-                                  decoration: const InputDecoration(
-                                    labelText: 'اليوزر',
-                                  ),
-                                  validator: (v) {
-                                    if (v == null || v.trim().length < 3) {
-                                      return 'اليوزر مطلوب';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _passwordCtrl,
-                                  obscureText: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'كلمة السر',
-                                  ),
-                                  validator: (v) {
-                                    if (v == null || v.length < 6) {
-                                      return 'كلمة السر لا تقل عن 6 أحرف';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 18),
-                                ElevatedButton(
-                                  onPressed: _loading ? null : _register,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Theme.of(
-                                      context,
-                                    ).colorScheme.secondary,
-                                    foregroundColor: Theme.of(
-                                      context,
-                                    ).colorScheme.onSecondary,
-                                    minimumSize: const Size(
-                                      double.infinity,
-                                      48,
-                                    ),
-                                  ),
-                                  child: _buildButtonProgress(
-                                    loading:
-                                        _loadingAction ==
-                                        _AuthLoadingAction.register,
-                                    label:
-                                        _loadingAction ==
-                                            _AuthLoadingAction.register
-                                        ? 'جاري إنشاء الحساب...'
-                                        : 'إنشاء حساب',
-                                    spinnerColor: Theme.of(
-                                      context,
-                                    ).colorScheme.onSecondary,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'تسجيل الحساب يتم مرة واحدة فقط',
-                                  style: TextStyle(
-                                    color: TTColors.textGray,
-                                    fontFamily: 'Cairo',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        const SizedBox(height: 10),
-                        TextButton(
-                          onPressed: () =>
-                              Navigator.pushNamed(context, '/privacy'),
-                          child: const Text('سياسة الخصوصية'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+    final brightness = Theme.of(context).brightness;
+
+    return FlutterLogin(
+      title: AppInfo.appName,
+      userType: LoginUserType.email,
+      onLogin: _login,
+      onSignup: _register,
+      onRecoverPassword: _recoverPassword,
+      userValidator: _emailValidator,
+      passwordValidator: _passwordValidator,
+      theme: _buildLoginTheme(brightness),
+      messages: _buildLoginMessages(),
+      additionalSignupFields: _buildSignupFields(),
+      hideProvidersTitle: true,
+      scrollable: true,
+      children: [
+        PositionedDirectional(
+          top: MediaQuery.paddingOf(context).top + 10,
+          end: 10,
+          child: Material(
+            color: Colors.transparent,
+            child: IconButton(
+              tooltip: 'تغيير الثيم',
+              onPressed: () => showThemeModeSheet(context),
+              icon: Icon(
+                Theme.of(context).brightness == Brightness.dark
+                    ? Icons.nightlight_round
+                    : Icons.wb_sunny_rounded,
+                color: TTColors.textWhite,
               ),
             ),
           ),
-        ],
-      ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 8,
+          child: Center(
+            child: TextButton(
+              onPressed: () => AppNavigator.pushNamed(context, '/privacy'),
+              child: const Text('سياسة الخصوصية'),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

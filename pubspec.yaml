@@ -2,7 +2,7 @@
 name: hrmstoreapp
 description: "HRM Store"
 publish_to: 'none'
-version: 1.4.0-alpha+132
+version: 1.4.0+140
 environment:
   sdk: '>=3.10.8 <4.0.0'
 
@@ -27,7 +27,6 @@ dependencies:
   onesignal_flutter: ^5.4.0
   crypto: ^3.0.3
   url_launcher: ^6.3.1
-  font_awesome_flutter: ^10.8.0
   intl: ^0.20.2
   universal_html: ^2.2.4
   dynamic_color: ^1.6.0
@@ -44,6 +43,16 @@ dependencies:
   web: ^1.1.1
   path_provider: ^2.1.4
   path: ^1.9.0
+  auto_route: ^11.1.0
+  app_links: ^6.4.0
+  awesome_snackbar_content: ^0.1.8
+  custom_refresh_indicator: ^4.0.1
+  flutter_easyloading: ^3.0.5
+  flutter_login: ^6.0.0
+  icons_plus: ^5.0.0
+  material_dialogs: ^1.1.5
+  google_sign_in: ^7.2.0
+  image_picker: ^1.2.1
 
 dev_dependencies:
   flutter_test:

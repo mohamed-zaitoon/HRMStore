@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
 import 'package:flutter/material.dart';
 
 import '../core/tt_colors.dart';
@@ -81,7 +82,7 @@ class _ConnectionBlockerState extends State<ConnectionBlocker> {
 
     return Scaffold(
       backgroundColor: TTColors.background,
-      body: RefreshIndicator(
+      body: CustomMaterialIndicator(
         onRefresh: _refresh,
         color: TTColors.primaryCyan,
         backgroundColor: TTColors.cardBg,

@@ -13,7 +13,9 @@ import '../../widgets/glass_card.dart';
 import '../../widgets/snow_background.dart';
 
 class AccountScreen extends StatefulWidget {
-  const AccountScreen({super.key});
+  final bool embedded;
+
+  const AccountScreen({super.key, this.embedded = false});
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -238,46 +240,50 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
+  Widget _buildFormCard() {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 480),
+      child: GlassCard(
+        margin: EdgeInsets.zero,
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildField('الاسم', _nameCtrl),
+            _buildField(
+              'البريد الإلكتروني',
+              _emailCtrl,
+              keyboard: TextInputType.emailAddress,
+            ),
+            _buildField('رقم الواتساب', _waCtrl, keyboard: TextInputType.phone),
+            _buildField('حساب تيك توك', _tiktokCtrl),
+            const SizedBox(height: 14),
+            _buildActionButtons(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAccountBody() {
+    final scroll = SingleChildScrollView(
+      padding: widget.embedded ? EdgeInsets.zero : const EdgeInsets.all(20),
+      child: Center(child: _buildFormCard()),
+    );
+    if (widget.embedded) {
+      return scroll;
+    }
+    return Stack(children: [const SnowBackground(), scroll]);
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return _buildAccountBody();
+    }
     return Scaffold(
       appBar: const GlassAppBar(title: Text('حسابي'), centerTitle: true),
-      body: Stack(
-        children: [
-          const SnowBackground(),
-          SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: GlassCard(
-                  margin: EdgeInsets.zero,
-                  padding: const EdgeInsets.all(18),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildField('الاسم', _nameCtrl),
-                      _buildField(
-                        'البريد الإلكتروني',
-                        _emailCtrl,
-                        keyboard: TextInputType.emailAddress,
-                      ),
-                      _buildField(
-                        'رقم الواتساب',
-                        _waCtrl,
-                        keyboard: TextInputType.phone,
-                      ),
-                      _buildField('يوزر تيك توك', _tiktokCtrl),
-                      const SizedBox(height: 14),
-                      _buildActionButtons(),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+      body: _buildAccountBody(),
     );
   }
 

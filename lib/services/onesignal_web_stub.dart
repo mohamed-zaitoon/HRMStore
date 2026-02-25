@@ -7,6 +7,8 @@ class OneSignalWebBridge {
 
   static Future<void> login(String externalId) async {}
 
+  static Future<void> setTags(Map<String, String> tags) async {}
+
   static Future<void> logout() async {}
 
   static Future<void> requestPermission() async {}

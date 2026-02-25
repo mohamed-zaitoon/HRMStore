@@ -1,6 +1,9 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
+import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
+
+import '../core/app_navigator.dart';
 
 class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Widget? title;
@@ -38,13 +41,18 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final bool isDark = theme.brightness == Brightness.dark;
+    final fallbackLeading = _buildFallbackLeading(context);
+    final effectiveLeading = leading ?? fallbackLeading;
+    final effectiveImplyLeading = effectiveLeading == null
+        ? automaticallyImplyLeading
+        : false;
 
     return AppBar(
       title: title,
       actions: actions,
-      leading: leading,
+      leading: effectiveLeading,
       centerTitle: centerTitle,
-      automaticallyImplyLeading: automaticallyImplyLeading,
+      automaticallyImplyLeading: effectiveImplyLeading,
       toolbarHeight: height,
       titleSpacing: titleSpacing,
       backgroundColor: colorScheme.surface,
@@ -60,4 +68,80 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
       ),
     );
   }
+
+  Widget? _buildFallbackLeading(BuildContext context) {
+    if (leading != null || !automaticallyImplyLeading) return null;
+
+    final navigator = Navigator.maybeOf(context);
+    if (navigator != null && navigator.canPop()) return null;
+
+    final currentPath = _currentPath(context);
+    if (!_shouldShowFallbackBack(currentPath)) return null;
+
+    return IconButton(
+      icon: const Icon(Icons.arrow_back),
+      tooltip: 'رجوع',
+      onPressed: () async {
+        final nav = Navigator.maybeOf(context);
+        if (nav != null && nav.canPop()) {
+          nav.pop();
+          return;
+        }
+
+        final fallback = _fallbackRouteFor(currentPath);
+        if (_normalizePath(currentPath) == _normalizePath(fallback)) return;
+        await AppNavigator.pushReplacementNamed(context, fallback);
+      },
+    );
+  }
+
+  bool _shouldShowFallbackBack(String path) {
+    final normalized = _normalizePath(path);
+    return !_topLevelNoBackRoutes.contains(normalized);
+  }
+
+  String _fallbackRouteFor(String path) {
+    final normalized = _normalizePath(path);
+    if (normalized.startsWith('/admin')) return '/admin/orders';
+    return '/home';
+  }
+
+  String _currentPath(BuildContext context) {
+    try {
+      final routeData = RouteData.of(context);
+      final routePath = routeData.path.trim();
+      if (routePath.isNotEmpty) return routePath;
+    } catch (_) {}
+
+    final routeInfo = Router.maybeOf(context)?.routeInformationProvider?.value;
+    final infoPath = routeInfo?.uri.path.trim() ?? '';
+    if (infoPath.isNotEmpty) return infoPath;
+
+    final modalName = ModalRoute.of(context)?.settings.name?.trim() ?? '';
+    if (modalName.isNotEmpty) {
+      return Uri.parse(modalName).path;
+    }
+
+    return '/';
+  }
+
+  String _normalizePath(String value) {
+    var path = value.trim();
+    if (path.isEmpty) return '/';
+    if (!path.startsWith('/')) path = '/$path';
+    if (path.endsWith('/') && path.length > 1) {
+      path = path.substring(0, path.length - 1);
+    }
+    return path;
+  }
+
+  static const Set<String> _topLevelNoBackRoutes = <String>{
+    '/',
+    '/login',
+    '/home',
+    '/admin',
+    '/admin/login',
+    '/admin/orders',
+    '/android',
+  };
 }

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/tt_colors.dart';
 import '../../core/app_info.dart';
+import '../../core/app_navigator.dart';
 import '../../services/notification_service.dart';
 import '../../utils/html_meta.dart';
 import '../../widgets/glass_card.dart';
@@ -57,7 +58,7 @@ class _UserDataEntryScreenState extends State<UserDataEntryScreen> {
       setPageTitle(AppInfo.appName);
 
       setMetaDescription(
-        'سجل دخولك أو أنشئ حساب جديد في HRM Store. بيانات بسيطة: الاسم، رقم الواتساب، يوزر تيك توك.',
+        'سجل دخولك أو أنشئ حساب جديد في HRM Store. بيانات بسيطة: الاسم، رقم الواتساب، حساب تيك توك.',
       );
     }
 
@@ -106,7 +107,7 @@ class _UserDataEntryScreenState extends State<UserDataEntryScreen> {
       );
 
       if (!mounted) return;
-      Navigator.pushReplacementNamed(
+      AppNavigator.pushReplacementNamed(
         context,
         '/home',
         arguments: {
@@ -175,7 +176,7 @@ class _UserDataEntryScreenState extends State<UserDataEntryScreen> {
                           child: OutlinedButton(
                             onPressed: () {
                               Navigator.pop(dialogContext);
-                              Navigator.pushNamed(context, '/privacy');
+                              AppNavigator.pushNamed(context, '/privacy');
                             },
                             child: const Text("سياسة الخصوصية"),
                           ),
@@ -242,7 +243,7 @@ class _UserDataEntryScreenState extends State<UserDataEntryScreen> {
 
     if (!mounted) return;
 
-    Navigator.pushReplacementNamed(
+    AppNavigator.pushReplacementNamed(
       context,
       '/home',
       arguments: {'name': name, 'whatsapp': whatsapp, 'tiktok': tiktok},
@@ -358,7 +359,7 @@ class _UserDataEntryScreenState extends State<UserDataEntryScreen> {
                                   TextFormField(
                                     controller: _tiktok,
                                     decoration: const InputDecoration(
-                                      labelText: "يوزر تيك توك",
+                                      labelText: "حساب تيك توك",
                                     ),
                                     inputFormatters: [
                                       FilteringTextInputFormatter.allow(
