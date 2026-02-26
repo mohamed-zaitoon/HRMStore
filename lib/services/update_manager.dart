@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/app_info.dart';
 import '../core/constants.dart';
 import '../core/tt_colors.dart';
 import '../utils/url_sanitizer.dart';
@@ -24,12 +25,29 @@ enum ReleaseStage { alpha, beta, rc, stable }
 
 class UpdateManager {
   static const MethodChannel _androidChannel = MethodChannel('tt_android_info');
-  static const String _githubApi =
-      "https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO/releases";
   static const _downloadDirName = "Download";
+  static String _adminGithubToken = '';
   static const Duration _autoCheckCooldown = Duration(minutes: 5);
   static DateTime? _lastAutoCheckAt;
   static bool _isChecking = false;
+
+  static String get _effectiveGithubUser =>
+      AppInfo.isAdminApp ? ADMIN_GITHUB_USER : GITHUB_USER;
+
+  static String get _effectiveGithubRepo =>
+      AppInfo.isAdminApp ? ADMIN_GITHUB_REPO : GITHUB_REPO;
+
+  static String get _githubApi =>
+      "https://api.github.com/repos/$_effectiveGithubUser/$_effectiveGithubRepo/releases";
+
+  static bool get _hasAdminGithubToken => _adminGithubToken.trim().isNotEmpty;
+
+  static Map<String, String> get _githubHeaders => <String, String>{
+    'accept': 'application/vnd.github+json',
+    'user-agent': 'hrmstore-updater',
+    if (AppInfo.isAdminApp && _hasAdminGithubToken)
+      'authorization': 'Bearer ${_adminGithubToken.trim()}',
+  };
 
   // EN: Checks check.
   // AR: تفحص check.
@@ -63,17 +81,21 @@ class UpdateManager {
         'force_update_enabled': false,
         'minimum_required_version': '',
         'force_update_url': '',
+        'github_admin_key': '',
       });
       await rc.fetchAndActivate();
 
       final String rcVersion = rc.getString('latest_version_name').trim();
-      final bool allowBeta = rc.getBool('allow_beta_updates');
-      final bool allowAlpha = rc.getBool('allow_alpha_updates');
+      final bool allowBeta =
+          AppInfo.isAdminApp || rc.getBool('allow_beta_updates');
+      final bool allowAlpha =
+          AppInfo.isAdminApp || rc.getBool('allow_alpha_updates');
       final bool forceUpdateEnabled = rc.getBool('force_update_enabled');
       final String minimumRequiredVersion = rc
           .getString('minimum_required_version')
           .trim();
       final String forceUpdateUrl = rc.getString('force_update_url').trim();
+      _adminGithubToken = rc.getString('github_admin_key').trim();
 
       bool isStageAllowed(String version) {
         final parsed = _parseVersion(version);
@@ -83,10 +105,35 @@ class UpdateManager {
       }
 
       final ghRes = await http
-          .get(Uri.parse(_githubApi))
+          .get(Uri.parse(_githubApi), headers: _githubHeaders)
           .timeout(const Duration(seconds: 15));
       if (ghRes.statusCode != 200) {
-        if (manual && context.mounted) Navigator.pop(context);
+        if (manual && context.mounted) {
+          Navigator.pop(context);
+          final needsAdminToken =
+              AppInfo.isAdminApp &&
+              (ghRes.statusCode == 401 ||
+                  ghRes.statusCode == 403 ||
+                  ghRes.statusCode == 404) &&
+              !_hasAdminGithubToken;
+          if (needsAdminToken) {
+            TopSnackBar.show(
+              context,
+              "تحديث الأدمن من مستودع خاص يحتاج github_admin_key",
+              backgroundColor: Colors.orange,
+              textColor: Colors.white,
+              icon: Icons.lock_outline,
+            );
+          } else {
+            TopSnackBar.show(
+              context,
+              "تعذر فحص التحديث (GitHub ${ghRes.statusCode})",
+              backgroundColor: Colors.orange,
+              textColor: Colors.white,
+              icon: Icons.warning_amber_rounded,
+            );
+          }
+        }
         return;
       }
 
@@ -183,16 +230,9 @@ class UpdateManager {
         downloadUrl = forceUpdateUrl;
       }
 
-      // اختر أول أصل APK
-      final assets = (release['assets'] as List<dynamic>?) ?? [];
-      for (final a in assets) {
-        final name = a['name']?.toString().toLowerCase() ?? "";
-        final url = a['browser_download_url']?.toString();
-        if (name.endsWith('.apk')) {
-          downloadUrl = url ?? downloadUrl;
-          break;
-        }
-      }
+      // AR: نختار أصل APK المناسب للتطبيق الحالي (أدمن/مستخدم).
+      final assets = (release['assets'] as List<dynamic>?) ?? const [];
+      downloadUrl = _resolveApkDownloadUrl(assets, fallbackUrl: downloadUrl);
 
       if (!context.mounted) return;
       if (manual) Navigator.pop(context);
@@ -237,7 +277,9 @@ class UpdateManager {
     }
 
     final sanitizedUrl = ensureHttps(url);
-    final isDirectApk = sanitizedUrl.toLowerCase().endsWith('.apk');
+    final isDirectApk =
+        sanitizedUrl.toLowerCase().endsWith('.apk') ||
+        _isGitHubAssetApiUrl(sanitizedUrl);
     if (!isDirectApk) {
       await launchUrl(Uri.parse(sanitizedUrl));
       return;
@@ -299,12 +341,17 @@ class UpdateManager {
     try {
       final downloadDir = await _resolveDownloadDir();
 
+      final apkPrefix = AppInfo.isAdminApp ? 'hrmstore-admin' : 'hrmstore';
       final filePath = p
-          .join(downloadDir.path, "hrmstore-$version.apk")
+          .join(downloadDir.path, "$apkPrefix-$version.apk")
           .replaceAll('\\', '/');
 
       final uri = Uri.parse(sanitizedUrl);
       final request = http.Request('GET', uri);
+      final downloadHeaders = _downloadHeadersFor(sanitizedUrl);
+      if (downloadHeaders.isNotEmpty) {
+        request.headers.addAll(downloadHeaders);
+      }
       final client = http.Client();
       final total = <int?>[null]; // mutable box to use in finally for progress
       final file = File(filePath).openWrite();
@@ -475,6 +522,98 @@ class UpdateManager {
     }
 
     return _ParsedVersion(nums.take(3).toList(), stage, stageNumber);
+  }
+
+  static String _resolveApkDownloadUrl(
+    List<dynamic> assets, {
+    required String fallbackUrl,
+  }) {
+    final apkAssets = assets
+        .whereType<Map>()
+        .map((raw) {
+          final map = raw.cast<dynamic, dynamic>();
+          final name = (map['name'] ?? '').toString().trim();
+          final browserUrl = (map['browser_download_url'] ?? '')
+              .toString()
+              .trim();
+          final apiUrl = (map['url'] ?? '').toString().trim();
+          return (name: name, browserUrl: browserUrl, apiUrl: apiUrl);
+        })
+        .where((asset) {
+          return asset.name.toLowerCase().endsWith('.apk') &&
+              (asset.browserUrl.isNotEmpty || asset.apiUrl.isNotEmpty);
+        })
+        .toList(growable: false);
+
+    if (apkAssets.isEmpty) return fallbackUrl;
+
+    bool isAdminAsset(String name) {
+      final lower = name.toLowerCase();
+      return lower.contains('admin') || lower.contains('hrmstore-admin');
+    }
+
+    if (AppInfo.isAdminApp) {
+      for (final asset in apkAssets) {
+        if (isAdminAsset(asset.name)) {
+          return _assetDownloadUrl(
+            browserUrl: asset.browserUrl,
+            apiUrl: asset.apiUrl,
+          );
+        }
+      }
+      return _assetDownloadUrl(
+        browserUrl: apkAssets.first.browserUrl,
+        apiUrl: apkAssets.first.apiUrl,
+      );
+    }
+
+    for (final asset in apkAssets) {
+      if (!isAdminAsset(asset.name)) {
+        return _assetDownloadUrl(
+          browserUrl: asset.browserUrl,
+          apiUrl: asset.apiUrl,
+        );
+      }
+    }
+    return _assetDownloadUrl(
+      browserUrl: apkAssets.first.browserUrl,
+      apiUrl: apkAssets.first.apiUrl,
+    );
+  }
+
+  static String _assetDownloadUrl({
+    required String browserUrl,
+    required String apiUrl,
+  }) {
+    if (AppInfo.isAdminApp &&
+        _hasAdminGithubToken &&
+        _isGitHubAssetApiUrl(apiUrl)) {
+      return apiUrl;
+    }
+    if (browserUrl.isNotEmpty) return browserUrl;
+    return apiUrl;
+  }
+
+  static bool _isGitHubAssetApiUrl(String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return false;
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null) return false;
+    return uri.host == 'api.github.com' &&
+        uri.path.contains('/releases/assets/');
+  }
+
+  static Map<String, String> _downloadHeadersFor(String url) {
+    if (!AppInfo.isAdminApp ||
+        !_hasAdminGithubToken ||
+        !_isGitHubAssetApiUrl(url)) {
+      return const <String, String>{};
+    }
+    return <String, String>{
+      'accept': 'application/octet-stream',
+      'user-agent': 'hrmstore-updater',
+      'authorization': 'Bearer ${_adminGithubToken.trim()}',
+    };
   }
 
   // EN: Shows Loading.

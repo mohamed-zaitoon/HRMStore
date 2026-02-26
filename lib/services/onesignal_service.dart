@@ -11,6 +11,7 @@ import 'onesignal_web_stub.dart' if (dart.library.html) 'onesignal_web.dart';
 
 class OneSignalService {
   static bool _initialized = false;
+  static String _activeExternalId = '';
   static const String _fallbackAppId = String.fromEnvironment(
     'ONESIGNAL_APP_ID',
     defaultValue: 'd9dcc8b4-585d-4ccf-a101-7b94b0d504ce',
@@ -77,6 +78,15 @@ class OneSignalService {
 
     try {
       final externalId = _buildExternalId(normalizedWhatsapp, isAdmin);
+      if (externalId == _activeExternalId) {
+        if (kDebugMode) {
+          log('OneSignal register skipped: already active for $externalId');
+        }
+        if (requestPermission) {
+          await OneSignalService.requestPermission();
+        }
+        return;
+      }
       if (kIsWeb) {
         await OneSignalWebBridge.login(externalId);
         await OneSignalWebBridge.setTags({
@@ -104,6 +114,7 @@ class OneSignalService {
         subscriptionId: subscriptionId,
         externalId: externalId,
       );
+      _activeExternalId = externalId;
     } catch (e, s) {
       log('OneSignal.registerUser error: $e', error: e, stackTrace: s);
     }
@@ -138,6 +149,7 @@ class OneSignalService {
       } else {
         await OneSignal.logout();
       }
+      _activeExternalId = '';
     } catch (e) {
       log('OneSignal.logout error: $e');
     }

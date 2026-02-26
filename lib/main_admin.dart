@@ -18,8 +18,10 @@ import 'services/easy_loading_service.dart';
 import 'services/remote_config_service.dart';
 import 'services/theme_service.dart';
 import 'services/admin_session_service.dart';
+import 'services/update_manager.dart';
 import 'app/hrm_store_app.dart';
 import 'core/app_info.dart';
+import 'core/app_navigator.dart';
 
 // EN: App entry point.
 // AR: نقطة بدء التطبيق.
@@ -71,5 +73,19 @@ Future<void> _postInit({
 
   if (whatsapp.isNotEmpty) {
     await OneSignalService.registerUser(whatsapp: whatsapp, isAdmin: isAdmin);
+  }
+
+  unawaited(_runGlobalUpdateCheck());
+}
+
+Future<void> _runGlobalUpdateCheck() async {
+  if (kIsWeb) return;
+  for (var i = 0; i < 30; i++) {
+    final context = AppNavigator.context;
+    if (context != null && context.mounted) {
+      unawaited(UpdateManager.check(context));
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 250));
   }
 }

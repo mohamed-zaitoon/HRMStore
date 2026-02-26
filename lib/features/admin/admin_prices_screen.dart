@@ -33,8 +33,8 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
     _PriceRange(min: 100, max: 499),
     _PriceRange(min: 500, max: 999),
     _PriceRange(min: 1000, max: 29999),
-    _PriceRange(min: 30000, max: 130000),
-    _PriceRange(min: 130001, max: 2500000),
+    _PriceRange(min: 30000, max: 74999),
+    _PriceRange(min: 75000, max: 2500000),
   ];
 
   @override

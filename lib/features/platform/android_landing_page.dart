@@ -28,6 +28,8 @@ class AndroidLandingPage extends StatefulWidget {
 
 class _AndroidLandingPageState extends State<AndroidLandingPage> {
   bool _isLoading = true;
+  bool _isOpeningApp = false;
+  bool _autoOpenTried = false;
   final List<_ApkAsset> _apkAssets = [];
 
   // EN: Initializes widget state.
@@ -37,6 +39,7 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
     super.initState();
 
     _fetchLatestApks();
+    _tryAutoOpenInstalledApp();
   }
 
   // EN: Fetches Latest Apks.
@@ -79,6 +82,53 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
     }
 
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _tryAutoOpenInstalledApp() async {
+    if (!kIsWeb || _autoOpenTried) return;
+    _autoOpenTried = true;
+    await _tryOpenApp();
+  }
+
+  String _buildOpenAppDeepLink() {
+    final location = html.window.location;
+    String path = (location.pathname ?? '').trim();
+    if (path.isEmpty || path == '/' || path == '/android') {
+      path = '/home';
+    }
+    final query = (location.search ?? '').trim();
+    return 'hrmstoreapp://open$path$query';
+  }
+
+  Future<void> _tryOpenApp() async {
+    if (!kIsWeb || _isOpeningApp) return;
+    setState(() => _isOpeningApp = true);
+    try {
+      final deepLink = _buildOpenAppDeepLink();
+      html.window.location.assign(deepLink);
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+    } catch (e) {
+      debugPrint('Error opening app: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isOpeningApp = false);
+      }
+    }
+  }
+
+  Future<void> _openAppThenDownload(_ApkAsset apk) async {
+    if (!kIsWeb) {
+      await _downloadApk(apk);
+      return;
+    }
+
+    final wasHiddenBefore = html.document.hidden ?? false;
+    await _tryOpenApp();
+    final isHiddenNow = html.document.hidden ?? false;
+    final appLikelyOpened = !wasHiddenBefore && isHiddenNow;
+    if (appLikelyOpened) return;
+
+    await _downloadApk(apk);
   }
 
   String _withCacheBuster(String url) {
@@ -144,6 +194,25 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
 
                   const SizedBox(height: 30),
 
+                  ElevatedButton.icon(
+                    onPressed: _isOpeningApp ? null : _tryOpenApp,
+                    icon: Icon(Icons.open_in_new, color: TTColors.textWhite),
+                    label: Text(
+                      _isOpeningApp ? "جارٍ فتح التطبيق..." : "فتح التطبيق",
+                      style: TextStyle(
+                        color: TTColors.textWhite,
+                        fontFamily: 'Cairo',
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: TTColors.cardBg,
+                      side: const BorderSide(color: TTColors.primaryCyan),
+                      minimumSize: const Size(double.infinity, 55),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
                   if (_isLoading)
                     const CircularProgressIndicator(color: TTColors.primaryCyan)
                   else ...[
@@ -152,7 +221,7 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
                         (apk) => Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: ElevatedButton.icon(
-                            onPressed: () => _downloadApk(apk),
+                            onPressed: () => _openAppThenDownload(apk),
                             icon: Icon(
                               Icons.download,
                               color: TTColors.textWhite,

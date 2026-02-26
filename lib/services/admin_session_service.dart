@@ -26,9 +26,7 @@ class AdminSessionService {
   static const String _kAdminWhatsapp = 'admin_whatsapp';
   static const String _kAdminExpiry = 'admin_expiry';
 
-  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
 
   static Future<void> saveLocalSession({
     required String adminId,

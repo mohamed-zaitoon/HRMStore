@@ -2,3 +2,5 @@
 
 const String GITHUB_USER = "mohamed-zaitoon";
 const String GITHUB_REPO = "HRMStore";
+const String ADMIN_GITHUB_USER = "mohamed-zaitoon";
+const String ADMIN_GITHUB_REPO = "myprivate";

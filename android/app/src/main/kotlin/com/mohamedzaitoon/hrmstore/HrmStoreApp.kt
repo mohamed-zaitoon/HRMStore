@@ -3,11 +3,9 @@ package com.mohamedzaitoon.hrmstore
 
 import android.app.Application
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Process
 import apputilx.Utils
 import com.mohamedzaitoon.hrmstore.NativeBridge
-import com.onesignal.OneSignal
 
 class HrmStoreApp : Application() {
 
@@ -33,9 +31,6 @@ class HrmStoreApp : Application() {
         // 2. تسجيل Activity Tracker الموجود في Utils
         registerActivityLifecycleCallbacks(Utils.activityTracker)
 
-        // 3. تهيئة OneSignal مبكراً باستخدام app id من الـ manifest
-        initOneSignalIfPossible()
-
         // 5. فحص الأمان (Native)
         runCatching { NativeBridge.checkAppIntegrity(this) }
             .onFailure { e -> Utils.logError("NativeBridge", "Integrity Check Failed", e) }
@@ -43,23 +38,6 @@ class HrmStoreApp : Application() {
         // 6. التحقق من التوقيع
         verifyAppSignature()
     }
-
-    private fun initOneSignalIfPossible() {
-        val appId = try {
-            val info = packageManager.getApplicationInfo(
-                packageName,
-                PackageManager.GET_META_DATA
-            )
-            info.metaData?.getString("onesignal_app_id")
-        } catch (_: Exception) {
-            null
-        }
-
-        if (!appId.isNullOrBlank()) {
-            runCatching { OneSignal.initWithContext(this, appId) }
-        }
-    }
-
 
     private fun verifyAppSignature() {
         try {
