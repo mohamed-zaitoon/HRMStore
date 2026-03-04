@@ -21,6 +21,7 @@ web/.dart_tool/
 # IntelliJ / VSCode
 .idea/
 .vscode/
+*.iml
 
 # OS junk
 *.DS_Store

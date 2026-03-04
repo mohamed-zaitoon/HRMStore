@@ -29,7 +29,6 @@ class AndroidLandingPage extends StatefulWidget {
 class _AndroidLandingPageState extends State<AndroidLandingPage> {
   bool _isLoading = true;
   bool _isOpeningApp = false;
-  bool _autoOpenTried = false;
   final List<_ApkAsset> _apkAssets = [];
   late final String _userAgent =
       kIsWeb ? html.window.navigator.userAgent.toLowerCase() : '';
@@ -44,7 +43,6 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
     super.initState();
 
     _fetchLatestApks();
-    _tryAutoOpenInstalledApp();
   }
 
   // EN: Fetches Latest Apks.
@@ -89,12 +87,6 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
-  Future<void> _tryAutoOpenInstalledApp() async {
-    if (!kIsWeb || _autoOpenTried) return;
-    _autoOpenTried = true;
-    await _tryOpenApp();
-  }
-
   String _buildOpenAppDeepLink() {
     final location = html.window.location;
     String path = (location.pathname ?? '').trim();
@@ -112,8 +104,9 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
       final deepLink = _buildOpenAppDeepLink();
       if (_isAndroidBrowser) {
         _openIntentLink(deepLink);
+      } else {
+        html.window.location.assign(deepLink);
       }
-      html.window.location.assign(deepLink);
       await Future<void>.delayed(
         _isSamsungBrowser
             ? const Duration(milliseconds: 1400)
@@ -131,8 +124,15 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
   void _openIntentLink(String deepLink) {
     try {
       final clean = deepLink.replaceFirst('hrmstoreapp://', '');
+      final location = html.window.location;
+      final origin = location.origin?.isNotEmpty == true
+          ? location.origin!
+          : 'https://hrmstore.mohamedzaitoon.com';
+      final path = location.pathname ?? '/android';
+      final search = location.search ?? '';
+      final fallbackUrl = '$origin$path$search';
       final intentUrl =
-          'intent://$clean#Intent;scheme=hrmstoreapp;package=com.mohamedzaitoon.hrmstore;end';
+          'intent://$clean#Intent;scheme=hrmstoreapp;package=com.mohamedzaitoon.hrmstore;S.browser_fallback_url=$fallbackUrl;end';
       html.window.location.assign(intentUrl);
     } catch (e) {
       debugPrint('Error intent link: $e');
