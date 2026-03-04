@@ -34,6 +34,10 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
       kIsWeb ? html.window.navigator.userAgent.toLowerCase() : '';
 
   bool get _isAndroidBrowser => _userAgent.contains('android');
+  bool get _isChromeLike =>
+      _userAgent.contains('chrome') ||
+      _userAgent.contains('crios') ||
+      _userAgent.contains('crmo');
   bool get _isSamsungBrowser => _userAgent.contains('samsungbrowser');
 
   // EN: Initializes widget state.
@@ -113,7 +117,7 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
     setState(() => _isOpeningApp = true);
     try {
       final deepLink = _buildOpenAppDeepLink();
-      if (_isAndroidBrowser) {
+      if (_isAndroidBrowser && _isChromeLike) {
         _openIntentLink(deepLink);
       } else {
         html.window.location.assign(deepLink);
