@@ -4,7 +4,8 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart'
+    show kDebugMode, kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -62,6 +63,9 @@ class NotificationService {
   }
 
   static bool _isOneSignalEnabled() {
+    // OneSignal SDK is only available on mobile platforms.
+    const mobile = {TargetPlatform.android, TargetPlatform.iOS};
+    if (kIsWeb || !mobile.contains(defaultTargetPlatform)) return false;
     // Keep push registration always enabled so notifications can arrive
     // while the app is closed, regardless of in-app realtime mode.
     return true;

@@ -31,6 +31,11 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
   bool _isOpeningApp = false;
   bool _autoOpenTried = false;
   final List<_ApkAsset> _apkAssets = [];
+  late final String _userAgent =
+      kIsWeb ? html.window.navigator.userAgent.toLowerCase() : '';
+
+  bool get _isAndroidBrowser => _userAgent.contains('android');
+  bool get _isSamsungBrowser => _userAgent.contains('samsungbrowser');
 
   // EN: Initializes widget state.
   // AR: تهيّئ حالة الودجت.
@@ -105,14 +110,32 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
     setState(() => _isOpeningApp = true);
     try {
       final deepLink = _buildOpenAppDeepLink();
+      if (_isAndroidBrowser) {
+        _openIntentLink(deepLink);
+      }
       html.window.location.assign(deepLink);
-      await Future<void>.delayed(const Duration(milliseconds: 900));
+      await Future<void>.delayed(
+        _isSamsungBrowser
+            ? const Duration(milliseconds: 1400)
+            : const Duration(milliseconds: 900),
+      );
     } catch (e) {
       debugPrint('Error opening app: $e');
     } finally {
       if (mounted) {
         setState(() => _isOpeningApp = false);
       }
+    }
+  }
+
+  void _openIntentLink(String deepLink) {
+    try {
+      final clean = deepLink.replaceFirst('hrmstoreapp://', '');
+      final intentUrl =
+          'intent://$clean#Intent;scheme=hrmstoreapp;package=com.mohamedzaitoon.hrmstore;end';
+      html.window.location.assign(intentUrl);
+    } catch (e) {
+      debugPrint('Error intent link: $e');
     }
   }
 

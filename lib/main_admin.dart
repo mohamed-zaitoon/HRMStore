@@ -32,7 +32,14 @@ Future<void> main() async {
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  if (!kIsWeb) {
+  // Crashlytics متاحة عمليًا على Android/iOS فقط.
+  const mobilePlatforms = {
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  };
+  final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
+
+  if (isMobile) {
     FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
 
     PlatformDispatcher.instance.onError = (error, stack) {
@@ -64,15 +71,30 @@ Future<void> _postInit({
   required String whatsapp,
   required bool isAdmin,
 }) async {
-  await AppCheckService.activate();
+  const mobilePlatforms = {
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  };
+  final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
+
+  // App Check (Android/iOS فقط أو Web بمفتاح).
+  if (isMobile) {
+    await AppCheckService.activate();
+  }
 
   await RemoteConfigService.instance.init();
 
-  await OneSignalService.init();
-  await OneSignalService.requestPermission();
+  // Push/OneSignal للموبايل فقط.
+  if (isMobile) {
+    await OneSignalService.init();
+    await OneSignalService.requestPermission();
 
-  if (whatsapp.isNotEmpty) {
-    await OneSignalService.registerUser(whatsapp: whatsapp, isAdmin: isAdmin);
+    if (whatsapp.isNotEmpty) {
+      await OneSignalService.registerUser(
+        whatsapp: whatsapp,
+        isAdmin: isAdmin,
+      );
+    }
   }
 
   unawaited(_runGlobalUpdateCheck());

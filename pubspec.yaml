@@ -2,7 +2,7 @@
 name: hrmstoreapp
 description: "HRM Store"
 publish_to: 'none'
-version: 1.4.0+140
+version: 1.4.1+142
 environment:
   sdk: '>=3.10.8 <4.0.0'
 
@@ -59,13 +59,6 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
-
-dependency_overrides:
-  characters: ^1.4.1
-  matcher: ^0.12.18
-  material_color_utilities: ^0.13.0
-  meta: ^1.18.1
-  test_api: ^0.7.9
 
 flutter_launcher_icons:
   android: true

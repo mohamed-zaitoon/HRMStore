@@ -31,7 +31,14 @@ Future<void> main() async {
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  if (!kIsWeb) {
+  // Desktop (Windows/macOS/Linux) and Web lack Crashlytics/App Check support.
+  const mobilePlatforms = {
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  };
+  final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
+
+  if (isMobile) {
     FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
 
     PlatformDispatcher.instance.onError = (error, stack) {
@@ -57,27 +64,40 @@ Future<void> _postInit({
   required String whatsapp,
   required bool isAdmin,
 }) async {
-  await AppCheckService.activate();
+  // Skip App Check on unsupported platforms (desktop / web without key).
+  const mobilePlatforms = {
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  };
+  final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
+  if (isMobile) {
+    await AppCheckService.activate();
+  }
 
   await RemoteConfigService.instance.init();
 
-  await NotificationService.init();
-  await NotificationService.requestPermission();
+  // Push notifications (OneSignal) are mobile-only.
+  if (isMobile) {
+    await NotificationService.init();
+    await NotificationService.requestPermission();
+  }
 
   if (whatsapp.isNotEmpty) {
-    if (isAdmin) {
-      await NotificationService.initAdminNotifications(
-        whatsapp,
-        requestPermission: true,
-      );
-      NotificationService.listenToAdminOrders();
-      NotificationService.listenToAdminRamadanCodes();
-    } else {
-      await NotificationService.initUserNotifications(
-        whatsapp,
-        requestPermission: true,
-      );
-      NotificationService.listenToUserRamadanCodes(whatsapp);
+    if (isMobile) {
+      if (isAdmin) {
+        await NotificationService.initAdminNotifications(
+          whatsapp,
+          requestPermission: true,
+        );
+        NotificationService.listenToAdminOrders();
+        NotificationService.listenToAdminRamadanCodes();
+      } else {
+        await NotificationService.initUserNotifications(
+          whatsapp,
+          requestPermission: true,
+        );
+        NotificationService.listenToUserRamadanCodes(whatsapp);
+      }
     }
   }
 

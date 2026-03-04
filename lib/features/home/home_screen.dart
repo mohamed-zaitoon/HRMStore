@@ -39,6 +39,8 @@ import '../../widgets/glass_card.dart';
 import '../../utils/url_sanitizer.dart';
 import '../../widgets/top_snackbar.dart';
 
+enum _OutOfRange { none, belowMin, aboveMax }
+
 class HomeScreen extends StatefulWidget {
   final String name;
   final String whatsapp;
@@ -76,9 +78,9 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isPointsMode = true;
   bool _isDiscountActive = false;
   bool _isInputValid = false;
-  static const int _minPoints = 100;
-  static const int _maxPoints = 2500000;
-  static const int _manualContactPointsThreshold = 130000;
+  static const int _minPoints = 150;
+  static const int _maxPoints = 100000;
+  static const int _manualContactPointsThreshold = 100000;
   static const String _tiktokChargeModeLink = 'link';
   static const String _tiktokChargeModeQr = 'qr';
   static const String _tiktokChargeModeUserPass = 'username_password';
@@ -167,9 +169,6 @@ class _HomeScreenState extends State<HomeScreen>
       return 'جاري تحميل الأسعار...';
     }
     final value = _pricesStatusMessage.trim();
-    if (value.isNotEmpty) {
-      return value;
-    }
     return 'تعذر تحميل الأسعار حالياً';
   }
 
@@ -194,6 +193,12 @@ class _HomeScreenState extends State<HomeScreen>
     if (refreshDialog) {
       _refreshActiveTiktokDialog();
     }
+  }
+
+  double? _parseUsdValue(dynamic raw) {
+    if (raw is num) return raw.toDouble();
+    if (raw is String) return double.tryParse(raw.trim());
+    return null;
   }
 
   void _startOrderStatusWatcher() {
@@ -563,10 +568,15 @@ class _HomeScreenState extends State<HomeScreen>
           Text(
             _resultText,
             style: TextStyle(
-              color: _isInputValid ? TTColors.textWhite : Colors.red,
+              color: TTColors.textWhite,
               fontSize: 18,
               fontFamily: 'Cairo',
             ),
+          ),
+        if (_outOfRange != _OutOfRange.none)
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: _buildOutOfRangeCard(),
           ),
         _buildLargePointsWarningCard(),
         if (_showPromoCodeSection)
@@ -866,7 +876,8 @@ class _HomeScreenState extends State<HomeScreen>
     await _balancePointsSub?.cancel();
     _balancePointsSub = ref.snapshots().listen(
       (snap) {
-        _applyBalancePointsFromRaw(snap.data()?['balance_points']);
+        final data = snap.data();
+        _applyBalancePointsFromRaw(data?['balance_points']);
       },
       onError: (_) {
         // نتجاهل أخطاء الاستماع اللحظي
@@ -900,7 +911,8 @@ class _HomeScreenState extends State<HomeScreen>
           .listen((snap) {
             if (snap.docs.isEmpty) return;
             final doc = snap.docs.first;
-            _applyBalancePointsFromRaw(doc.data()['balance_points']);
+            final data = doc.data();
+            _applyBalancePointsFromRaw(data['balance_points']);
             final candidateRef = doc.reference;
             if (_userDocRef?.path != candidateRef.path) {
               _userDocRef = candidateRef;
@@ -917,7 +929,8 @@ class _HomeScreenState extends State<HomeScreen>
           .listen((snap) {
             if (snap.docs.isEmpty) return;
             final doc = snap.docs.first;
-            _applyBalancePointsFromRaw(doc.data()['balance_points']);
+            final data = doc.data();
+            _applyBalancePointsFromRaw(data['balance_points']);
             final candidateRef = doc.reference;
             if (_userDocRef?.path != candidateRef.path) {
               _userDocRef = candidateRef;
@@ -944,7 +957,8 @@ class _HomeScreenState extends State<HomeScreen>
         snap = await ref.get();
       }
 
-      final points = _toInt(snap.data()?['balance_points']);
+      final data = snap.data();
+      final points = _toInt(data?['balance_points']);
       if (!mounted) return;
       setState(() => _balancePoints = points < 0 ? 0 : points);
     } catch (_) {
@@ -1188,6 +1202,33 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  Future<void> _refreshUsdPriceFromFirestore() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('app_settings')
+          .doc('currency')
+          .get(const GetOptions(source: Source.server));
+      final data = snap.data();
+      final value = _parseUsdValue(data?['usd_price'] ?? data?['usd_egp']);
+      if (value != null && value > 0) {
+        if (mounted) setState(() => _usdtPrice = value);
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('app_settings')
+          .doc('currency')
+          .get();
+      final data = snap.data();
+      final value = _parseUsdValue(data?['usd_price'] ?? data?['usd_egp']);
+      if (value != null && value > 0 && mounted) {
+        setState(() => _usdtPrice = value);
+      }
+    } catch (_) {}
+  }
+
   Future<void> _refreshUsdtPriceFromExternal({
     bool forceRefresh = false,
   }) async {
@@ -1226,11 +1267,17 @@ class _HomeScreenState extends State<HomeScreen>
         _isRamadanSeason = isRamadanSeason;
         _isEidSeason = isEidSeason;
       });
-      await _refreshUsdtPriceFromExternal(forceRefresh: forceUsdtRefresh);
+      await _refreshUsdPriceFromFirestore();
+      if (_usdtPrice <= 0) {
+        await _refreshUsdtPriceFromExternal(forceRefresh: forceUsdtRefresh);
+      }
       _updateWebMetaDescription();
     } catch (e) {
       debugPrint("RemoteConfig error: $e");
-      await _refreshUsdtPriceFromExternal(forceRefresh: forceUsdtRefresh);
+      await _refreshUsdPriceFromFirestore();
+      if (_usdtPrice <= 0) {
+        await _refreshUsdtPriceFromExternal(forceRefresh: forceUsdtRefresh);
+      }
     }
   }
 
@@ -1457,6 +1504,7 @@ class _HomeScreenState extends State<HomeScreen>
     _selectedPackage = null;
     _selectedGameId = null;
     _isBalanceTopupOrder = false;
+    _outOfRange = _OutOfRange.none;
 
     if (val.isEmpty) {
       setState(() {});
@@ -1475,7 +1523,10 @@ class _HomeScreenState extends State<HomeScreen>
 
     if (_isPointsMode) {
       if (inputVal < _minPoints || inputVal > _maxPoints) {
-        _resultText = "النقاط من $_minPoints إلى $_maxPoints";
+        _outOfRange = inputVal < _minPoints
+            ? _OutOfRange.belowMin
+            : _OutOfRange.aboveMax;
+        _isInputValid = false;
         setState(() {});
         _refreshActiveTiktokDialog();
         return;
@@ -1494,23 +1545,45 @@ class _HomeScreenState extends State<HomeScreen>
       double rate = rule['pricePer1000'].toDouble();
       rate = _resolveOfferRateForPoints(points: inputVal, fallbackRate: rate);
 
-      _priceValue = ((inputVal / 1000) * rate).ceil();
+      final rawPrice = (inputVal / 1000) * rate;
+      _priceValue = _ceilToNearestFive(rawPrice);
       _pointsValue = inputVal.round();
       _resultText = "السعر: $_priceValue جنيه";
       _isInputValid = true;
     } else {
+      final hasFractions = val.contains('.') || val.contains(',');
+      if (hasFractions || inputVal % 1 != 0) {
+        _resultText = "أدخل مبلغًا صحيحًا ينتهي بـ 0 أو 5 (بدون كسور)";
+        _isInputValid = false;
+        setState(() {});
+        _refreshActiveTiktokDialog();
+        return;
+      }
+
+      final int amountInt = inputVal.toInt();
+      final lastDigit = amountInt % 10;
+      final isAllowedEnding = lastDigit == 0 || lastDigit == 5;
+      if (!isAllowedEnding) {
+        _resultText = "المبلغ يجب أن ينتهي بـ 0 أو 5 فقط. لا نقبل الفكة أو القروش.";
+        setState(() {});
+        _refreshActiveTiktokDialog();
+        return;
+      }
+
+      final normalizedAmount = amountInt;
       int bestPoints = 0;
       bool foundTier = false;
 
       final reversedPrices = _prices.reversed.toList();
       for (var rule in reversedPrices) {
         final baseRate = rule['pricePer1000'].toDouble();
-        int potentialPoints = ((inputVal * 1000) / baseRate).floor();
+        int potentialPoints =
+            ((normalizedAmount * 1000) / baseRate).floor();
         final appliedRate = _resolveOfferRateForPoints(
           points: potentialPoints.toDouble(),
           fallbackRate: baseRate,
         );
-        potentialPoints = ((inputVal * 1000) / appliedRate).floor();
+        potentialPoints = ((normalizedAmount * 1000) / appliedRate).floor();
 
         if (potentialPoints >= rule['min']) {
           bestPoints = potentialPoints;
@@ -1521,20 +1594,23 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (!foundTier) {
         double rate = _prices.first['pricePer1000'].toDouble();
-        bestPoints = ((inputVal * 1000) / rate).floor();
+        bestPoints = ((normalizedAmount * 1000) / rate).floor();
       }
 
       if (bestPoints < _minPoints || bestPoints > _maxPoints) {
-        _resultText = "المبلغ خارج النطاق";
+        _outOfRange = bestPoints < _minPoints
+            ? _OutOfRange.belowMin
+            : _OutOfRange.aboveMax;
         _pointsValue = bestPoints;
-        _priceValue = inputVal.floor();
+        _priceValue = inputVal.ceil();
+        _isInputValid = false;
         setState(() {});
         _refreshActiveTiktokDialog();
         return;
       }
 
       _pointsValue = bestPoints;
-      _priceValue = inputVal.floor();
+      _priceValue = normalizedAmount;
       _resultText = "النقاط: $bestPoints نقطة";
       _isInputValid = true;
     }
@@ -1546,10 +1622,95 @@ class _HomeScreenState extends State<HomeScreen>
   bool get _isGameOrder => _selectedPackage != null;
   bool get _isPromoOrder => (_promoLink ?? '').isNotEmpty;
   bool get _requiresLargeOrderReview =>
+      _outOfRange == _OutOfRange.none &&
       !_isGameOrder &&
       !_isPromoOrder &&
       !_isBalanceTopupOrder &&
       (_pointsValue ?? 0) > _manualContactPointsThreshold;
+
+  _OutOfRange _outOfRange = _OutOfRange.none;
+
+  int _ceilToNearestFive(num value) {
+    final rounded = value.ceil();
+    final rem = rounded % 5;
+    return rem == 0 ? rounded : rounded + (5 - rem);
+  }
+
+  int? _validateWholeAmountEnding({
+    required String raw,
+    int? min,
+    int? max,
+    bool allowZero = false,
+  }) {
+    final normalized = raw.replaceAll(',', '.').trim();
+    final amountDouble = double.tryParse(normalized);
+    if (amountDouble == null || amountDouble % 1 != 0) {
+      _showCustomToast(
+        "أدخل مبلغًا صحيحًا ينتهي بـ 0 أو 5 (بدون كسور)",
+        color: Colors.orange,
+      );
+      return null;
+    }
+    final amount = amountDouble.toInt();
+    if (!allowZero && amount == 0) {
+      _showCustomToast("المبلغ يجب أن يكون أكبر من صفر", color: Colors.orange);
+      return null;
+    }
+    if (min != null && amount < min) {
+      _showCustomToast("أقل مبلغ مسموح هو $min", color: Colors.orange);
+      return null;
+    }
+    if (max != null && amount > max) {
+      _showCustomToast("أقصى مبلغ مسموح هو $max", color: Colors.orange);
+      return null;
+    }
+    final lastDigit = amount % 10;
+    if (lastDigit != 0 && lastDigit != 5) {
+      _showCustomToast(
+        "المبلغ يجب أن ينتهي بـ 0 أو 5 فقط. لا نقبل الفكة أو القروش.",
+        color: Colors.orange,
+      );
+      return null;
+    }
+    return amount;
+  }
+
+  Widget _buildOutOfRangeCard() {
+    String message;
+    if (_outOfRange == _OutOfRange.aboveMax) {
+      message =
+          "الطلبات فوق $_maxPoints عملة تتم بالتواصل المباشر فقط من صفحة سياسة الخصوصية > التواصل مع الدعم.";
+    } else {
+      message = "الحد الأدنى للشحن $_minPoints عملة.";
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.orange, width: 1.4),
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.orange.withAlpha(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 13,
+                color: TTColors.textWhite,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   String _gameOrderTitle(GamePackage pkg) {
     final gameName = GamePackage.gameLabel(pkg.game);
@@ -1719,6 +1880,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _startCheckoutFlow() async {
+    if (!await _checkCancelLimit()) return;
     if (!_isInputValid && !_isGameOrder && !_isPromoOrder) return;
 
     if (_isGameOrder || _isPromoOrder || _isBalanceTopupOrder) {
@@ -2814,7 +2976,11 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted) return;
 
     final link = linkCtrl.text.trim();
-    final amount = int.tryParse(amountCtrl.text.trim()) ?? 0;
+    final amount = _validateWholeAmountEnding(
+      raw: amountCtrl.text,
+      min: 100,
+      max: 60000,
+    );
 
     bool isTiktokLink(String url) {
       final uri = Uri.tryParse(url);
@@ -2823,7 +2989,7 @@ class _HomeScreenState extends State<HomeScreen>
       return h.contains('tiktok.com');
     }
 
-    if (link.isEmpty || !isTiktokLink(link) || amount < 100 || amount > 60000) {
+    if (amount == null || link.isEmpty || !isTiktokLink(link)) {
       TopSnackBar.show(
         context,
         "أدخل رابط تيك توك صالح ومبلغ بين 100 و 60000 جنيه",
@@ -2905,14 +3071,12 @@ class _HomeScreenState extends State<HomeScreen>
 
     if (!proceed) return;
 
-    final amount = int.tryParse(amountCtrl.text.trim()) ?? 0;
-    if (amount < 200 || amount > 60000) {
-      _showCustomToast(
-        "قيمة شحن الرصيد يجب أن تكون بين 200 و 60000 جنيه",
-        color: Colors.orange,
-      );
-      return;
-    }
+    final amount = _validateWholeAmountEnding(
+      raw: amountCtrl.text,
+      min: 200,
+      max: 60000,
+    );
+    if (amount == null) return;
 
     setState(() {
       _isBalanceTopupOrder = true;
@@ -3317,7 +3481,7 @@ class _HomeScreenState extends State<HomeScreen>
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  "الطلبات فوق $_manualContactPointsThreshold عملة تحتاج مراجعة إضافية قبل التنفيذ.",
+                  "الطلبات فوق $_manualContactPointsThreshold عملة تتم بالتواصل المباشر فقط من صفحة سياسة الخصوصية > التواصل مع الدعم.",
                   style: TextStyle(
                     color: TTColors.textWhite,
                     fontFamily: 'Cairo',
@@ -3328,24 +3492,6 @@ class _HomeScreenState extends State<HomeScreen>
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            "قد تحتاج هذه الكمية إلى تحويل بنكي يصل إلى 3 أيام عمل. متابعة التنفيذ ستكون بالكامل داخل الشات بعد إنشاء الطلب.",
-            style: TextStyle(
-              color: TTColors.textGray,
-              fontFamily: 'Cairo',
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            "إخلاء مسؤولية: الأسعار والمدة النهائية تخضع لحالة التحويل البنكي وتوفر الرصيد.",
-            style: TextStyle(
-              color: Colors.orange,
-              fontFamily: 'Cairo',
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
         ],
       ),
     );

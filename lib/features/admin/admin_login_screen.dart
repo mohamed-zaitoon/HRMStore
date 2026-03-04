@@ -41,6 +41,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       true; // 👈 بنستخدمه علشان نعرض لودينج أول ما الأكتيفيتي تفتح
   String? _error;
   int _days = 1;
+  bool _isRegisterMode = false;
 
   final Map<int, String> _durations = {
     1: 'يوم',
@@ -123,6 +124,51 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     return value.replaceAll(RegExp(r'[^0-9+]'), '').trim();
   }
 
+  Future<void> _persistSessionAndLogin({
+    required String adminId,
+    required String username,
+    required String whatsappInput,
+  }) async {
+    final String deviceId = await DeviceService.getDeviceId();
+
+    await NotificationService.saveUserToken(
+      collection: 'admins',
+      docId: adminId,
+    );
+
+    final DateTime expiryDate = DateTime.now().add(Duration(days: _days));
+
+    await FirebaseFirestore.instance
+        .collection('admins')
+        .doc(adminId)
+        .collection('sessions')
+        .doc(deviceId)
+        .set({
+      'device_id': deviceId,
+      'device_type': kIsWeb ? 'web' : 'android',
+      'expiry_at': Timestamp.fromDate(expiryDate),
+      'last_login': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await AdminSessionService.saveLocalSession(
+      adminId: adminId,
+      username: username,
+      whatsapp: whatsappInput,
+      expiryAt: expiryDate,
+    );
+
+    NotificationService.listenToAdminOrders();
+    NotificationService.listenToAdminRamadanCodes();
+    await NotificationService.initAdminNotifications(
+      whatsappInput,
+      requestPermission: true,
+    );
+
+    if (mounted) {
+      AppNavigator.pushReplacementNamed(context, '/admin/orders');
+    }
+  }
+
   Future<void> _migrateLegacyPasswordIfNeeded({
     required DocumentReference<Map<String, dynamic>> adminRef,
     required String storedHash,
@@ -199,51 +245,11 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
 
       final String adminId = doc.id;
 
-      // 2️⃣ تحديد الجهاز الحالي
-      final String deviceId = await DeviceService.getDeviceId();
-
-      // 3️⃣ حفظ FCM token في admins/{adminId}
-      await NotificationService.saveUserToken(
-        collection: 'admins',
-        docId: adminId,
-      );
-
-      // 4️⃣ تحديد تاريخ انتهاء الجلسة (حسب اختيار الأدمن)
-      final DateTime expiryDate = DateTime.now().add(Duration(days: _days));
-
-      // 5️⃣ حفظ Session كـ Sub-collection في فايرستور
-      await FirebaseFirestore.instance
-          .collection('admins')
-          .doc(adminId)
-          .collection('sessions')
-          .doc(deviceId)
-          .set({
-            'device_id': deviceId,
-            'device_type': kIsWeb ? 'web' : 'android',
-            'expiry_at': Timestamp.fromDate(expiryDate),
-            'last_login': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-
-      // 6️⃣ حفظ بيانات الجلسة محلياً بتخزين آمن
-      await AdminSessionService.saveLocalSession(
+      await _persistSessionAndLogin(
         adminId: adminId,
         username: username,
-        whatsapp: whatsappInput,
-        expiryAt: expiryDate,
+        whatsappInput: whatsappInput,
       );
-
-      // 7️⃣ تشغيل لستَنر الطلبات والأكواد (local notifications)
-      NotificationService.listenToAdminOrders();
-      NotificationService.listenToAdminRamadanCodes();
-      await NotificationService.initAdminNotifications(
-        whatsappInput,
-        requestPermission: true,
-      );
-
-      // 8️⃣ الانتقال للوحة الأدمن
-      if (mounted) {
-        AppNavigator.pushReplacementNamed(context, '/admin/orders');
-      }
     } catch (e) {
       String message = "حدث خطأ أثناء تسجيل الدخول";
       if (e is FirebaseException) {
@@ -264,6 +270,55 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         if (kDebugMode && e.message != null) {
           message = "$message (${e.message})";
         }
+      }
+      setState(() => _error = message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _register() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final username = _userCtrl.text.trim();
+      final password = _passCtrl.text.trim();
+      final whatsappInput = _normalizeWhatsapp(_whatsappCtrl.text);
+
+      final exists = await FirebaseFirestore.instance
+          .collection('admins')
+          .where('username', isEqualTo: username)
+          .limit(1)
+          .get();
+      if (exists.docs.isNotEmpty) {
+        setState(() => _error = "اسم المستخدم مستخدم بالفعل");
+        return;
+      }
+
+      final hash = _hashAdminPassword(password);
+      final adminRef =
+          await FirebaseFirestore.instance.collection('admins').add({
+        'username': username,
+        'whatsapp': whatsappInput,
+        'password_hash': hash,
+        'role': 'admin',
+        'created_at': FieldValue.serverTimestamp(),
+      });
+
+      await _persistSessionAndLogin(
+        adminId: adminRef.id,
+        username: username,
+        whatsappInput: whatsappInput,
+      );
+    } catch (e) {
+      String message = "تعذر إنشاء حساب الأدمن";
+      if (e is FirebaseException && e.message != null) {
+        message = "$message (${e.message})";
       }
       setState(() => _error = message);
     } finally {
@@ -339,7 +394,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'تسجيل دخول الأدمن',
+                            _isRegisterMode
+                                ? 'إنشاء حساب أدمن جديد'
+                                : 'تسجيل دخول الأدمن',
+                            key: ValueKey(_isRegisterMode),
                             style: TextStyle(
                               color: colorScheme.onSurfaceVariant,
                               fontFamily: 'Cairo',
@@ -347,7 +405,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                           ),
                           const SizedBox(height: 14),
                           Text(
-                            'إدارة الطلبات والأسعار والإشعارات بنفس تجربة المستخدم لكن بصلاحيات أدمن كاملة.',
+                            _isRegisterMode
+                                ? 'أنشئ حساب أدمن جديد ثم سيتسجل الدخول تلقائياً.'
+                                : 'إدارة الطلبات والأسعار والإشعارات بنفس تجربة المستخدم لكن بصلاحيات أدمن كاملة.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: colorScheme.onSurfaceVariant,
@@ -435,7 +495,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                             width: double.infinity,
                             height: 52,
                             child: ElevatedButton(
-                              onPressed: _loading ? null : _login,
+                              onPressed: _loading
+                                  ? null
+                                  : (_isRegisterMode ? _register : _login),
                               child: _loading
                                   ? Row(
                                       mainAxisAlignment:
@@ -452,20 +514,42 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                                           ),
                                         ),
                                         const SizedBox(width: 10),
-                                        const Text(
-                                          'جاري تسجيل الدخول...',
-                                          style: TextStyle(fontFamily: 'Cairo'),
+                                        Text(
+                                          _isRegisterMode
+                                              ? 'جاري إنشاء الحساب...'
+                                              : 'جاري تسجيل الدخول...',
+                                          style:
+                                              const TextStyle(fontFamily: 'Cairo'),
                                         ),
                                       ],
                                     )
-                                  : const Text(
-                                      'تسجيل الدخول',
-                                      style: TextStyle(
+                                  : Text(
+                                      _isRegisterMode
+                                          ? 'إنشاء حساب أدمن'
+                                          : 'تسجيل الدخول',
+                                      style: const TextStyle(
                                         fontSize: 17,
                                         fontWeight: FontWeight.bold,
                                         fontFamily: 'Cairo',
                                       ),
                                     ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          TextButton(
+                            onPressed: _loading
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _isRegisterMode = !_isRegisterMode;
+                                      _error = null;
+                                    });
+                                  },
+                            child: Text(
+                              _isRegisterMode
+                                  ? 'لديك حساب؟ تسجيل الدخول'
+                                  : 'إنشاء حساب أدمن جديد',
+                              style: const TextStyle(fontFamily: 'Cairo'),
                             ),
                           ),
                         ],

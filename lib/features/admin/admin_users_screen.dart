@@ -56,6 +56,7 @@ class AdminUsersScreen extends StatelessWidget {
       'balance_points': _toInt(data['balance_points']),
       'created_at': data['created_at'],
       'updated_at': data['updated_at'],
+      'ref': doc.reference,
     };
   }
 
@@ -73,6 +74,109 @@ class AdminUsersScreen extends StatelessWidget {
       counts[key] = (counts[key] ?? 0) + 1;
     }
     return counts;
+  }
+
+  Future<void> _updateUser(
+    BuildContext context,
+    DocumentReference ref,
+    Map<String, dynamic> data,
+    String success,
+  ) async {
+    try {
+      await ref.set({
+        ...data,
+        'status_updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      TopSnackBar.show(context, success, icon: Icons.check_circle);
+    } catch (e) {
+      TopSnackBar.show(
+        context,
+        'تعذر تحديث الحساب',
+        icon: Icons.error,
+        backgroundColor: Colors.red,
+      );
+    }
+  }
+
+  Future<void> _editUser(
+    BuildContext context,
+    Map<String, dynamic> user,
+  ) async {
+    final ref = user['ref'] as DocumentReference?;
+    if (ref == null) return;
+
+    final nameCtrl = TextEditingController(
+      text: (user['name'] ?? '').toString(),
+    );
+    final waCtrl = TextEditingController(
+      text: (user['whatsapp'] ?? '').toString(),
+    );
+    final tiktokCtrl = TextEditingController(
+      text: (user['tiktok'] ?? '').toString(),
+    );
+    final balanceCtrl = TextEditingController(
+      text: (user['balance_points'] ?? 0).toString(),
+    );
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تعديل بيانات المستخدم'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(labelText: 'الاسم'),
+            ),
+            TextField(
+              controller: waCtrl,
+              decoration: const InputDecoration(labelText: 'رقم الواتساب'),
+            ),
+            TextField(
+              controller: tiktokCtrl,
+              decoration: const InputDecoration(labelText: 'يوزر تيك توك'),
+            ),
+            TextField(
+              controller: balanceCtrl,
+              decoration: const InputDecoration(labelText: 'الرصيد (نقاط)'),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final wa = _normalizeWhatsapp(waCtrl.text);
+              final bal = int.tryParse(balanceCtrl.text.trim());
+              if (wa.isEmpty || bal == null) {
+                TopSnackBar.show(
+                  context,
+                  'أدخل رقم واتساب ورصيد صحيح',
+                  icon: Icons.error,
+                  backgroundColor: Colors.red,
+                );
+                return;
+              }
+              Navigator.pop(ctx);
+              await _updateUser(context, ref, {
+                'name': nameCtrl.text.trim(),
+                'whatsapp': wa,
+                'tiktok': tiktokCtrl.text.trim(),
+                'username': tiktokCtrl.text.trim(),
+                'balance_points': bal,
+                'updated_at': FieldValue.serverTimestamp(),
+              }, 'تم حفظ التعديلات');
+            },
+            child: const Text('حفظ'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -147,6 +251,7 @@ class AdminUsersScreen extends StatelessWidget {
                       final balancePoints = _toInt(user['balance_points']);
                       final totalOrders =
                           orderCounts[_userKeyFromWhatsapp(whatsapp)] ?? 0;
+                      final ref = user['ref'] as DocumentReference?;
 
                       return GlassCard(
                         padding: const EdgeInsets.symmetric(
@@ -209,13 +314,26 @@ class AdminUsersScreen extends StatelessWidget {
                                   icon: Icons.account_balance_wallet_rounded,
                                   text: 'الرصيد: $balancePoints نقطة',
                                 ),
-                                _statChip(
-                                  context: context,
-                                  icon: Icons.receipt_long_rounded,
-                                  text: 'إجمالي الطلبات: $totalOrders',
-                                ),
+                              _statChip(
+                                context: context,
+                                icon: Icons.receipt_long_rounded,
+                                text: 'إجمالي الطلبات: $totalOrders',
+                              ),
+                            ],
+                          ),
+                          if (ref != null) ...[
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                              OutlinedButton(
+                                onPressed: () => _editUser(context, user),
+                                child: const Text('تعديل البيانات'),
+                              ),
                               ],
                             ),
+                          ],
                           ],
                         ),
                       );

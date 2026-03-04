@@ -10,6 +10,11 @@ class AppCheckService {
   // EN: Activates Firebase App Check.
   // AR: تفعيل Firebase App Check.
   static Future<void> activate() async {
+    // Only Android/iOS (and Web with a site key) are supported by firebase_app_check.
+    const mobile = {TargetPlatform.android, TargetPlatform.iOS};
+    final isMobile = mobile.contains(defaultTargetPlatform);
+    if (!isMobile && !kIsWeb) return;
+
     if (kIsWeb && webRecaptchaSiteKey.isEmpty) {
       return;
     }

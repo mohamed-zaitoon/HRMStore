@@ -257,7 +257,7 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
             _buildField('رقم الواتساب', _waCtrl, keyboard: TextInputType.phone),
             _buildField('حساب تيك توك', _tiktokCtrl),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             _buildActionButtons(),
           ],
         ),

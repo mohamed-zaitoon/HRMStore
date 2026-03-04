@@ -76,7 +76,8 @@ class UpdateManager {
       );
       await rc.setDefaults(const {
         'latest_version_name': '',
-        'allow_beta_updates': true,
+        // Disable beta/alpha by default; only enable if explicitly toggled in RC.
+        'allow_beta_updates': false,
         'allow_alpha_updates': false,
         'force_update_enabled': false,
         'minimum_required_version': '',
@@ -86,10 +87,10 @@ class UpdateManager {
       await rc.fetchAndActivate();
 
       final String rcVersion = rc.getString('latest_version_name').trim();
-      final bool allowBeta =
-          AppInfo.isAdminApp || rc.getBool('allow_beta_updates');
-      final bool allowAlpha =
-          AppInfo.isAdminApp || rc.getBool('allow_alpha_updates');
+      // Respect Remote Config for beta/alpha even on admin flavor to avoid accidentally
+      // surfacing pre-release tags (e.g., 3.7-beta) unless explicitly allowed.
+      final bool allowBeta = rc.getBool('allow_beta_updates');
+      final bool allowAlpha = rc.getBool('allow_alpha_updates');
       final bool forceUpdateEnabled = rc.getBool('force_update_enabled');
       final String minimumRequiredVersion = rc
           .getString('minimum_required_version')

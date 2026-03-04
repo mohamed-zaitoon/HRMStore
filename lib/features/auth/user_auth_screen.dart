@@ -153,12 +153,15 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     final prefs = await SharedPreferences.getInstance();
     final savedUsername = (data['username'] ?? '').toString().trim();
     final savedTiktok = (data['tiktok'] ?? savedUsername).toString().trim();
+    final normalizedHandle = _normalizeTiktokHandle(
+      savedTiktok.isNotEmpty ? savedTiktok : savedUsername,
+    );
     await prefs.setBool('is_admin', false);
     await prefs.setString('user_uid', (data['uid'] ?? '').toString());
     await prefs.setString('user_name', (data['name'] ?? '').toString());
     await prefs.setString('user_email', (data['email'] ?? '').toString());
-    await prefs.setString('user_username', savedUsername);
-    await prefs.setString('user_tiktok', savedTiktok);
+    await prefs.setString('user_username', normalizedHandle);
+    await prefs.setString('user_tiktok', normalizedHandle);
     await prefs.setString(
       'user_whatsapp',
       _normalizeWhatsapp((data['whatsapp'] ?? '').toString()),
@@ -201,10 +204,20 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
   }
 
   Future<void> _persistAndNavigate(Map<String, dynamic> data) async {
+    data = Map<String, dynamic>.from(data);
     if (!data.containsKey('uid')) {
-      data = Map<String, dynamic>.from(data);
       data['uid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
     }
+    final normalizedHandle = _normalizeTiktokHandle(
+      (data['tiktok'] ?? data['username'] ?? '').toString(),
+    );
+    data['username'] = normalizedHandle.isNotEmpty
+        ? normalizedHandle
+        : (data['username'] ?? '');
+    data['tiktok'] = normalizedHandle.isNotEmpty
+        ? normalizedHandle
+        : (data['tiktok'] ?? data['username'] ?? '');
+    data['name'] = _normalizeDisplayName((data['name'] ?? '').toString());
     await _saveUserPrefs(data);
 
     final whatsapp = _normalizeWhatsapp((data['whatsapp'] ?? '').toString());
@@ -230,13 +243,38 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     final existing = await _getUserByUidOrEmail(uid: user.uid, email: email);
 
     if (existing != null) {
+      final normalizedHandle = _normalizeTiktokHandle(
+        (existing.data['tiktok'] ?? existing.data['username'] ?? '').toString(),
+      );
+      final normalizedName = _normalizeDisplayName(
+        (existing.data['name'] ?? '').toString(),
+      );
+
+      final updates = <String, dynamic>{};
+
       if (existing.uid.isEmpty && user.uid.isNotEmpty) {
-        await users.doc(existing.docId).set({
-          'uid': user.uid,
-          'updated_at': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        updates['uid'] = user.uid;
       }
-      await _persistAndNavigate(existing.data);
+      if (normalizedHandle.isNotEmpty &&
+          (existing.data['tiktok'] ?? '') != normalizedHandle) {
+        updates['tiktok'] = normalizedHandle;
+      }
+      if (normalizedHandle.isNotEmpty &&
+          (existing.data['username'] ?? '') != normalizedHandle) {
+        updates['username'] = normalizedHandle;
+      }
+      if (normalizedName.isNotEmpty &&
+          (existing.data['name'] ?? '') != normalizedName) {
+        updates['name'] = normalizedName;
+      }
+
+      if (updates.isNotEmpty) {
+        updates['updated_at'] = FieldValue.serverTimestamp();
+        await users.doc(existing.docId).set(updates, SetOptions(merge: true));
+      }
+
+      final mergedData = {...existing.data, ...updates};
+      await _persistAndNavigate(mergedData);
       return null;
     }
 
@@ -407,24 +445,8 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
         }
       }
 
-      final existingName = (emailDoc?.data['name'] ?? whatsappDoc?.data['name'])
-          .toString()
-          .trim();
-      final existingUsername =
-          (emailDoc?.data['username'] ??
-                  whatsappDoc?.data['username'] ??
-                  emailDoc?.data['tiktok'] ??
-                  whatsappDoc?.data['tiktok'])
-              .toString()
-              .trim();
-      final name = inputDisplayName.isNotEmpty
-          ? inputDisplayName
-          : _deriveDisplayName(
-              email: email,
-              whatsapp: whatsapp,
-              fallback: existingName,
-            );
-      final username = inputTiktok.isNotEmpty ? inputTiktok : existingUsername;
+      final name = inputDisplayName;
+      final username = inputTiktok;
 
       final authCred = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(email: email, password: password);
