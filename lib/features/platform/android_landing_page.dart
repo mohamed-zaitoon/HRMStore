@@ -77,9 +77,21 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
   Future<void> _downloadApk(_ApkAsset apk) async {
     final url = _withCacheBuster(ensureHttps(apk.url));
     if (kIsWeb) {
-      // GitHub release asset links redirect across domains.
-      // فتح التبويب الجديد يمنح فرصة أفضل لبداية التنزيل على متصفحات أندرويد 15.
-      html.window.open(url, '_blank');
+      // GitHub release asset links redirect عبر عدة نطاقات.
+      // نستخدم رابط مباشر مع عنصر <a download> لتحسين التوافق مع Chrome على أندرويد.
+      try {
+        final anchor = html.document.createElement('a') as html.AnchorElement
+          ..href = url
+          ..target = '_blank'
+          ..rel = 'noopener'
+          ..download = apk.suggestedFileName;
+        html.document.body?.append(anchor);
+        anchor.click();
+        anchor.remove();
+      } catch (_) {
+        // في حال منع النوافذ المنبثقة أو أي استثناء، نستعمل نفس التبويب.
+        html.window.location.assign(url);
+      }
       return;
     }
 
@@ -322,6 +334,17 @@ class _ApkAsset {
   final String url;
 
   _ApkAsset({required this.name, required this.url});
+
+  // EN: Provide a safe filename hint for downloads.
+  // AR: اسم ملف مقترح للتحميل.
+  String get suggestedFileName {
+    final parsed = Uri.tryParse(url);
+    final path = parsed?.pathSegments.isNotEmpty == true
+        ? parsed!.pathSegments.last
+        : name;
+    if (path.trim().isNotEmpty) return path;
+    return 'hrmstore.apk';
+  }
 
   // EN: Handles display Name.
   // AR: تتعامل مع display Name.
