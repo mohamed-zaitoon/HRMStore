@@ -78,9 +78,8 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
     final url = _withCacheBuster(ensureHttps(apk.url));
     if (kIsWeb) {
       // GitHub release asset links redirect across domains.
-      // Using same-tab navigation is generally more reliable than
-      // forcing the HTML download attribute with cross-origin redirects.
-      html.window.location.assign(url);
+      // فتح التبويب الجديد يمنح فرصة أفضل لبداية التنزيل على متصفحات أندرويد 15.
+      html.window.open(url, '_blank');
       return;
     }
 
@@ -140,17 +139,15 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
   }
 
   Future<void> _openAppThenDownload(_ApkAsset apk) async {
-    if (!kIsWeb) {
+    if (kIsWeb) {
+      // على الويب: حمل مباشرة بدون محاولة فتح التطبيق أو انتظار hidden flag.
       await _downloadApk(apk);
       return;
     }
 
-    final wasHiddenBefore = html.document.hidden ?? false;
+    // المسار غير الويب (احتياطي): افتح التطبيق ثم نزّل إذا لم يُفتح.
     await _tryOpenApp();
-    final isHiddenNow = html.document.hidden ?? false;
-    final appLikelyOpened = !wasHiddenBefore && isHiddenNow;
-    if (appLikelyOpened) return;
-
+    await Future<void>.delayed(const Duration(milliseconds: 500));
     await _downloadApk(apk);
   }
 
@@ -231,6 +228,18 @@ class _AndroidLandingPageState extends State<AndroidLandingPage> {
                       backgroundColor: TTColors.cardBg,
                       side: const BorderSide(color: TTColors.primaryCyan),
                       minimumSize: const Size(double.infinity, 55),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  Text(
+                    "يتم التحميل من GitHub Releases وقد يفتح في تبويب جديد.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: TTColors.textGray,
+                      fontSize: 13,
+                      fontFamily: 'Cairo',
                     ),
                   ),
 
