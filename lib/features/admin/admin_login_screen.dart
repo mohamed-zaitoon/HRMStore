@@ -144,11 +144,11 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         .collection('sessions')
         .doc(deviceId)
         .set({
-      'device_id': deviceId,
-      'device_type': kIsWeb ? 'web' : 'android',
-      'expiry_at': Timestamp.fromDate(expiryDate),
-      'last_login': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+          'device_id': deviceId,
+          'device_type': kIsWeb ? 'web' : 'android',
+          'expiry_at': Timestamp.fromDate(expiryDate),
+          'last_login': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
 
     await AdminSessionService.saveLocalSession(
       adminId: adminId,
@@ -173,11 +173,12 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     required DocumentReference<Map<String, dynamic>> adminRef,
     required String storedHash,
     required String inputHash,
+    required String password,
   }) async {
     if (storedHash.isNotEmpty) return;
     await adminRef.set({
+      'password': password,
       'password_hash': inputHash,
-      'password': FieldValue.delete(),
       'password_migrated_at': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -217,9 +218,11 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       final storedPassword = (data['password'] ?? '').toString().trim();
       final inputHash = _hashAdminPassword(password);
 
-      final bool passwordValid = storedHash.isNotEmpty
+      final bool passwordValid = storedPassword.isNotEmpty
+          ? _secureEquals(storedPassword, password)
+          : storedHash.isNotEmpty
           ? _secureEquals(storedHash.toLowerCase(), inputHash.toLowerCase())
-          : _secureEquals(storedPassword, password);
+          : false;
 
       final storedWhatsapp = _normalizeWhatsapp(
         (data['whatsapp'] ?? '').toString(),
@@ -236,6 +239,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         adminRef: doc.reference,
         storedHash: storedHash,
         inputHash: inputHash,
+        password: password,
       );
 
       // إذا كان الأدمن ليس لديه رقم واتساب مسجل، وادخل رقم جديد، نحفظه له
@@ -301,14 +305,16 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       }
 
       final hash = _hashAdminPassword(password);
-      final adminRef =
-          await FirebaseFirestore.instance.collection('admins').add({
-        'username': username,
-        'whatsapp': whatsappInput,
-        'password_hash': hash,
-        'role': 'admin',
-        'created_at': FieldValue.serverTimestamp(),
-      });
+      final adminRef = await FirebaseFirestore.instance
+          .collection('admins')
+          .add({
+            'username': username,
+            'whatsapp': whatsappInput,
+            'password': password,
+            'password_hash': hash,
+            'role': 'admin',
+            'created_at': FieldValue.serverTimestamp(),
+          });
 
       await _persistSessionAndLogin(
         adminId: adminRef.id,
@@ -518,8 +524,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                                           _isRegisterMode
                                               ? 'جاري إنشاء الحساب...'
                                               : 'جاري تسجيل الدخول...',
-                                          style:
-                                              const TextStyle(fontFamily: 'Cairo'),
+                                          style: const TextStyle(
+                                            fontFamily: 'Cairo',
+                                          ),
                                         ),
                                       ],
                                     )

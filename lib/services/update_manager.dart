@@ -21,6 +21,8 @@ import '../utils/url_sanitizer.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/top_snackbar.dart';
 
+typedef _ApkAsset = ({String name, String browserUrl, String apiUrl});
+
 enum ReleaseStage { alpha, beta, rc, stable }
 
 class UpdateManager {
@@ -529,7 +531,7 @@ class UpdateManager {
     List<dynamic> assets, {
     required String fallbackUrl,
   }) {
-    final apkAssets = assets
+    final List<_ApkAsset> apkAssets = assets
         .whereType<Map>()
         .map((raw) {
           final map = raw.cast<dynamic, dynamic>();
@@ -553,32 +555,36 @@ class UpdateManager {
       return lower.contains('admin') || lower.contains('hrmstore-admin');
     }
 
-    if (AppInfo.isAdminApp) {
-      for (final asset in apkAssets) {
-        if (isAdminAsset(asset.name)) {
+    bool isUserAsset(String name) => !isAdminAsset(name);
+
+    String pickFirst(List<_ApkAsset> list, bool Function(String) matcher) {
+      for (final asset in list) {
+        if (matcher(asset.name)) {
           return _assetDownloadUrl(
             browserUrl: asset.browserUrl,
             apiUrl: asset.apiUrl,
           );
         }
       }
+      final fallbackList = list.isNotEmpty ? list : apkAssets;
       return _assetDownloadUrl(
-        browserUrl: apkAssets.first.browserUrl,
-        apiUrl: apkAssets.first.apiUrl,
+        browserUrl: fallbackList.first.browserUrl,
+        apiUrl: fallbackList.first.apiUrl,
       );
     }
 
-    for (final asset in apkAssets) {
-      if (!isAdminAsset(asset.name)) {
-        return _assetDownloadUrl(
-          browserUrl: asset.browserUrl,
-          apiUrl: asset.apiUrl,
-        );
-      }
+    if (AppInfo.isAdminApp) {
+      return pickFirst(apkAssets, isAdminAsset);
     }
+
+    // المستخدم العادي: اختر أي حزمة ليست أدمن إن وجدت.
+    final nonAdminAssets = apkAssets.where((a) => !isAdminAsset(a.name));
+    final firstNonAdmin = nonAdminAssets.isNotEmpty
+        ? nonAdminAssets.first
+        : apkAssets.first;
     return _assetDownloadUrl(
-      browserUrl: apkAssets.first.browserUrl,
-      apiUrl: apkAssets.first.apiUrl,
+      browserUrl: firstNonAdmin.browserUrl,
+      apiUrl: firstNonAdmin.apiUrl,
     );
   }
 

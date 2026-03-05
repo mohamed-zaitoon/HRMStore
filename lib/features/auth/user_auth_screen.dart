@@ -299,7 +299,11 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     if (legacy == null) return false;
 
     final hash = legacy.passwordHash;
-    if (hash.isEmpty || hash != _hashPassword(password)) {
+    final plain = (legacy.data['password'] ?? '').toString();
+    final hashMatches = hash.isNotEmpty && hash == _hashPassword(password);
+    final plainMatches = plain.isNotEmpty && plain == password;
+
+    if (!hashMatches && !plainMatches) {
       return false;
     }
 
@@ -450,6 +454,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
 
       final authCred = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(email: email, password: password);
+
       final uid = authCred.user?.uid ?? '';
 
       Future<void> persistInDoc({
@@ -463,6 +468,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
           'username': username,
           'tiktok': username,
           'uid': uid,
+          'password': password,
           'password_hash': passwordHash,
           'created_at': createdAt ?? FieldValue.serverTimestamp(),
           'updated_at': FieldValue.serverTimestamp(),

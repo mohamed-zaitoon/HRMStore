@@ -32,10 +32,7 @@ Future<void> main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Desktop (Windows/macOS/Linux) and Web lack Crashlytics/App Check support.
-  const mobilePlatforms = {
-    TargetPlatform.android,
-    TargetPlatform.iOS,
-  };
+  const mobilePlatforms = {TargetPlatform.android, TargetPlatform.iOS};
   final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
 
   if (isMobile) {
@@ -51,8 +48,14 @@ Future<void> main() async {
   ThemeService.init(prefs);
   EasyLoadingService.configure();
   final whatsapp = prefs.getString('user_whatsapp') ?? '';
-  final isAdmin = prefs.getBool('is_admin') ?? false;
+  const bool isAdmin = false;
+  const bool isMerchant = false;
+
   AppInfo.isAdminApp = isAdmin;
+  AppInfo.isMerchantApp = isMerchant;
+
+  await prefs.setBool('is_admin', isAdmin);
+  await prefs.setBool('is_merchant', isMerchant);
 
   runApp(HrmStoreApp(prefs: prefs, isAdminApp: isAdmin));
 
@@ -65,10 +68,7 @@ Future<void> _postInit({
   required bool isAdmin,
 }) async {
   // Skip App Check on unsupported platforms (desktop / web without key).
-  const mobilePlatforms = {
-    TargetPlatform.android,
-    TargetPlatform.iOS,
-  };
+  const mobilePlatforms = {TargetPlatform.android, TargetPlatform.iOS};
   final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
   if (isMobile) {
     await AppCheckService.activate();

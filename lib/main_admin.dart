@@ -30,13 +30,18 @@ Future<void> main() async {
 
   usePathUrlStrategy();
 
+  const supportedPlatforms = {TargetPlatform.android};
+  final isSupportedPlatform =
+      !kIsWeb && supportedPlatforms.contains(defaultTargetPlatform);
+  if (!isSupportedPlatform) {
+    runApp(const _AdminPlatformBlockedApp());
+    return;
+  }
+
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Crashlytics متاحة عمليًا على Android/iOS فقط.
-  const mobilePlatforms = {
-    TargetPlatform.android,
-    TargetPlatform.iOS,
-  };
+  const mobilePlatforms = {TargetPlatform.android, TargetPlatform.iOS};
   final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
 
   if (isMobile) {
@@ -58,8 +63,11 @@ Future<void> main() async {
 
   // هذه نسخة الأدمن: نثبّت العلم لكل تشغيل لضمان تحميل مسارات الأدمن
   const bool isAdmin = true;
+  const bool isMerchant = false;
   await prefs.setBool('is_admin', isAdmin);
+  await prefs.setBool('is_merchant', isMerchant);
   AppInfo.isAdminApp = isAdmin;
+  AppInfo.isMerchantApp = isMerchant;
 
   runApp(HrmStoreApp(prefs: prefs, isAdminApp: isAdmin));
 
@@ -71,10 +79,7 @@ Future<void> _postInit({
   required String whatsapp,
   required bool isAdmin,
 }) async {
-  const mobilePlatforms = {
-    TargetPlatform.android,
-    TargetPlatform.iOS,
-  };
+  const mobilePlatforms = {TargetPlatform.android, TargetPlatform.iOS};
   final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
 
   // App Check (Android/iOS فقط أو Web بمفتاح).
@@ -90,10 +95,7 @@ Future<void> _postInit({
     await OneSignalService.requestPermission();
 
     if (whatsapp.isNotEmpty) {
-      await OneSignalService.registerUser(
-        whatsapp: whatsapp,
-        isAdmin: isAdmin,
-      );
+      await OneSignalService.registerUser(whatsapp: whatsapp, isAdmin: isAdmin);
     }
   }
 
@@ -109,5 +111,31 @@ Future<void> _runGlobalUpdateCheck() async {
       return;
     }
     await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+}
+
+class _AdminPlatformBlockedApp extends StatelessWidget {
+  const _AdminPlatformBlockedApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'نسخة الأدمن متاحة على أندرويد فقط.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Colors.red.shade700,
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

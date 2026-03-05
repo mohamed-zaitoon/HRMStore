@@ -1,6 +1,9 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,6 +32,11 @@ class AdminUsersScreen extends StatelessWidget {
     return int.tryParse((raw ?? '').toString().trim()) ?? 0;
   }
 
+  String _hashPassword(String password) {
+    final bytes = utf8.encode(password);
+    return sha256.convert(bytes).toString();
+  }
+
   Timestamp? _latestTimestamp(Map<String, dynamic> user) {
     final updated = user['updated_at'];
     if (updated is Timestamp) return updated;
@@ -43,7 +51,9 @@ class AdminUsersScreen extends StatelessWidget {
     final data = doc.data() ?? {};
     final whatsapp = (data['whatsapp'] ?? doc.id).toString();
     final rawName = (data['name'] ?? '').toString();
+    final email = (data['email'] ?? '').toString();
     final tiktokVal = (data['tiktok'] ?? '').toString();
+    final username = (data['username'] ?? tiktokVal).toString();
     final displayName = rawName.isNotEmpty
         ? rawName
         : (data['display_name'] ?? tiktokVal).toString().isNotEmpty
@@ -52,7 +62,11 @@ class AdminUsersScreen extends StatelessWidget {
     return {
       'whatsapp': whatsapp,
       'name': displayName,
+      'email': email,
+      'uid': (data['uid'] ?? '').toString(),
+      'username': username,
       'tiktok': tiktokVal,
+      'password_hash': (data['password_hash'] ?? '').toString(),
       'balance_points': _toInt(data['balance_points']),
       'created_at': data['created_at'],
       'updated_at': data['updated_at'],
@@ -111,38 +125,81 @@ class AdminUsersScreen extends StatelessWidget {
     final waCtrl = TextEditingController(
       text: (user['whatsapp'] ?? '').toString(),
     );
+    final emailCtrl = TextEditingController(
+      text: (user['email'] ?? '').toString(),
+    );
     final tiktokCtrl = TextEditingController(
-      text: (user['tiktok'] ?? '').toString(),
+      text: (user['tiktok'] ?? user['username'] ?? '').toString(),
     );
     final balanceCtrl = TextEditingController(
       text: (user['balance_points'] ?? 0).toString(),
     );
+    final passwordCtrl = TextEditingController();
 
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         title: const Text('تعديل بيانات المستخدم'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'الاسم'),
-            ),
-            TextField(
-              controller: waCtrl,
-              decoration: const InputDecoration(labelText: 'رقم الواتساب'),
-            ),
-            TextField(
-              controller: tiktokCtrl,
-              decoration: const InputDecoration(labelText: 'يوزر تيك توك'),
-            ),
-            TextField(
-              controller: balanceCtrl,
-              decoration: const InputDecoration(labelText: 'الرصيد (نقاط)'),
-              keyboardType: TextInputType.number,
-            ),
-          ],
+        content: Builder(
+          builder: (dialogCtx) {
+            final media = MediaQuery.of(dialogCtx);
+            final maxHeight = media.size.height * 0.75;
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxHeight),
+              child: SingleChildScrollView(
+                padding: EdgeInsets.only(bottom: media.viewInsets.bottom + 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(labelText: 'الاسم'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: waCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'رقم الواتساب',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: emailCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'البريد الإلكتروني',
+                      ),
+                      keyboardType: TextInputType.emailAddress,
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: tiktokCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'يوزر تيك توك',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: balanceCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'الرصيد (نقاط)',
+                      ),
+                      keyboardType: TextInputType.number,
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: passwordCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'كلمة سر جديدة (اختياري)',
+                        helperText: 'اتركها فارغة للإبقاء على الحالية',
+                      ),
+                      obscureText: true,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
         actions: [
           TextButton(
@@ -153,6 +210,7 @@ class AdminUsersScreen extends StatelessWidget {
             onPressed: () async {
               final wa = _normalizeWhatsapp(waCtrl.text);
               final bal = int.tryParse(balanceCtrl.text.trim());
+              final newPassword = passwordCtrl.text.trim();
               if (wa.isEmpty || bal == null) {
                 TopSnackBar.show(
                   context,
@@ -162,21 +220,91 @@ class AdminUsersScreen extends StatelessWidget {
                 );
                 return;
               }
+              if (newPassword.isNotEmpty && newPassword.length < 6) {
+                TopSnackBar.show(
+                  context,
+                  'كلمة السر يجب ألا تقل عن 6 أحرف',
+                  icon: Icons.error,
+                  backgroundColor: Colors.red,
+                );
+                return;
+              }
               Navigator.pop(ctx);
-              await _updateUser(context, ref, {
+              final update = <String, dynamic>{
                 'name': nameCtrl.text.trim(),
                 'whatsapp': wa,
                 'tiktok': tiktokCtrl.text.trim(),
                 'username': tiktokCtrl.text.trim(),
+                'email': emailCtrl.text.trim().toLowerCase(),
                 'balance_points': bal,
                 'updated_at': FieldValue.serverTimestamp(),
-              }, 'تم حفظ التعديلات');
+              };
+
+              if (newPassword.isNotEmpty) {
+                update['password'] = newPassword;
+                update['password_hash'] = _hashPassword(newPassword);
+              }
+
+              await _updateUser(context, ref, update, 'تم حفظ التعديلات');
             },
             child: const Text('حفظ'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _deleteUser(
+    BuildContext context,
+    Map<String, dynamic> user,
+  ) async {
+    final ref = user['ref'] as DocumentReference?;
+    if (ref == null) return;
+
+    final whatsapp = (user['whatsapp'] ?? '').toString();
+    final name = (user['name'] ?? '').toString();
+
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('حذف الحساب'),
+            content: Text(
+              'سيتم حذف حساب $name\nرقم واتساب: $whatsapp\nلا يمكن التراجع عن الحذف.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('إلغاء'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('تأكيد الحذف'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+
+    try {
+      await ref.delete();
+      TopSnackBar.show(
+        context,
+        'تم حذف الحساب',
+        icon: Icons.delete_forever,
+        backgroundColor: Colors.red.shade700,
+      );
+    } catch (e) {
+      TopSnackBar.show(
+        context,
+        'تعذر حذف الحساب',
+        icon: Icons.error,
+        backgroundColor: Colors.red,
+      );
+    }
   }
 
   @override
@@ -247,6 +375,7 @@ class AdminUsersScreen extends StatelessWidget {
                       final user = items[index];
                       final name = (user['name'] ?? '').toString();
                       final whatsapp = (user['whatsapp'] ?? '').toString();
+                      final email = (user['email'] ?? '').toString();
                       final tiktok = (user['tiktok'] ?? '').toString();
                       final balancePoints = _toInt(user['balance_points']);
                       final totalOrders =
@@ -298,6 +427,15 @@ class AdminUsersScreen extends StatelessWidget {
                               ],
                             ),
                             const SizedBox(height: 4),
+                            if (email.isNotEmpty) ...[
+                              Text(
+                                'البريد: $email',
+                                style: TextStyle(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                            ],
                             Text(
                               'تيك توك: ${tiktok.isEmpty ? '-' : tiktok}',
                               style: TextStyle(
@@ -314,26 +452,36 @@ class AdminUsersScreen extends StatelessWidget {
                                   icon: Icons.account_balance_wallet_rounded,
                                   text: 'الرصيد: $balancePoints نقطة',
                                 ),
-                              _statChip(
-                                context: context,
-                                icon: Icons.receipt_long_rounded,
-                                text: 'إجمالي الطلبات: $totalOrders',
-                              ),
-                            ],
-                          ),
-                          if (ref != null) ...[
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                              OutlinedButton(
-                                onPressed: () => _editUser(context, user),
-                                child: const Text('تعديل البيانات'),
-                              ),
+                                _statChip(
+                                  context: context,
+                                  icon: Icons.receipt_long_rounded,
+                                  text: 'إجمالي الطلبات: $totalOrders',
+                                ),
                               ],
                             ),
-                          ],
+                            if (ref != null) ...[
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  OutlinedButton(
+                                    onPressed: () => _editUser(context, user),
+                                    child: const Text('تعديل البيانات'),
+                                  ),
+                                  OutlinedButton(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red,
+                                      side: BorderSide(
+                                        color: Colors.red.withOpacity(0.7),
+                                      ),
+                                    ),
+                                    onPressed: () => _deleteUser(context, user),
+                                    child: const Text('حذف الحساب'),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ],
                         ),
                       );

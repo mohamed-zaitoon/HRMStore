@@ -7,6 +7,10 @@ class AppInfo {
   static const String adminAppName = 'HRM Store (ادمن)';
 
   static bool isAdminApp = false;
+  static bool isMerchantApp = false;
 
-  static String get appName => isAdminApp ? adminAppName : userAppName;
+  static String get appName {
+    if (isAdminApp) return adminAppName;
+    return userAppName;
+  }
 }
