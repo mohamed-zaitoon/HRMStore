@@ -63,12 +63,10 @@ class NotificationService {
   }
 
   static bool _isOneSignalEnabled() {
-    // OneSignal SDK is only available on mobile platforms.
+    // OneSignal is supported on Web + mobile (Android/iOS).
+    if (kIsWeb) return true;
     const mobile = {TargetPlatform.android, TargetPlatform.iOS};
-    if (kIsWeb || !mobile.contains(defaultTargetPlatform)) return false;
-    // Keep push registration always enabled so notifications can arrive
-    // while the app is closed, regardless of in-app realtime mode.
-    return true;
+    return mobile.contains(defaultTargetPlatform);
   }
 
   static bool _isRealtimeEnabled() {
@@ -919,11 +917,6 @@ class NotificationService {
       final packageLabel = (data['package_label'] ?? '').toString().trim();
       if (packageLabel.isNotEmpty) return packageLabel;
       return 'شحن لعبة';
-    }
-    if (productType == 'balance_topup') {
-      final points = (data['balance_points_requested'] ?? '').toString().trim();
-      if (points.isNotEmpty) return 'شحن رصيد $points نقطة';
-      return 'شحن رصيد نقاط';
     }
     if (productType == 'tiktok_promo') {
       return 'ترويج فيديو تيك توك';

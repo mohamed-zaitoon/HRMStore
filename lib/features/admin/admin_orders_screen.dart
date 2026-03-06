@@ -15,7 +15,6 @@ import '../../core/order_status.dart';
 import '../../core/tt_colors.dart';
 import '../../services/admin_session_service.dart';
 import '../../services/cloudflare_notify_service.dart';
-import '../../services/notification_service.dart';
 import '../../services/order_chat_service.dart';
 import '../../services/receipt_storage_service.dart';
 import '../../models/game_package.dart';
@@ -65,12 +64,17 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
     }
   }
 
+  bool _isSupportedAdminOrderType(String productType) {
+    return productType == 'tiktok' ||
+        productType == 'game' ||
+        productType == 'tiktok_promo';
+  }
+
   // EN: Initializes widget state.
   // AR: تهيّئ حالة الودجت.
   @override
   void initState() {
     super.initState();
-    NotificationService.requestPermission();
     _menuIconController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 220),
@@ -88,17 +92,9 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
 
     if (!valid || session == null) {
       await AdminSessionService.clearLocalSession();
-      await NotificationService.disposeListeners();
-      await NotificationService.pushLogout();
       if (!mounted) return;
       AppNavigator.pushNamedAndRemoveUntil(context, '/admin', (route) => false);
       return;
-    }
-
-    NotificationService.listenToAdminOrders();
-    NotificationService.listenToAdminRamadanCodes();
-    if (session.whatsapp.trim().isNotEmpty) {
-      await NotificationService.initAdminNotifications(session.whatsapp);
     }
 
     setState(() {
@@ -111,7 +107,8 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
   Stream<QuerySnapshot<Map<String, dynamic>>> _getStream() {
     final query = FirebaseFirestore.instance
         .collection('orders')
-        .orderBy('created_at', descending: true);
+        .orderBy('created_at', descending: true)
+        .limit(500);
     // نستخدم استعلاماً واحداً بدون where لتجنب أخطاء الفهرسة المركبة،
     // ثم نطبّق الفلترة حسب الحالة محلياً داخل الواجهة.
     return query.snapshots();
@@ -129,8 +126,6 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
   // AR: تتعامل مع logout Admin.
   Future<void> _logoutAdmin() async {
     await AdminSessionService.logoutCurrentDevice(_adminId);
-    await NotificationService.disposeListeners();
-    await NotificationService.pushLogout();
     await AdminSessionService.clearLocalSession();
 
     if (mounted) {
@@ -241,7 +236,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
 
                 _menuTile(
                   icon: Icons.schedule,
-                  title: "مواعيد العمل / الصيانة",
+                  title: "تشغيل/إيقاف الويب و Android Release",
                   onTap: () {
                     Navigator.pop(ctx);
                     AppNavigator.pushNamed(context, '/admin/availability');
@@ -463,9 +458,21 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
                 ];
 
                 final allDocs = s.data!.docs;
+                final unassignedDocs = allDocs
+                    .where(
+                      (doc) =>
+                          _isSupportedAdminOrderType(
+                            (doc.data()['product_type'] ?? 'tiktok')
+                                .toString()
+                                .trim(),
+                          ) &&
+                          ((doc.data()['merchant_id'] ?? '').toString().trim())
+                              .isEmpty,
+                    )
+                    .toList(growable: false);
                 final docs = _statusFilter == 'all'
-                    ? allDocs
-                    : allDocs
+                    ? unassignedDocs
+                    : unassignedDocs
                           .where(
                             (doc) =>
                                 (doc.data()['status'] ?? '').toString() ==
@@ -582,6 +589,53 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     return value.replaceAll(RegExp(r'[^0-9+]'), '').trim();
   }
 
+  Future<DocumentReference<Map<String, dynamic>>?> _resolveOrderUserRef(
+    Map<String, dynamic> orderData,
+  ) async {
+    final users = FirebaseFirestore.instance.collection('users');
+    final uid = (orderData['user_uid'] ?? orderData['uid'] ?? '')
+        .toString()
+        .trim();
+    if (uid.isNotEmpty) {
+      final uidRef = users.doc(uid);
+      final uidSnap = await uidRef.get();
+      if (uidSnap.exists) return uidRef;
+      final uidQuery = await users.where('uid', isEqualTo: uid).limit(1).get();
+      if (uidQuery.docs.isNotEmpty) return uidQuery.docs.first.reference;
+    }
+
+    final rawWhatsapp =
+        (orderData['user_whatsapp'] ?? orderData['whatsapp'] ?? '')
+            .toString()
+            .trim();
+    final normalizedWhatsapp = _normalizeWhatsapp(rawWhatsapp);
+    if (rawWhatsapp.isNotEmpty) {
+      final rawRef = users.doc(rawWhatsapp);
+      final rawSnap = await rawRef.get();
+      if (rawSnap.exists) return rawRef;
+      final rawQuery = await users
+          .where('whatsapp', isEqualTo: rawWhatsapp)
+          .limit(1)
+          .get();
+      if (rawQuery.docs.isNotEmpty) return rawQuery.docs.first.reference;
+    }
+
+    if (normalizedWhatsapp.isNotEmpty && normalizedWhatsapp != rawWhatsapp) {
+      final normalizedRef = users.doc(normalizedWhatsapp);
+      final normalizedSnap = await normalizedRef.get();
+      if (normalizedSnap.exists) return normalizedRef;
+      final normalizedQuery = await users
+          .where('whatsapp', isEqualTo: normalizedWhatsapp)
+          .limit(1)
+          .get();
+      if (normalizedQuery.docs.isNotEmpty) {
+        return normalizedQuery.docs.first.reference;
+      }
+    }
+
+    return null;
+  }
+
   int _parseIntValue(dynamic raw) {
     if (raw is int) return raw;
     if (raw is num) return raw.toInt();
@@ -595,8 +649,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
   bool _isChatSupportedOrderType(String productType) {
     return productType == 'tiktok' ||
         productType == 'game' ||
-        productType == 'tiktok_promo' ||
-        productType == 'balance_topup';
+        productType == 'tiktok_promo';
   }
 
   bool _isExecutionChatOpen(String status) {
@@ -628,127 +681,148 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     return sum > 0 ? sum : 0;
   }
 
-  Future<DocumentReference<Map<String, dynamic>>?> _resolveOrderUserRef(
-    Map<String, dynamic> orderData,
-  ) async {
-    final users = FirebaseFirestore.instance.collection('users');
-    final uid = (orderData['user_uid'] ?? orderData['uid'] ?? '')
+  bool _hasPendingMerchantStatusRequest(Map<String, dynamic> orderData) {
+    final state = (orderData['merchant_status_request_state'] ?? '')
         .toString()
-        .trim();
-    final whatsappRaw =
-        (orderData['user_whatsapp'] ?? orderData['whatsapp'] ?? '')
-            .toString()
-            .trim();
-    final whatsapp = _normalizeWhatsapp(whatsappRaw);
-
-    if (uid.isNotEmpty) {
-      final byId = users.doc(uid);
-      final byIdSnap = await byId.get();
-      if (byIdSnap.exists) return byId;
-
-      final byUid = await users.where('uid', isEqualTo: uid).limit(1).get();
-      if (byUid.docs.isNotEmpty) return byUid.docs.first.reference;
-    }
-
-    if (whatsappRaw.isNotEmpty) {
-      final byRawField = await users
-          .where('whatsapp', isEqualTo: whatsappRaw)
-          .limit(1)
-          .get();
-      if (byRawField.docs.isNotEmpty) return byRawField.docs.first.reference;
-
-      final byRawId = users.doc(whatsappRaw);
-      final byRawIdSnap = await byRawId.get();
-      if (byRawIdSnap.exists) return byRawId;
-    }
-
-    if (whatsapp.isNotEmpty && whatsapp != whatsappRaw) {
-      final byField = await users
-          .where('whatsapp', isEqualTo: whatsapp)
-          .limit(1)
-          .get();
-      if (byField.docs.isNotEmpty) return byField.docs.first.reference;
-
-      final byId = users.doc(whatsapp);
-      final byIdSnap = await byId.get();
-      if (byIdSnap.exists) return byId;
-    }
-
-    // fallback: أنشئ/استخدم مستنداً متوقعاً حتى لا نفقد إضافة الرصيد
-    if (uid.isNotEmpty) return users.doc(uid);
-    if (whatsappRaw.isNotEmpty) return users.doc(whatsappRaw);
-    if (whatsapp.isNotEmpty) return users.doc(whatsapp);
-    return null;
+        .trim()
+        .toLowerCase();
+    final requested = (orderData['merchant_status_request'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    return state == 'pending' &&
+        (requested == 'completed' || requested == 'rejected');
   }
 
-  Future<int> _completeBalanceTopupOrder() async {
-    final orderRef = FirebaseFirestore.instance
-        .collection('orders')
-        .doc(widget.id);
-    final userRef = await _resolveOrderUserRef(widget.data);
-    if (userRef == null) {
-      throw StateError('user-not-found');
+  String _merchantRequestedStatusLabel(String requested) {
+    switch (requested) {
+      case 'completed':
+        return 'تم التنفيذ';
+      case 'rejected':
+        return 'رفض الطلب';
+      default:
+        return 'تغيير الحالة';
+    }
+  }
+
+  String _composeMerchantRejectionReasonForUser({
+    required String reason,
+    required String merchantWhatsapp,
+  }) {
+    final trimmedReason = reason.trim();
+    final normalizedWhatsapp = _normalizeWhatsapp(merchantWhatsapp);
+    if (trimmedReason.isEmpty) return '';
+    if (normalizedWhatsapp.isEmpty) return trimmedReason;
+    return '$trimmedReason\nللتواصل مع التاجر: $normalizedWhatsapp';
+  }
+
+  Future<void> _declineMerchantStatusRequest() async {
+    if (!_hasPendingMerchantStatusRequest(widget.data)) {
+      if (mounted) {
+        TopSnackBar.show(
+          context,
+          "لا يوجد طلب من التاجر قيد المراجعة",
+          backgroundColor: Colors.orange,
+          textColor: Colors.white,
+          icon: Icons.info_outline,
+        );
+      }
+      return;
     }
 
-    int creditedNow = 0;
-
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final orderSnap = await tx.get(orderRef);
-      final orderData = orderSnap.data() ?? <String, dynamic>{};
-      final status = (orderData['status'] ?? '').toString();
-      final isBalanceTopupOrder =
-          (orderData['product_type'] ?? '').toString() == 'balance_topup';
-      final uid = (orderData['user_uid'] ?? orderData['uid'] ?? '')
-          .toString()
-          .trim();
-      final whatsappRaw =
-          (orderData['user_whatsapp'] ?? orderData['whatsapp'] ?? '')
-              .toString()
-              .trim();
-      final whatsapp = _normalizeWhatsapp(whatsappRaw);
-      if (!isBalanceTopupOrder) {
-        throw StateError('not-balance-topup');
-      }
-      if (status == 'rejected' || status == 'cancelled') {
-        throw StateError('final-status');
-      }
-
-      final int topupPoints = _parseIntValue(
-        orderData['balance_points_requested'] ?? orderData['points'],
-      );
-      if (topupPoints <= 0) {
-        throw StateError('invalid-topup-points');
-      }
-
-      final bool alreadyApplied = orderData['balance_points_applied'] == true;
-      if (!alreadyApplied) {
-        final userSnap = await tx.get(userRef);
-        final currentBalance = _parseIntValue(
-          userSnap.data()?['balance_points'],
-        );
-        tx.set(userRef, {
-          'balance_points': currentBalance + topupPoints,
-          if (uid.isNotEmpty) 'uid': uid,
-          if (whatsappRaw.isNotEmpty)
-            'whatsapp': whatsappRaw
-          else if (whatsapp.isNotEmpty)
-            'whatsapp': whatsapp,
-          'updated_at': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-        creditedNow = topupPoints;
-      }
-
-      tx.set(orderRef, {
-        'status': 'completed',
-        'balance_points_applied': true,
-        if (!alreadyApplied)
-          'balance_points_applied_at': FieldValue.serverTimestamp(),
-        if (!alreadyApplied) 'balance_points_applied_value': topupPoints,
+    setState(() => _isUpdating = true);
+    try {
+      await FirebaseFirestore.instance.collection('orders').doc(widget.id).set({
+        'merchant_status_request_state': 'declined',
+        'merchant_status_request_resolved_at': FieldValue.serverTimestamp(),
+        'merchant_status_request_resolved_by': 'admin',
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-    });
 
-    return creditedNow;
+      final requested = (widget.data['merchant_status_request'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final requestLabel = _merchantRequestedStatusLabel(requested);
+      unawaited(
+        OrderChatService.addSystemMessage(
+          orderId: widget.id,
+          text: 'الأدمن رفض طلب التاجر لتغيير الحالة إلى "$requestLabel".',
+        ),
+      );
+
+      if (!mounted) return;
+      setState(() => widget.data['merchant_status_request_state'] = 'declined');
+      TopSnackBar.show(
+        context,
+        "تم رفض طلب التاجر",
+        backgroundColor: Colors.orange,
+        textColor: Colors.white,
+        icon: Icons.gpp_bad_outlined,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      TopSnackBar.show(
+        context,
+        "تعذر رفض طلب التاجر",
+        backgroundColor: Colors.red,
+        textColor: Colors.white,
+        icon: Icons.error_outline,
+      );
+    } finally {
+      if (mounted) setState(() => _isUpdating = false);
+    }
+  }
+
+  Future<void> _approveMerchantStatusRequest() async {
+    final requested = (widget.data['merchant_status_request'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (!_hasPendingMerchantStatusRequest(widget.data)) {
+      if (mounted) {
+        TopSnackBar.show(
+          context,
+          "لا يوجد طلب من التاجر قيد المراجعة",
+          backgroundColor: Colors.orange,
+          textColor: Colors.white,
+          icon: Icons.info_outline,
+        );
+      }
+      return;
+    }
+    if (requested == 'completed') {
+      await _updateStatus('completed');
+      return;
+    }
+    if (requested == 'rejected') {
+      final merchantReason =
+          (widget.data['merchant_status_request_reason'] ?? '')
+              .toString()
+              .trim();
+      final merchantContact =
+          (widget.data['merchant_status_request_contact_whatsapp'] ?? '')
+              .toString()
+              .trim();
+      final reasonForUser = _composeMerchantRejectionReasonForUser(
+        reason: merchantReason,
+        merchantWhatsapp: merchantContact,
+      );
+      await _rejectOrderWithReason(
+        presetReason: reasonForUser,
+        requireReason: true,
+      );
+      return;
+    }
+    if (mounted) {
+      TopSnackBar.show(
+        context,
+        "نوع الطلب غير مدعوم للمراجعة",
+        backgroundColor: Colors.red,
+        textColor: Colors.white,
+        icon: Icons.error_outline,
+      );
+    }
   }
 
   // EN: Updates Status.
@@ -771,24 +845,32 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     try {
       final isPromoOrder =
           (widget.data['product_type'] ?? '').toString() == 'tiktok_promo';
-      final isBalanceTopupOrder =
-          (widget.data['product_type'] ?? '').toString() == 'balance_topup';
-      int creditedPoints = 0;
-
-      if (newStatus == 'completed' && isBalanceTopupOrder) {
-        creditedPoints = await _completeBalanceTopupOrder();
-      } else {
-        await FirebaseFirestore.instance
-            .collection('orders')
-            .doc(widget.id)
-            .update({
-              'status': newStatus,
-              if (newStatus == 'completed' && isPromoOrder) 'video_link': null,
-              if (newStatus == 'completed' && isPromoOrder)
-                'video_link_removed_at': FieldValue.serverTimestamp(),
-              'updated_at': FieldValue.serverTimestamp(),
-            });
-      }
+      final requested = (widget.data['merchant_status_request'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final hasPendingMerchantRequest = _hasPendingMerchantStatusRequest(
+        widget.data,
+      );
+      final merchantRequestDecision = hasPendingMerchantRequest
+          ? (requested == newStatus ? 'approved' : 'declined')
+          : null;
+      await FirebaseFirestore.instance
+          .collection('orders')
+          .doc(widget.id)
+          .update({
+            'status': newStatus,
+            if (newStatus == 'completed' && isPromoOrder) 'video_link': null,
+            if (newStatus == 'completed' && isPromoOrder)
+              'video_link_removed_at': FieldValue.serverTimestamp(),
+            if (merchantRequestDecision case final decision) ...{
+              'merchant_status_request_state': decision,
+              'merchant_status_request_resolved_at':
+                  FieldValue.serverTimestamp(),
+              'merchant_status_request_resolved_by': 'admin',
+            },
+            'updated_at': FieldValue.serverTimestamp(),
+          });
 
       if (mounted) {
         setState(() {
@@ -796,8 +878,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
           if (newStatus == 'completed' && isPromoOrder) {
             widget.data['video_link'] = null;
           }
-          if (newStatus == 'completed' && isBalanceTopupOrder) {
-            widget.data['balance_points_applied'] = true;
+          if (merchantRequestDecision != null) {
+            widget.data['merchant_status_request_state'] =
+                merchantRequestDecision;
           }
         });
         final userWhatsapp = _orderUserWhatsapp(widget.data);
@@ -818,37 +901,24 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
             ),
           );
         }
-        if (newStatus == 'completed' && isBalanceTopupOrder) {
-          TopSnackBar.show(
-            context,
-            creditedPoints > 0
-                ? "تم إكمال الطلب وإضافة $creditedPoints نقطة للمستخدم ✅"
-                : "تم إكمال الطلب ✅ (النقاط كانت مضافة مسبقًا)",
-            backgroundColor: Colors.green,
-            textColor: Colors.white,
-            icon: Icons.check_circle,
+        if (merchantRequestDecision == 'approved') {
+          final requestLabel = _merchantRequestedStatusLabel(requested);
+          unawaited(
+            OrderChatService.addSystemMessage(
+              orderId: widget.id,
+              text: 'الأدمن وافق على طلب التاجر: "$requestLabel".',
+            ),
+          );
+        } else if (merchantRequestDecision == 'declined') {
+          final requestLabel = _merchantRequestedStatusLabel(requested);
+          unawaited(
+            OrderChatService.addSystemMessage(
+              orderId: widget.id,
+              text: 'الأدمن رفض طلب التاجر: "$requestLabel".',
+            ),
           );
         }
       }
-    } on StateError catch (e) {
-      if (!mounted) return;
-      String message = "تعذر تحديث حالة الطلب";
-      if (e.message == 'user-not-found') {
-        message = "تعذر العثور على حساب المستخدم لإضافة النقاط";
-      } else if (e.message == 'invalid-topup-points') {
-        message = "قيمة نقاط الشحن غير صالحة في هذا الطلب";
-      } else if (e.message == 'final-status') {
-        message = "لا يمكن إكمال طلب مرفوض أو ملغي";
-      } else if (e.message == 'not-balance-topup') {
-        message = "هذا الطلب ليس طلب شحن نقاط";
-      }
-      TopSnackBar.show(
-        context,
-        message,
-        backgroundColor: Colors.red,
-        textColor: Colors.white,
-        icon: Icons.error,
-      );
     } catch (_) {
       if (mounted) {
         TopSnackBar.show(
@@ -1245,7 +1315,10 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     );
   }
 
-  Future<void> _rejectOrderWithReason() async {
+  Future<void> _rejectOrderWithReason({
+    String? presetReason,
+    bool requireReason = false,
+  }) async {
     if (_isFinalStatus) {
       if (mounted) {
         TopSnackBar.show(
@@ -1259,8 +1332,24 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
       return;
     }
 
-    final reason = await _promptRejectReason();
-    if (!mounted || reason == null) return;
+    var reason = (presetReason ?? '').trim();
+    if (reason.isEmpty) {
+      final promptedReason = await _promptRejectReason();
+      if (!mounted || promptedReason == null) return;
+      reason = promptedReason.trim();
+    }
+    if (requireReason && reason.isEmpty) {
+      if (mounted) {
+        TopSnackBar.show(
+          context,
+          "سبب الرفض مطلوب قبل اعتماد الرفض",
+          backgroundColor: Colors.orange,
+          textColor: Colors.white,
+          icon: Icons.info_outline,
+        );
+      }
+      return;
+    }
 
     setState(() => _isUpdating = true);
     try {
@@ -1276,6 +1365,8 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
       int refundedNow = 0;
       int pointsUsed = 0;
       bool alreadyRefunded = false;
+      String merchantRequestDecision = '';
+      String merchantRequestedStatus = '';
 
       await FirebaseFirestore.instance.runTransaction((tx) async {
         final orderSnap = await tx.get(orderRef);
@@ -1292,6 +1383,18 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
 
         pointsUsed = _extractPointsUsed(orderData);
         alreadyRefunded = orderData['points_refunded'] == true;
+        merchantRequestedStatus = (orderData['merchant_status_request'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        final hasPendingMerchantRequest = _hasPendingMerchantStatusRequest(
+          orderData,
+        );
+        if (hasPendingMerchantRequest) {
+          merchantRequestDecision = merchantRequestedStatus == 'rejected'
+              ? 'approved'
+              : 'declined';
+        }
 
         final uid = (orderData['user_uid'] ?? orderData['uid'] ?? '')
             .toString()
@@ -1331,6 +1434,12 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
           if (isPromoOrder)
             'video_link_removed_at': FieldValue.serverTimestamp(),
           'updated_at': FieldValue.serverTimestamp(),
+          if (merchantRequestDecision.isNotEmpty)
+            'merchant_status_request_state': merchantRequestDecision,
+          if (merchantRequestDecision.isNotEmpty)
+            'merchant_status_request_resolved_at': FieldValue.serverTimestamp(),
+          if (merchantRequestDecision.isNotEmpty)
+            'merchant_status_request_resolved_by': 'admin',
           if (pointsUsed > 0) 'points_refunded': true,
           if (pointsUsed > 0 && !alreadyRefunded)
             'points_refunded_at': FieldValue.serverTimestamp(),
@@ -1354,6 +1463,10 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         if (refundedNow > 0) {
           widget.data['points_refunded_value'] = refundedNow;
         }
+        if (merchantRequestDecision.isNotEmpty) {
+          widget.data['merchant_status_request_state'] =
+              merchantRequestDecision;
+        }
       });
       final userWhatsapp = _orderUserWhatsapp(latestOrderData);
       if (userWhatsapp.isNotEmpty) {
@@ -1363,6 +1476,27 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
             orderId: widget.id,
             status: 'rejected',
             rejectionReason: reason,
+          ),
+        );
+      }
+      if (merchantRequestDecision == 'approved') {
+        final requestLabel = _merchantRequestedStatusLabel(
+          merchantRequestedStatus,
+        );
+        unawaited(
+          OrderChatService.addSystemMessage(
+            orderId: widget.id,
+            text: 'الأدمن وافق على طلب التاجر: "$requestLabel".',
+          ),
+        );
+      } else if (merchantRequestDecision == 'declined') {
+        final requestLabel = _merchantRequestedStatusLabel(
+          merchantRequestedStatus,
+        );
+        unawaited(
+          OrderChatService.addSystemMessage(
+            orderId: widget.id,
+            text: 'الأدمن رفض طلب التاجر: "$requestLabel".',
           ),
         );
       }
@@ -1437,7 +1571,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         .toString();
     final bool isGameOrder = productType == 'game';
     final bool isPromoOrder = productType == 'tiktok_promo';
-    final bool isBalanceTopupOrder = productType == 'balance_topup';
     final bool supportsOrderChat = _isChatSupportedOrderType(productType);
     final bool shouldShowChatSection = supportsOrderChat && !isFinalStatus;
     final bool isExecutionChatOpen = _isExecutionChatOpen(status);
@@ -1491,9 +1624,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         : "💰 $egpDisplay";
     final int pointsDiscount = parseIntValue(widget.data['points_discount']);
     final int pointsPaid = parseIntValue(widget.data['points_paid']);
-    final int topupPoints = parseIntValue(
-      widget.data['balance_points_requested'] ?? widget.data['points'],
-    );
     final String gameKey = (widget.data['game'] ?? '').toString();
     final String packageLabel = (widget.data['package_label'] ?? '').toString();
     final String gameId = (widget.data['game_id'] ?? '').toString();
@@ -1514,6 +1644,23 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     final String rejectionReason = (widget.data['rejection_reason'] ?? '')
         .toString()
         .trim();
+    final String merchantRequestedStatus =
+        (widget.data['merchant_status_request'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+    final bool hasPendingMerchantStatusRequest =
+        _hasPendingMerchantStatusRequest(widget.data);
+    final String merchantRequestedStatusLabel = _merchantRequestedStatusLabel(
+      merchantRequestedStatus,
+    );
+    final String merchantRequestedReason =
+        (widget.data['merchant_status_request_reason'] ?? '').toString().trim();
+    final String merchantRequestedContact = _normalizeWhatsapp(
+      (widget.data['merchant_status_request_contact_whatsapp'] ?? '')
+          .toString()
+          .trim(),
+    );
     final String tiktokChargeModeLabel = tiktokChargeMode == 'username_password'
         ? 'يوزر + باسورد'
         : tiktokChargeMode == 'qr'
@@ -1529,9 +1676,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         ThemeData.estimateBrightnessForColor(statusColor) == Brightness.dark
         ? Colors.white
         : Colors.black;
-    final String leftText = isBalanceTopupOrder
-        ? "💰 شحن الرصيد ${topupPoints > 0 ? '$topupPoints نقطة' : ''}"
-        : isGameOrder
+    final String leftText = isGameOrder
         ? "🎮 ${GamePackage.gameLabel(gameKey)} - $packageLabel"
         : (isPromoOrder ? "📣 ترويج فيديو" : "💎 ${widget.data['points']}");
 
@@ -1630,18 +1775,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
             ),
           ],
 
-          if (isBalanceTopupOrder && topupPoints > 0) ...[
-            const SizedBox(height: 6),
-            Text(
-              "المطلوب إضافته للرصيد بعد المراجعة: $topupPoints نقطة",
-              style: TextStyle(
-                color: colorScheme.onSurfaceVariant,
-                fontFamily: 'Cairo',
-                fontSize: 12,
-              ),
-            ),
-          ],
-
           if (status == 'rejected' && rejectionReason.isNotEmpty) ...[
             const SizedBox(height: 8),
             Container(
@@ -1664,7 +1797,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
             ),
           ],
 
-          if (!isGameOrder && !isPromoOrder && !isBalanceTopupOrder) ...[
+          if (!isGameOrder && !isPromoOrder) ...[
             if (tiktokChargeModeLabel.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(
@@ -1828,7 +1961,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
 
           const SizedBox(height: 12),
 
-          if (!isFinalStatus && !isBalanceTopupOrder) ...[
+          if (!isFinalStatus) ...[
             if (!isGameOrder && !isPromoOrder) ...[
               SizedBox(
                 width: double.infinity,
@@ -1871,6 +2004,90 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
                 status: status,
                 supportsChat: supportsOrderChat,
               ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (hasPendingMerchantStatusRequest && !isFinalStatus) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.withAlpha(32),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.orange.withAlpha(120)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'طلب تاجر قيد المراجعة: "$merchantRequestedStatusLabel".',
+                    style: const TextStyle(
+                      fontFamily: 'Cairo',
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (merchantRequestedStatus == 'rejected' &&
+                      merchantRequestedReason.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'سبب الرفض المقترح: $merchantRequestedReason',
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontFamily: 'Cairo',
+                      ),
+                    ),
+                  ],
+                  if (merchantRequestedStatus == 'rejected' &&
+                      merchantRequestedContact.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'رقم تواصل التاجر: $merchantRequestedContact',
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontFamily: 'Cairo',
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _approveMerchantStatusRequest,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: const Text(
+                      "موافقة على طلب التاجر",
+                      style: TextStyle(fontFamily: 'Cairo'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _declineMerchantStatusRequest,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: colorScheme.error,
+                      side: BorderSide(color: colorScheme.error),
+                    ),
+                    icon: const Icon(Icons.cancel_outlined),
+                    label: const Text(
+                      "رفض طلب التاجر",
+                      style: TextStyle(fontFamily: 'Cairo'),
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
           ],

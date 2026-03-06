@@ -1,7 +1,7 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
 import 'package:flutter/services.dart';
 import 'package:universal_html/html.dart' as html;
 
@@ -14,6 +14,61 @@ class AvailabilityBlocker extends StatelessWidget {
   // EN: Creates AvailabilityBlocker.
   // AR: ينشئ AvailabilityBlocker.
   const AvailabilityBlocker({super.key, required this.child});
+
+  Widget _buildBlockedScreen(
+    BuildContext context, {
+    required bool maintenance,
+    required String message,
+  }) {
+    return Scaffold(
+      backgroundColor: TTColors.background,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  maintenance ? Icons.construction : Icons.pause_circle_outline,
+                  size: 64,
+                  color: TTColors.primaryPink,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  maintenance
+                      ? "الخدمة غير متاحة حالياً (صيانة)"
+                      : "الخدمة متوقفة مؤقتاً",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: TTColors.textGray,
+                    height: 1.4,
+                    fontFamily: 'Cairo',
+                  ),
+                ),
+                const SizedBox(height: 20),
+                OutlinedButton(
+                  onPressed: () => _handleAcknowledge(context),
+                  child: const Text("حسنا"),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _handleAcknowledge(BuildContext context) async {
     final latestDecision = await AvailabilityService.checkNow();
@@ -40,6 +95,13 @@ class AvailabilityBlocker extends StatelessWidget {
       stream: AvailabilityService.stream(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
+          if (kReleaseMode) {
+            return _buildBlockedScreen(
+              context,
+              maintenance: false,
+              message: 'تعذر التحقق من حالة الخدمة حالياً.',
+            );
+          }
           return child;
         }
         if (!snapshot.hasData) {
@@ -54,64 +116,10 @@ class AvailabilityBlocker extends StatelessWidget {
         final decision = snapshot.data!;
         if (decision.allowed) return child;
 
-        return Scaffold(
-          backgroundColor: TTColors.background,
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      decision.maintenance
-                          ? Icons.construction
-                          : Icons.schedule,
-                      size: 64,
-                      color: TTColors.primaryPink,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      decision.maintenance
-                          ? "الشحن غير متاح حاليا"
-                          : "نحن خارج مواعيد العمل",
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Cairo',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      decision.message,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: TTColors.textGray,
-                        height: 1.4,
-                        fontFamily: 'Cairo',
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      "أعد المحاولة لاحقًا.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: TTColors.textGray,
-                        fontFamily: 'Cairo',
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    OutlinedButton(
-                      onPressed: () => _handleAcknowledge(context),
-                      child: const Text("حسنا"),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        return _buildBlockedScreen(
+          context,
+          maintenance: decision.maintenance,
+          message: decision.message,
         );
       },
     );

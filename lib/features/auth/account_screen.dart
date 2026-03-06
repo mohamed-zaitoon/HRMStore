@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/app_navigator.dart';
+import '../../utils/whatsapp_utils.dart';
 import '../../widgets/top_snackbar.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
@@ -109,11 +111,19 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _saveProfile() async {
+    final normalizedWhatsapp = WhatsappUtils.normalizeEgyptianWhatsapp(
+      _waCtrl.text,
+    );
+    if (!WhatsappUtils.isValidEgyptianWhatsapp(normalizedWhatsapp)) {
+      _toast('رقم الواتساب يجب أن يكون 11 رقم ويبدأ بـ 01', Colors.red);
+      return;
+    }
+
     setState(() => _loading = true);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_name', _nameCtrl.text.trim());
     await prefs.setString('user_email', _emailCtrl.text.trim());
-    await prefs.setString('user_whatsapp', _waCtrl.text.trim());
+    await prefs.setString('user_whatsapp', normalizedWhatsapp);
     await prefs.setString('user_tiktok', _tiktokCtrl.text.trim());
 
     final email = _emailCtrl.text.trim().toLowerCase();
@@ -132,12 +142,14 @@ class _AccountScreenState extends State<AccountScreen> {
     if (ref != null) {
       await ref.set({
         'name': _nameCtrl.text.trim(),
-        'whatsapp': _waCtrl.text.trim(),
+        'whatsapp': normalizedWhatsapp,
         'username': _tiktokCtrl.text.trim(),
         'tiktok': _tiktokCtrl.text.trim(),
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
+
+    _waCtrl.text = normalizedWhatsapp;
 
     if (mounted) {
       setState(() => _loading = false);
@@ -240,6 +252,23 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
+  Future<void> _openMerchantRegistration() async {
+    final normalizedWhatsapp = WhatsappUtils.normalizeEgyptianWhatsapp(
+      _waCtrl.text,
+    );
+    if (!WhatsappUtils.isValidEgyptianWhatsapp(normalizedWhatsapp)) {
+      _toast('رقم الواتساب يجب أن يكون 11 رقم ويبدأ بـ 01', Colors.red);
+      return;
+    }
+    if (_nameCtrl.text.trim().length < 3) {
+      _toast('اكتب الاسم بالكامل قبل التسجيل كتاجر', Colors.orange);
+      return;
+    }
+    await _saveProfile();
+    if (!mounted) return;
+    AppNavigator.pushNamed(context, '/merchant/verify');
+  }
+
   Widget _buildFormCard() {
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 480),
@@ -331,24 +360,45 @@ class _AccountScreenState extends State<AccountScreen> {
       ),
     );
 
+    final registerMerchantButton = SizedBox(
+      height: 48,
+      child: OutlinedButton.icon(
+        onPressed: _loading ? null : _openMerchantRegistration,
+        icon: const Icon(Icons.storefront_outlined),
+        label: const Text(
+          'التسجيل كتاجر',
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 390;
+        final isCompact = constraints.maxWidth < 430;
         if (isCompact) {
           return Column(
             children: [
               SizedBox(width: double.infinity, child: saveButton),
               const SizedBox(height: 10),
               SizedBox(width: double.infinity, child: resetPasswordButton),
+              const SizedBox(height: 10),
+              SizedBox(width: double.infinity, child: registerMerchantButton),
             ],
           );
         }
 
-        return Row(
+        return Column(
           children: [
-            Expanded(child: saveButton),
-            const SizedBox(width: 10),
-            Expanded(child: resetPasswordButton),
+            Row(
+              children: [
+                Expanded(child: saveButton),
+                const SizedBox(width: 10),
+                Expanded(child: resetPasswordButton),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(width: double.infinity, child: registerMerchantButton),
           ],
         );
       },

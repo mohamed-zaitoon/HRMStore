@@ -145,33 +145,36 @@ class AppLinksService {
       case '/home/tiktok':
       case '/home/games':
       case '/orders':
+      case '/merchant/orders':
+      case '/merchant/verify':
       case '/support_inquiry':
       case '/privacy':
       case '/privacy_policy':
       case '/code_requests':
       case '/admin':
       case '/admin/login':
-      case '/admin/orders':
       case '/admin/codes':
       case '/admin/requests':
       case '/admin/prices':
       case '/admin/offers':
       case '/admin/cost-calculator':
-      case '/admin/availability':
       case '/admin/games':
       case '/admin/users':
-      case '/admin/wallets':
       case '/admin/devices':
       case '/admin/support_inquiries':
         return path;
+      case '/admin/orders':
+      case '/admin/availability':
+      case '/admin/wallets':
+        return '/admin/users';
       case '/account':
       case '/about':
         return '/home';
       default:
         if (path.startsWith('/admin/')) {
-          return '/admin/orders';
+          return '/admin/users';
         }
-        return _isAdminApp ? '/admin/orders' : '/home';
+        return _isAdminApp ? '/admin/users' : '/home';
     }
   }
 }

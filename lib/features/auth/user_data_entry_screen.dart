@@ -12,6 +12,7 @@ import '../../core/app_info.dart';
 import '../../core/app_navigator.dart';
 import '../../services/notification_service.dart';
 import '../../utils/html_meta.dart';
+import '../../utils/whatsapp_utils.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/snow_background.dart';
 
@@ -214,7 +215,7 @@ class _UserDataEntryScreenState extends State<UserDataEntryScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final name = _name.text.trim();
-    final whatsapp = _whatsapp.text.trim();
+    final whatsapp = WhatsappUtils.normalizeEgyptianWhatsapp(_whatsapp.text);
     final tiktok = _tiktok.text.trim();
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
 

@@ -2,7 +2,7 @@
 name: hrmstoreapp
 description: "HRM Store"
 publish_to: 'none'
-version: 1.5.0-alpha+143
+version: 1.5.0-rc1+145
 environment:
   sdk: '>=3.10.8 <4.0.0'
 

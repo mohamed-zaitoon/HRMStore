@@ -41,6 +41,14 @@ import '../../widgets/top_snackbar.dart';
 
 enum _OutOfRange { none, belowMin, aboveMax }
 
+class _MerchantGroupState {
+  Map<String, dynamic>? profileCandidate;
+  int profileScore = -1;
+  DateTime? profileTimestamp;
+  Map<String, dynamic>? presenceCandidate;
+  DateTime? presenceTimestamp;
+}
+
 class HomeScreen extends StatefulWidget {
   final String name;
   final String whatsapp;
@@ -80,7 +88,6 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isInputValid = false;
   static const int _minPoints = 150;
   static const int _maxPoints = 100000;
-  static const int _manualContactPointsThreshold = 100000;
   static const String _tiktokChargeModeLink = 'link';
   static const String _tiktokChargeModeQr = 'qr';
   static const String _tiktokChargeModeUserPass = 'username_password';
@@ -100,8 +107,6 @@ class _HomeScreenState extends State<HomeScreen>
   final _tiktokCtrl = TextEditingController();
   List<Map<String, dynamic>> _prices = [];
 
-  String _walletNumber = "";
-  String _instapayLink = "";
   String _binanceId = "";
   double _usdtPrice = 0;
   double _offerRateFor100 = 0;
@@ -115,7 +120,6 @@ class _HomeScreenState extends State<HomeScreen>
   String _offersTitle = '✨ عروض الخصم ✨';
   String _offersRequestCta = 'اضغط لطلب كود الخصم الخاص بك';
   int _balancePoints = 0;
-  bool _isBalanceTopupOrder = false;
   DocumentReference<Map<String, dynamic>>? _userDocRef;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _balancePointsSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -133,6 +137,7 @@ class _HomeScreenState extends State<HomeScreen>
   final Set<String> _processingOrdersOpenedForChat = <String>{};
   bool _orderStatusWatchPrimed = false;
   bool _supportChatNavigationInProgress = false;
+  Map<String, dynamic>? _selectedMerchant;
 
   bool get _arePricesReady =>
       !_isPricesLoading && !_hasPricesError && _prices.isNotEmpty;
@@ -169,7 +174,7 @@ class _HomeScreenState extends State<HomeScreen>
       return 'جاري تحميل الأسعار...';
     }
     final value = _pricesStatusMessage.trim();
-    return 'تعذر تحميل الأسعار حالياً';
+    return value.isEmpty ? 'تعذر تحميل الأسعار حالياً' : value;
   }
 
   void _refreshActiveTiktokDialog() {
@@ -187,7 +192,6 @@ class _HomeScreenState extends State<HomeScreen>
       _priceValue = null;
       _selectedPackage = null;
       _selectedGameId = null;
-      _isBalanceTopupOrder = false;
       _isPointsMode = true;
     });
     if (refreshDialog) {
@@ -212,6 +216,8 @@ class _HomeScreenState extends State<HomeScreen>
     _orderStatusWatchSub = FirebaseFirestore.instance
         .collection('orders')
         .where('user_whatsapp', isEqualTo: whatsapp)
+        .orderBy('created_at', descending: true)
+        .limit(120)
         .snapshots()
         .listen((snapshot) {
           if (!_orderStatusWatchPrimed) {
@@ -474,6 +480,81 @@ class _HomeScreenState extends State<HomeScreen>
     AppNavigator.pushNamed(context, '/account');
   }
 
+  Future<void> _switchToMerchantMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final ref = await _resolveUserDocRef();
+    if (ref == null) {
+      _showCustomToast('تعذر فتح وضع التاجر حالياً', color: Colors.red);
+      return;
+    }
+
+    final snap = await ref.get();
+    final data = snap.data() ?? <String, dynamic>{};
+    final hasMerchantAccess = data['is_merchant'] == true;
+    if (!hasMerchantAccess) {
+      _showCustomToast(
+        'هذا الحساب غير مسجل كتاجر. أكمل طلب التوثيق أولاً.',
+        color: Colors.orange,
+      );
+      return;
+    }
+
+    final verified = _isMerchantVerifiedData(data);
+    final uid = (data['uid'] ?? prefs.getString('user_uid') ?? '')
+        .toString()
+        .trim();
+    final resolvedName = (data['name'] ?? prefs.getString('user_name') ?? '')
+        .toString()
+        .trim();
+    final resolvedWhatsapp = _normalizeWhatsapp(
+      (data['merchant_whatsapp'] ??
+              data['whatsapp'] ??
+              prefs.getString('user_whatsapp') ??
+              widget.whatsapp)
+          .toString(),
+    );
+
+    if (uid.isNotEmpty) {
+      await prefs.setString('user_uid', uid);
+    }
+    if (resolvedName.isNotEmpty) {
+      await prefs.setString('user_name', resolvedName);
+    }
+    if (resolvedWhatsapp.isNotEmpty) {
+      await prefs.setString('user_whatsapp', resolvedWhatsapp);
+    }
+
+    await prefs.setBool('is_merchant', true);
+    AppInfo.isMerchantApp = true;
+
+    if (!mounted) return;
+    if (verified) {
+      AppNavigator.pushNamedAndRemoveUntil(
+        context,
+        '/merchant/orders',
+        (route) => false,
+      );
+      return;
+    }
+
+    AppNavigator.pushNamed(context, '/merchant/verify');
+  }
+
+  String _normalizedMerchantVerificationStatus(dynamic raw) {
+    final status = (raw ?? '').toString().trim().toLowerCase();
+    if (status == 'approved') return 'approved';
+    if (status == 'pending') return 'pending';
+    if (status == 'rejected') return 'rejected';
+    return 'not_submitted';
+  }
+
+  bool _isMerchantVerifiedData(Map<String, dynamic> data) {
+    final status = _normalizedMerchantVerificationStatus(
+      data['merchant_verification_status'],
+    );
+    return data['merchant_verified'] == true || status == 'approved';
+  }
+
   Future<void> _openAboutDialog() async {
     if (!mounted) return;
     if (kIsWeb) return;
@@ -578,7 +659,6 @@ class _HomeScreenState extends State<HomeScreen>
             padding: const EdgeInsets.only(top: 8.0),
             child: _buildOutOfRangeCard(),
           ),
-        _buildLargePointsWarningCard(),
         if (_showPromoCodeSection)
           GlassCard(
             margin: const EdgeInsets.symmetric(vertical: 10),
@@ -745,7 +825,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   bool _ensureTiktokHandle() {
-    if (_isGameOrder || _isPromoOrder || _isBalanceTopupOrder) return true;
+    if (_isGameOrder || _isPromoOrder) return true;
     final tiktok = _tiktokCtrl.text.trim();
     if (tiktok.isEmpty) {
       // حاول استخدام القيمة المحفوظة سابقاً
@@ -803,7 +883,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   String _normalizeWhatsapp(String value) {
-    return value.replaceAll(RegExp(r'[^0-9+]'), '').trim();
+    return value.replaceAll(RegExp(r'[^0-9]'), '').trim();
   }
 
   int _toInt(dynamic raw) {
@@ -968,91 +1048,72 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<String?> _createOrderWithOptionalPoints({
     required Map<String, dynamic> payload,
-    int pointsToDeduct = 0,
     String? orderId,
   }) async {
     final orders = FirebaseFirestore.instance.collection('orders');
-
-    if (pointsToDeduct <= 0) {
-      try {
-        late final DocumentReference<Map<String, dynamic>> createdOrderRef;
-        if (orderId == null || orderId.trim().isEmpty) {
-          createdOrderRef = await orders.add(payload);
-        } else {
-          createdOrderRef = orders.doc(orderId);
-          await createdOrderRef.set(payload, SetOptions(merge: true));
-        }
-        unawaited(
-          _seedOrderChatThread(orderId: createdOrderRef.id, payload: payload),
-        );
-        unawaited(
-          CloudflareNotifyService.notifyAdminsNewOrder(
-            orderId: createdOrderRef.id,
-            order: payload,
-          ),
-        );
-        return createdOrderRef.id;
-      } catch (_) {
-        _showCustomToast("تعذر إنشاء الطلب، حاول مجددًا", color: Colors.red);
-        return null;
-      }
-    }
-
-    final userRef = await _resolveUserDocRef();
-    if (userRef == null) {
-      _showCustomToast("تعذر الوصول إلى رصيد النقاط", color: Colors.red);
-      return null;
-    }
-
     try {
-      final orderRef = (orderId == null || orderId.trim().isEmpty)
-          ? orders.doc()
-          : orders.doc(orderId);
-
-      int nextBalance = _balancePoints;
-
-      await FirebaseFirestore.instance.runTransaction((tx) async {
-        final userSnap = await tx.get(userRef);
-        final current = _toInt(userSnap.data()?['balance_points']);
-        if (current < pointsToDeduct) {
-          throw StateError('insufficient-points');
-        }
-
-        nextBalance = current - pointsToDeduct;
-
-        tx.set(orderRef, payload, SetOptions(merge: true));
-        tx.set(userRef, {
-          'balance_points': nextBalance,
-          'updated_at': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      });
-
-      if (mounted) {
-        setState(() => _balancePoints = nextBalance);
+      late final DocumentReference<Map<String, dynamic>> createdOrderRef;
+      if (orderId == null || orderId.trim().isEmpty) {
+        createdOrderRef = await orders.add(payload);
+      } else {
+        createdOrderRef = orders.doc(orderId);
+        await createdOrderRef.set(payload, SetOptions(merge: true));
       }
-      unawaited(_seedOrderChatThread(orderId: orderRef.id, payload: payload));
       unawaited(
-        CloudflareNotifyService.notifyAdminsNewOrder(
-          orderId: orderRef.id,
-          order: payload,
-        ),
+        _seedOrderChatThread(orderId: createdOrderRef.id, payload: payload),
       );
-      return orderRef.id;
-    } on StateError catch (e) {
-      if (e.message == 'insufficient-points') {
-        await _refreshBalancePoints(forceServer: true);
-        _showCustomToast(
-          "رصيد النقاط غير كافٍ. حدّث الرصيد ثم حاول مرة أخرى.",
-          color: Colors.orange,
-        );
-        return null;
-      }
-      _showCustomToast("تعذر إنشاء الطلب، حاول مجددًا", color: Colors.red);
-      return null;
+      unawaited(_notifyNewOrder(orderId: createdOrderRef.id, payload: payload));
+      return createdOrderRef.id;
     } catch (_) {
       _showCustomToast("تعذر إنشاء الطلب، حاول مجددًا", color: Colors.red);
       return null;
     }
+  }
+
+  Future<void> _notifyNewOrder({
+    required String orderId,
+    required Map<String, dynamic> payload,
+  }) async {
+    var merchantWhatsapp = _normalizeWhatsapp(
+      (payload['merchant_whatsapp'] ?? '').toString(),
+    );
+    if (merchantWhatsapp.isEmpty && _selectedMerchant != null) {
+      merchantWhatsapp = _normalizeWhatsapp(
+        (_selectedMerchant!['whatsapp'] ?? '').toString(),
+      );
+    }
+
+    if (merchantWhatsapp.isEmpty) {
+      final merchantId = (payload['merchant_id'] ?? '').toString().trim();
+      if (merchantId.isNotEmpty) {
+        try {
+          final merchantSnap = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(merchantId)
+              .get();
+          final merchantData = merchantSnap.data() ?? <String, dynamic>{};
+          merchantWhatsapp = _normalizeWhatsapp(
+            (merchantData['merchant_whatsapp'] ?? merchantData['whatsapp'] ?? '')
+                .toString(),
+          );
+        } catch (_) {
+          // Ignore lookup failures and fallback to admin notification.
+        }
+      }
+    }
+
+    if (merchantWhatsapp.isNotEmpty) {
+      await CloudflareNotifyService.notifyMerchantNewOrder(
+        orderId: orderId,
+        order: payload,
+        merchantWhatsapp: merchantWhatsapp,
+      );
+      return;
+    }
+    await CloudflareNotifyService.notifyAdminsNewOrder(
+      orderId: orderId,
+      order: payload,
+    );
   }
 
   void _resetCheckoutMeta() {
@@ -1060,7 +1121,6 @@ class _HomeScreenState extends State<HomeScreen>
       _promoLink = null;
       _tiktokChargeMode = _tiktokChargeModeLink;
       _tiktokPasswordForOrder = null;
-      _isBalanceTopupOrder = false;
     });
   }
 
@@ -1261,9 +1321,8 @@ class _HomeScreenState extends State<HomeScreen>
       final isRamadanSeason = isRamadanRaw && !isEidRaw;
       final isEidSeason = isEidRaw && !isRamadanRaw;
       setState(() {
-        _walletNumber = rc.getString('wallet_number');
-        _instapayLink = rc.getString('instapay_link');
-        _binanceId = rc.getString('binance_id');
+        // نوقف استخدام القيم الافتراضية للمحفظة/إنستاباي/باينانس، التاجر يرسلها في الشات.
+        _binanceId = '';
         _isRamadanSeason = isRamadanSeason;
         _isEidSeason = isEidSeason;
       });
@@ -1503,7 +1562,6 @@ class _HomeScreenState extends State<HomeScreen>
     _priceValue = null;
     _selectedPackage = null;
     _selectedGameId = null;
-    _isBalanceTopupOrder = false;
     _outOfRange = _OutOfRange.none;
 
     if (val.isEmpty) {
@@ -1564,7 +1622,8 @@ class _HomeScreenState extends State<HomeScreen>
       final lastDigit = amountInt % 10;
       final isAllowedEnding = lastDigit == 0 || lastDigit == 5;
       if (!isAllowedEnding) {
-        _resultText = "المبلغ يجب أن ينتهي بـ 0 أو 5 فقط. لا نقبل الفكة أو القروش.";
+        _resultText =
+            "المبلغ يجب أن ينتهي بـ 0 أو 5 فقط. لا نقبل الفكة أو القروش.";
         setState(() {});
         _refreshActiveTiktokDialog();
         return;
@@ -1577,8 +1636,7 @@ class _HomeScreenState extends State<HomeScreen>
       final reversedPrices = _prices.reversed.toList();
       for (var rule in reversedPrices) {
         final baseRate = rule['pricePer1000'].toDouble();
-        int potentialPoints =
-            ((normalizedAmount * 1000) / baseRate).floor();
+        int potentialPoints = ((normalizedAmount * 1000) / baseRate).floor();
         final appliedRate = _resolveOfferRateForPoints(
           points: potentialPoints.toDouble(),
           fallbackRate: baseRate,
@@ -1621,12 +1679,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool get _isGameOrder => _selectedPackage != null;
   bool get _isPromoOrder => (_promoLink ?? '').isNotEmpty;
-  bool get _requiresLargeOrderReview =>
-      _outOfRange == _OutOfRange.none &&
-      !_isGameOrder &&
-      !_isPromoOrder &&
-      !_isBalanceTopupOrder &&
-      (_pointsValue ?? 0) > _manualContactPointsThreshold;
 
   _OutOfRange _outOfRange = _OutOfRange.none;
 
@@ -1678,8 +1730,7 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildOutOfRangeCard() {
     String message;
     if (_outOfRange == _OutOfRange.aboveMax) {
-      message =
-          "الطلبات فوق $_maxPoints عملة تتم بالتواصل المباشر فقط من صفحة سياسة الخصوصية > التواصل مع الدعم.";
+      message = "الحد الأقصى للشحن $_maxPoints عملة.";
     } else {
       message = "الحد الأدنى للشحن $_minPoints عملة.";
     }
@@ -1835,7 +1886,6 @@ class _HomeScreenState extends State<HomeScreen>
     if (id == null || id.isEmpty) return;
 
     setState(() {
-      _isBalanceTopupOrder = false;
       _selectedPackage = pkg;
       _selectedGameId = id;
       _priceValue = pkg.price;
@@ -1883,10 +1933,11 @@ class _HomeScreenState extends State<HomeScreen>
     if (!await _checkCancelLimit()) return;
     if (!_isInputValid && !_isGameOrder && !_isPromoOrder) return;
 
-    if (_isGameOrder || _isPromoOrder || _isBalanceTopupOrder) {
+    if (_isGameOrder || _isPromoOrder) {
       _tiktokChargeMode = _tiktokChargeModeLink;
       _tiktokPasswordForOrder = null;
       await _refreshBalancePoints(forceServer: true);
+      if (!await _ensureMerchantSelected(forcePrompt: true)) return;
       _openPaymentDialogSafely();
       return;
     }
@@ -1903,6 +1954,7 @@ class _HomeScreenState extends State<HomeScreen>
         _tiktokPasswordForOrder = null;
       });
       await _refreshBalancePoints(forceServer: true);
+      if (!await _ensureMerchantSelected(forcePrompt: true)) return;
       _openPaymentDialogSafely();
       return;
     }
@@ -1916,11 +1968,14 @@ class _HomeScreenState extends State<HomeScreen>
     });
 
     await _refreshBalancePoints(forceServer: true);
+    if (!await _ensureMerchantSelected(forcePrompt: true)) return;
     _openPaymentDialogSafely();
   }
 
   void _openPaymentDialogSafely() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (!await _ensureSelectedMerchantOnlineForCheckout()) return;
       if (!mounted) return;
       _showPaymentDialog();
     });
@@ -2049,6 +2104,16 @@ class _HomeScreenState extends State<HomeScreen>
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              const SizedBox(height: 6),
+              const Text(
+                "تنبيه أمني: غيّر كلمة السر مباشرة بعد استلام الشحن.",
+                style: TextStyle(
+                  color: Colors.orangeAccent,
+                  fontFamily: 'Cairo',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               const SizedBox(height: 10),
               TextField(
                 autofocus: true,
@@ -2098,7 +2163,7 @@ class _HomeScreenState extends State<HomeScreen>
   // AR: تعرض Payment Dialog.
   void _showPaymentDialog() {
     if (!_isInputValid && !_isGameOrder && !_isPromoOrder) return;
-    if (!_isPromoOrder && !_isBalanceTopupOrder && !_ensureTiktokHandle()) {
+    if (!_isPromoOrder && !_ensureTiktokHandle()) {
       return;
     }
 
@@ -2111,7 +2176,6 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    int pointsDiscount = 0;
     showGeneralDialog(
       context: context,
       barrierDismissible: false,
@@ -2139,23 +2203,9 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 420),
-                      child: StatefulBuilder(
-                        builder: (ctx, setDialogState) {
-                          final canUsePointsFeatures = !_isBalanceTopupOrder;
-                          final maxDiscount = canUsePointsFeatures
-                              ? math.min(_balancePoints, totalAmount)
-                              : 0;
-                          if (pointsDiscount > maxDiscount) {
-                            pointsDiscount = maxDiscount;
-                          }
-                          final payableAmount = math.max(
-                            0,
-                            totalAmount - pointsDiscount,
-                          );
-                          final canPayFullyByPoints =
-                              canUsePointsFeatures &&
-                              _balancePoints >= totalAmount;
-
+                      child: Builder(
+                        builder: (ctx) {
+                          final payableAmount = totalAmount;
                           return GlassCard(
                             margin: EdgeInsets.zero,
                             padding: const EdgeInsets.all(24),
@@ -2171,19 +2221,14 @@ class _HomeScreenState extends State<HomeScreen>
                                     fontFamily: 'Cairo',
                                   ),
                                 ),
-
                                 const SizedBox(height: 10),
-
                                 Text(
-                                  _isBalanceTopupOrder
-                                      ? "شحن الرصيد (اختياري)"
-                                      : "إجمالي الطلب: $totalAmount جنيه",
+                                  "إجمالي الطلب: $totalAmount جنيه",
                                   style: const TextStyle(
                                     color: TTColors.goldAccent,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-
                                 if (_isGameOrder) ...[
                                   const SizedBox(height: 8),
                                   Text(
@@ -2203,134 +2248,41 @@ class _HomeScreenState extends State<HomeScreen>
                                       ),
                                     ),
                                 ],
-
-                                if (_isBalanceTopupOrder) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    "قيمة الشحن: $totalAmount جنيه = $totalAmount نقطة",
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: TTColors.textWhite,
-                                      fontFamily: 'Cairo',
-                                    ),
-                                  ),
-                                ] else ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    "رصيدك $_balancePoints 🪙",
-                                    style: TextStyle(
-                                      color: TTColors.textGray,
-                                      fontFamily: 'Cairo',
-                                    ),
-                                  ),
-                                  if (maxDiscount > 0)
-                                    TextButton.icon(
-                                      onPressed: () {
-                                        setDialogState(() {
-                                          pointsDiscount = pointsDiscount == 0
-                                              ? maxDiscount
-                                              : 0;
-                                        });
-                                      },
-                                      icon: Icon(
-                                        pointsDiscount > 0
-                                            ? Icons.remove_circle_outline
-                                            : Icons.discount_outlined,
-                                      ),
-                                      label: Text(
-                                        pointsDiscount > 0
-                                            ? "إلغاء خصم النقاط"
-                                            : "استخدام $maxDiscount نقطة كخصم (اختياري)",
-                                        style: const TextStyle(
-                                          fontFamily: 'Cairo',
-                                        ),
-                                      ),
-                                    ),
-                                  if (maxDiscount <= 0)
-                                    Text(
-                                      "لا يوجد رصيد نقاط متاح للخصم حالياً",
-                                      style: TextStyle(
-                                        color: TTColors.textGray,
-                                        fontSize: 12,
-                                        fontFamily: 'Cairo',
-                                      ),
-                                    ),
-                                  if (pointsDiscount > 0)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Text(
-                                        "خصم النقاط: -$pointsDiscount جنيه\nالمبلغ المطلوب الآن: $payableAmount جنيه",
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          color: TTColors.goldAccent,
-                                          fontWeight: FontWeight.bold,
-                                          fontFamily: 'Cairo',
-                                        ),
-                                      ),
-                                    ),
-                                ],
-
                                 const SizedBox(height: 18),
-
-                                if (canPayFullyByPoints)
-                                  Column(
-                                    children: [
-                                      _payOption(
-                                        "الدفع من رصيد النقاط",
-                                        Icons.stars_rounded,
-                                        TTColors.goldAccent,
-                                        () => _processPointsPayment(
-                                          totalAmount: totalAmount,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                    ],
+                                _payOption(
+                                  "فودافون كاش / محفظة",
+                                  Icons.account_balance_wallet,
+                                  Colors.orange,
+                                  () => _processWalletOrder(
+                                    payableAmount: payableAmount,
                                   ),
-
-                                if (payableAmount > 0) ...[
-                                  _payOption(
-                                    "فودافون كاش / محفظة",
-                                    Icons.account_balance_wallet,
-                                    Colors.orange,
-                                    () => _processWalletOrder(
-                                      payableAmount: payableAmount,
-                                      pointsDiscount: pointsDiscount,
+                                ),
+                                const SizedBox(height: 10),
+                                _payOption(
+                                  "InstaPay",
+                                  Icons.qr_code,
+                                  Colors.purpleAccent,
+                                  () => _processInstaPay(
+                                    payableAmount: payableAmount,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                _payOptionWithLeading(
+                                  "Binance Pay",
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: Image.asset(
+                                      'assets/icon/binance_logo.png',
+                                      width: 22,
+                                      height: 22,
+                                      fit: BoxFit.cover,
                                     ),
                                   ),
-                                  const SizedBox(height: 10),
-
-                                  _payOption(
-                                    "InstaPay",
-                                    Icons.qr_code,
-                                    Colors.purpleAccent,
-                                    () => _processInstaPay(
-                                      payableAmount: payableAmount,
-                                      pointsDiscount: pointsDiscount,
-                                    ),
+                                  () => _processBinancePay(
+                                    payableAmount: payableAmount,
                                   ),
-
-                                  const SizedBox(height: 10),
-
-                                  _payOptionWithLeading(
-                                    "Binance Pay",
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(4),
-                                      child: Image.asset(
-                                        'assets/icon/binance_logo.png',
-                                        width: 22,
-                                        height: 22,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                    () => _processBinancePay(
-                                      payableAmount: payableAmount,
-                                      pointsDiscount: pointsDiscount,
-                                    ),
-                                  ),
-                                ],
-
+                                ),
                                 const SizedBox(height: 12),
-
                                 SizedBox(
                                   width: double.infinity,
                                   child: OutlinedButton.icon(
@@ -2384,6 +2336,478 @@ class _HomeScreenState extends State<HomeScreen>
     return egpAmount / _usdtPrice;
   }
 
+  bool _isMerchantOnline(Map<String, dynamic> merchant) {
+    final manualOfflineRaw = merchant['merchant_manual_offline_raw'];
+    if (manualOfflineRaw is bool) {
+      // لو التاجر اختار الحالة يدويًا، نعتمدها مباشرة للمستخدمين.
+      return !manualOfflineRaw;
+    }
+
+    if (merchant['merchant_manual_offline'] == true) return false;
+    if (merchant['merchant_online'] != true) return false;
+    final lastSeen = merchant['merchant_last_seen'];
+    if (lastSeen is! Timestamp) {
+      // بعض الحسابات القديمة قد لا تحتوي last_seen رغم تفعيل الحالة.
+      return true;
+    }
+    // اعتبر التاجر متصلاً طالما آخر نبضة خلال 3 دقائق.
+    return DateTime.now().difference(lastSeen.toDate()).inSeconds <= 180;
+  }
+
+  DateTime? _dateFromFirestore(dynamic raw) {
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    return null;
+  }
+
+  bool _isMerchantSubscriptionActive(Map<String, dynamic> data, DateTime now) {
+    final trialEnds = data['merchant_trial_ends_at'];
+    final paidUntil = data['merchant_paid_until'];
+    final trialActive =
+        trialEnds is Timestamp && now.isBefore(trialEnds.toDate());
+    final paidActive =
+        paidUntil is Timestamp && now.isBefore(paidUntil.toDate());
+    return trialActive || paidActive;
+  }
+
+  int _merchantProfileScore({
+    required bool isMerchant,
+    required bool verified,
+    required bool active,
+    required bool subscriptionActive,
+    required bool blocked,
+    required String uid,
+    required String whatsapp,
+  }) {
+    var score = 0;
+    if (isMerchant) score += 1000;
+    if (verified) score += 200;
+    if (active) score += 120;
+    if (subscriptionActive) score += 80;
+    if (!blocked) score += 30;
+    if (uid.isNotEmpty) score += 10;
+    if (whatsapp.isNotEmpty) score += 5;
+    return score;
+  }
+
+  bool _isMoreRecentCandidate({
+    required DateTime? next,
+    required DateTime? current,
+  }) {
+    if (current == null) return true;
+    if (next == null) return false;
+    return next.isAfter(current);
+  }
+
+  List<Map<String, dynamic>> _extractActiveMerchants(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final now = DateTime.now();
+    final grouped = <String, _MerchantGroupState>{};
+    final groupAliases = <String, String>{};
+
+    for (final doc in docs) {
+      final data = doc.data();
+      final docId = doc.id.trim();
+      final merchantUid = (data['uid'] ?? '').toString().trim();
+      final merchantWhatsapp = _normalizeWhatsapp(
+        (data['merchant_whatsapp'] ?? data['whatsapp'] ?? '').toString(),
+      );
+      final merchantId = merchantUid.isNotEmpty ? merchantUid : docId;
+      if (merchantId.isEmpty && merchantWhatsapp.isEmpty) continue;
+
+      final uidKey = merchantUid.isNotEmpty ? 'uid:$merchantUid' : null;
+      final whatsappKey = merchantWhatsapp.isNotEmpty
+          ? 'wa:$merchantWhatsapp'
+          : null;
+      final aliasedUidGroup = uidKey == null ? null : groupAliases[uidKey];
+      final aliasedWhatsappGroup = whatsappKey == null
+          ? null
+          : groupAliases[whatsappKey];
+      final groupKey =
+          aliasedUidGroup ??
+          aliasedWhatsappGroup ??
+          uidKey ??
+          whatsappKey ??
+          'doc:$docId';
+      if (uidKey != null) {
+        groupAliases[uidKey] = groupKey;
+      }
+      if (whatsappKey != null) {
+        groupAliases[whatsappKey] = groupKey;
+      }
+
+      final group = grouped.putIfAbsent(groupKey, _MerchantGroupState.new);
+
+      final trialEnds = data['merchant_trial_ends_at'];
+      final paidUntil = data['merchant_paid_until'];
+      final candidate = <String, dynamic>{
+        'id': merchantId,
+        'uid': merchantUid,
+        'name': (data['name'] ?? data['username'] ?? 'تاجر').toString(),
+        'whatsapp': merchantWhatsapp,
+        'merchant_online': data['merchant_online'] == true,
+        'merchant_manual_offline_raw': data['merchant_manual_offline'],
+        'merchant_manual_offline': data['merchant_manual_offline'] == true,
+        'merchant_last_seen': data['merchant_last_seen'],
+        'merchant_verified': _isMerchantVerifiedData(data),
+        'trial_ends_at': trialEnds,
+        'paid_until': paidUntil,
+      };
+
+      final presenceTimestamp =
+          _dateFromFirestore(data['merchant_last_seen']) ??
+          _dateFromFirestore(data['updated_at']) ??
+          _dateFromFirestore(data['created_at']);
+      if (group.presenceCandidate == null ||
+          _isMoreRecentCandidate(
+            next: presenceTimestamp,
+            current: group.presenceTimestamp,
+          )) {
+        group.presenceCandidate = candidate;
+        group.presenceTimestamp = presenceTimestamp;
+      }
+
+      final accountStatus = (data['account_status'] ?? 'active')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final blocked =
+          accountStatus == 'blocked' || accountStatus == 'suspended';
+      final active = data['merchant_active'] != false;
+      final verified = _isMerchantVerifiedData(data);
+      final isMerchant = data['is_merchant'] == true;
+      final subscriptionActive = _isMerchantSubscriptionActive(data, now);
+      if (blocked ||
+          !active ||
+          !verified ||
+          !subscriptionActive ||
+          !isMerchant) {
+        continue;
+      }
+
+      final profileScore = _merchantProfileScore(
+        isMerchant: isMerchant,
+        verified: verified,
+        active: active,
+        subscriptionActive: subscriptionActive,
+        blocked: blocked,
+        uid: merchantUid,
+        whatsapp: merchantWhatsapp,
+      );
+      final profileTimestamp =
+          _dateFromFirestore(data['updated_at']) ??
+          _dateFromFirestore(data['created_at']);
+      if (group.profileCandidate == null ||
+          profileScore > group.profileScore ||
+          (profileScore == group.profileScore &&
+              _isMoreRecentCandidate(
+                next: profileTimestamp,
+                current: group.profileTimestamp,
+              ))) {
+        group.profileCandidate = candidate;
+        group.profileScore = profileScore;
+        group.profileTimestamp = profileTimestamp;
+      }
+    }
+
+    final merchants = <Map<String, dynamic>>[];
+    for (final group in grouped.values) {
+      final profile = group.profileCandidate;
+      if (profile == null) continue;
+      final merged = Map<String, dynamic>.from(profile);
+      final presence = group.presenceCandidate;
+      if (presence != null) {
+        merged['merchant_online'] = presence['merchant_online'] == true;
+        merged['merchant_manual_offline_raw'] =
+            presence['merchant_manual_offline_raw'];
+        merged['merchant_manual_offline'] =
+            presence['merchant_manual_offline'] == true;
+        if (presence['merchant_last_seen'] != null) {
+          merged['merchant_last_seen'] = presence['merchant_last_seen'];
+        }
+        final mergedUid = (merged['uid'] ?? '').toString().trim();
+        final presenceUid = (presence['uid'] ?? '').toString().trim();
+        if (mergedUid.isEmpty && presenceUid.isNotEmpty) {
+          merged['uid'] = presenceUid;
+          merged['id'] = presenceUid;
+        }
+        final mergedWhatsapp = (merged['whatsapp'] ?? '').toString().trim();
+        final presenceWhatsapp = (presence['whatsapp'] ?? '').toString().trim();
+        if (mergedWhatsapp.isEmpty && presenceWhatsapp.isNotEmpty) {
+          merged['whatsapp'] = presenceWhatsapp;
+        }
+      }
+
+      final finalUid = (merged['uid'] ?? '').toString().trim();
+      if (finalUid.isNotEmpty) {
+        merged['id'] = finalUid;
+      }
+      final finalId = (merged['id'] ?? '').toString().trim();
+      if (finalId.isEmpty) continue;
+      if ((merged['name'] ?? '').toString().trim().isEmpty) {
+        merged['name'] = 'تاجر';
+      }
+      merchants.add(merged);
+    }
+
+    merchants.sort((a, b) {
+      final aOnline = _isMerchantOnline(a);
+      final bOnline = _isMerchantOnline(b);
+      if (aOnline != bOnline) return aOnline ? -1 : 1;
+      final aName = (a['name'] ?? '').toString();
+      final bName = (b['name'] ?? '').toString();
+      return aName.compareTo(bName);
+    });
+
+    return merchants;
+  }
+
+  Future<Map<String, dynamic>?> _pickMerchant() async {
+    return showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final colorScheme = Theme.of(ctx).colorScheme;
+        final maxSheetHeight = math.min(
+          MediaQuery.sizeOf(ctx).height * 0.62,
+          500.0,
+        );
+        return SafeArea(
+          child: GlassCard(
+            margin: EdgeInsets.zero,
+            padding: const EdgeInsets.all(12),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxSheetHeight),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'اختر التاجر للتواصل والشحن',
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Flexible(
+                    fit: FlexFit.loose,
+                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .where('is_merchant', isEqualTo: true)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            child: Text(
+                              'تعذر تحميل التجار حالياً.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: colorScheme.onSurfaceVariant,
+                                fontFamily: 'Cairo',
+                              ),
+                            ),
+                          );
+                        }
+                        if (!snapshot.hasData) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+
+                        final merchants = _extractActiveMerchants(
+                          snapshot.data!.docs,
+                        );
+                        if (merchants.isEmpty) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            child: Text(
+                              'لا يوجد تجار متاحون حالياً.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: colorScheme.onSurfaceVariant,
+                                fontFamily: 'Cairo',
+                              ),
+                            ),
+                          );
+                        }
+
+                        final shouldScroll = merchants.length > 4;
+                        return ListView.separated(
+                          shrinkWrap: !shouldScroll,
+                          physics: shouldScroll
+                              ? const AlwaysScrollableScrollPhysics()
+                              : const NeverScrollableScrollPhysics(),
+                          itemCount: merchants.length,
+                          separatorBuilder: (_, index) =>
+                              const SizedBox(height: 6),
+                          itemBuilder: (context, index) {
+                            final m = merchants[index];
+                            final online = _isMerchantOnline(m);
+                            final verified = m['merchant_verified'] == true;
+                            final name = (m['name'] ?? 'تاجر').toString();
+                            final wa = (m['whatsapp'] ?? '').toString();
+                            return ListTile(
+                              leading: Icon(
+                                online ? Icons.circle : Icons.circle_outlined,
+                                color: online ? Colors.green : Colors.red,
+                              ),
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      name,
+                                      style: const TextStyle(
+                                        fontFamily: 'Cairo',
+                                      ),
+                                    ),
+                                  ),
+                                  if (verified)
+                                    const Icon(
+                                      Icons.verified,
+                                      size: 18,
+                                      color: Colors.green,
+                                    ),
+                                ],
+                              ),
+                              subtitle: Text(
+                                wa.isEmpty
+                                    ? 'واتساب غير متوفر'
+                                    : '${online ? 'متصل الآن' : 'غير متصل الآن'} • $wa',
+                                style: TextStyle(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              onTap: () => Navigator.pop(ctx, m),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<bool> _ensureMerchantSelected({bool forcePrompt = false}) async {
+    if (!forcePrompt && _selectedMerchant != null) return true;
+    final merchant = await _pickMerchant();
+    if (!mounted || merchant == null) return false;
+    setState(() => _selectedMerchant = merchant);
+    return true;
+  }
+
+  Future<Map<String, dynamic>?> _loadLatestSelectedMerchant() async {
+    final selected = _selectedMerchant;
+    if (selected == null) return null;
+
+    final users = FirebaseFirestore.instance.collection('users');
+    final selectedUid = (selected['uid'] ?? '').toString().trim();
+    final selectedId = (selected['id'] ?? '').toString().trim();
+    final selectedWhatsapp = _normalizeWhatsapp(
+      (selected['whatsapp'] ?? '').toString(),
+    );
+
+    QueryDocumentSnapshot<Map<String, dynamic>>? latestDoc;
+
+    Future<void> tryByUid(String uid) async {
+      if (uid.isEmpty || latestDoc != null) return;
+      final byUid = await users.where('uid', isEqualTo: uid).limit(1).get();
+      if (byUid.docs.isNotEmpty) {
+        latestDoc = byUid.docs.first;
+      }
+    }
+
+    if (selectedUid.isNotEmpty) {
+      final direct = await users.doc(selectedUid).get();
+      if (direct.exists) {
+        final data = direct.data() ?? <String, dynamic>{};
+        final merged = Map<String, dynamic>.from(selected);
+        merged.addAll(data);
+        merged['id'] = direct.id;
+        return merged;
+      }
+      await tryByUid(selectedUid);
+    }
+
+    if (latestDoc == null && selectedId.isNotEmpty) {
+      final direct = await users.doc(selectedId).get();
+      if (direct.exists) {
+        final data = direct.data() ?? <String, dynamic>{};
+        final merged = Map<String, dynamic>.from(selected);
+        merged.addAll(data);
+        merged['id'] = direct.id;
+        return merged;
+      }
+      await tryByUid(selectedId);
+    }
+
+    if (latestDoc == null && selectedWhatsapp.isNotEmpty) {
+      final byMerchantWhatsapp = await users
+          .where('merchant_whatsapp', isEqualTo: selectedWhatsapp)
+          .limit(1)
+          .get();
+      if (byMerchantWhatsapp.docs.isNotEmpty) {
+        latestDoc = byMerchantWhatsapp.docs.first;
+      } else {
+        final byWhatsapp = await users
+            .where('whatsapp', isEqualTo: selectedWhatsapp)
+            .limit(1)
+            .get();
+        if (byWhatsapp.docs.isNotEmpty) {
+          latestDoc = byWhatsapp.docs.first;
+        }
+      }
+    }
+
+    if (latestDoc == null) return null;
+    final data = latestDoc!.data();
+    final merged = Map<String, dynamic>.from(selected);
+    merged.addAll(data);
+    merged['id'] = latestDoc!.id;
+    return merged;
+  }
+
+  Future<bool> _ensureSelectedMerchantOnlineForCheckout() async {
+    final selected = _selectedMerchant;
+    if (selected == null) {
+      _showCustomToast("اختر التاجر أولاً", color: Colors.orange);
+      return false;
+    }
+
+    Map<String, dynamic> merchant = Map<String, dynamic>.from(selected);
+    try {
+      final latest = await _loadLatestSelectedMerchant();
+      if (latest != null) {
+        merchant = latest;
+        if (mounted) {
+          setState(() => _selectedMerchant = latest);
+        } else {
+          _selectedMerchant = latest;
+        }
+      }
+    } catch (_) {
+      // إذا تعذر التحديث نستخدم آخر حالة متاحة.
+    }
+
+    if (!_isMerchantOnline(merchant)) {
+      _showCustomToast(
+        "التاجر الذي تم اختياره غير متصل الآن",
+        color: Colors.orange,
+      );
+      return false;
+    }
+    return true;
+  }
+
   Map<String, dynamic> _buildOrderPayload({
     required String method,
     required String status,
@@ -2393,8 +2817,6 @@ class _HomeScreenState extends State<HomeScreen>
     String? usdtAmount,
     double? usdtPrice,
     int? priceOverride,
-    int pointsDiscount = 0,
-    int pointsPaid = 0,
   }) {
     final totalPriceValue = _priceValue ?? 0;
     final payablePrice = (priceOverride ?? totalPriceValue).clamp(0, 100000000);
@@ -2415,20 +2837,24 @@ class _HomeScreenState extends State<HomeScreen>
       if (usdtAmount != null && usdtAmount.trim().isNotEmpty)
         'usdt_amount': usdtAmount.trim(),
       if (usdtPrice != null && usdtPrice > 0) 'usdt_price': usdtPrice,
-      if (pointsDiscount > 0) 'points_discount': pointsDiscount,
-      if (pointsPaid > 0) 'points_paid': pointsPaid,
-      if (pointsDiscount > 0 || pointsPaid > 0)
-        'points_used_total': pointsDiscount + pointsPaid,
       'status': status,
       'created_at': FieldValue.serverTimestamp(),
     };
+    if (_selectedMerchant != null) {
+      final m = _selectedMerchant!;
+      final merchantId =
+          ((m['uid'] ?? '').toString().trim().isNotEmpty ? m['uid'] : m['id'])
+              .toString()
+              .trim();
+      data['merchant_id'] = merchantId;
+      data['merchant_name'] = (m['name'] ?? '').toString();
+      data['merchant_whatsapp'] = _normalizeWhatsapp(
+        (m['whatsapp'] ?? '').toString(),
+      );
+      data['merchant_assigned_at'] = FieldValue.serverTimestamp();
+    }
 
-    if (_isBalanceTopupOrder) {
-      data['product_type'] = 'balance_topup';
-      data['balance_points_requested'] = totalPriceValue;
-      data['points'] = totalPriceValue.toString();
-      data['topup_optional'] = true;
-    } else if (_isGameOrder && _selectedPackage != null) {
+    if (_isGameOrder && _selectedPackage != null) {
       data['product_type'] = 'game';
       data['game'] = _selectedPackage!.game;
       data['package_label'] = _selectedPackage!.label;
@@ -2491,8 +2917,6 @@ class _HomeScreenState extends State<HomeScreen>
     final displayName = userName.isEmpty ? 'المستخدم' : userName;
     final price = (payload['price'] ?? '').toString().trim();
     final usdtAmount = (payload['usdt_amount'] ?? '').toString().trim();
-    final paymentTarget = (payload['payment_target'] ?? '').toString().trim();
-    final instapayLink = (payload['instapay_link'] ?? '').toString().trim();
     final gameId = (payload['game_id'] ?? '').toString().trim();
     final promoLink = (payload['video_link'] ?? '').toString().trim();
     final tiktokUser = (payload['user_tiktok'] ?? '').toString().trim();
@@ -2500,6 +2924,13 @@ class _HomeScreenState extends State<HomeScreen>
     final tiktokChargeMode = (payload['tiktok_charge_mode'] ?? '')
         .toString()
         .trim();
+    final tiktokChargeModeLabel = tiktokChargeMode == _tiktokChargeModeUserPass
+        ? 'يوزر + باسورد'
+        : tiktokChargeMode == _tiktokChargeModeQr
+        ? 'QR'
+        : tiktokChargeMode == _tiktokChargeModeLink
+        ? 'لينك'
+        : '';
 
     await _safeAddOrderChatMessage(
       orderId: orderId,
@@ -2511,7 +2942,7 @@ class _HomeScreenState extends State<HomeScreen>
       await _safeAddOrderChatMessage(
         orderId: orderId,
         senderRole: 'system',
-        text: 'سيتم إرسال رقم المحفظة من الدعم داخل الشات.',
+        text: 'سيتم إرسال رقم المحفظة من التاجر داخل الشات.',
       );
       if (price.isNotEmpty) {
         await _safeAddOrderChatMessage(
@@ -2521,16 +2952,11 @@ class _HomeScreenState extends State<HomeScreen>
         );
       }
     } else if (method == 'InstaPay') {
-      if (instapayLink.isNotEmpty) {
-        await _safeAddOrderChatMessage(
-          orderId: orderId,
-          senderRole: 'system',
-          text: 'رابط الدفع عبر InstaPay',
-          attachmentType: 'link',
-          attachmentUrl: ensureHttps(instapayLink),
-          attachmentLabel: 'رابط InstaPay',
-        );
-      }
+      await _safeAddOrderChatMessage(
+        orderId: orderId,
+        senderRole: 'system',
+        text: 'سيقوم التاجر بإرسال رابط أو رقم InstaPay داخل الشات.',
+      );
       if (price.isNotEmpty) {
         await _safeAddOrderChatMessage(
           orderId: orderId,
@@ -2542,9 +2968,7 @@ class _HomeScreenState extends State<HomeScreen>
       await _safeAddOrderChatMessage(
         orderId: orderId,
         senderRole: 'system',
-        text: paymentTarget.isEmpty
-            ? 'سيتم إرسال Binance Pay ID من الدعم داخل الشات.'
-            : 'Binance Pay ID: $paymentTarget',
+        text: 'سيتم إرسال Binance Pay ID من التاجر داخل الشات.',
       );
       if (usdtAmount.isNotEmpty) {
         await _safeAddOrderChatMessage(
@@ -2553,12 +2977,6 @@ class _HomeScreenState extends State<HomeScreen>
           text: 'المبلغ المطلوب: $usdtAmount USDT',
         );
       }
-    } else if (method == 'Points') {
-      await _safeAddOrderChatMessage(
-        orderId: orderId,
-        senderRole: 'system',
-        text: 'تم الدفع من رصيد النقاط. سيتم التنفيذ عبر الشات.',
-      );
     }
 
     if (productType == 'game' && gameId.isNotEmpty) {
@@ -2583,6 +3001,14 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     if (productType == 'tiktok') {
+      if (tiktokChargeModeLabel.isNotEmpty) {
+        await _safeAddOrderChatMessage(
+          orderId: orderId,
+          senderRole: 'user',
+          senderName: displayName,
+          text: 'طريقة الشحن المطلوبة: $tiktokChargeModeLabel',
+        );
+      }
       if (tiktokUser.isNotEmpty) {
         await _safeAddOrderChatMessage(
           orderId: orderId,
@@ -2599,24 +3025,24 @@ class _HomeScreenState extends State<HomeScreen>
           senderName: displayName,
           text: 'كلمة المرور: $tiktokPassword',
         );
+        await _safeAddOrderChatMessage(
+          orderId: orderId,
+          senderRole: 'system',
+          text: 'تنبيه أمني: غيّر كلمة سر تيك توك بعد استلام الشحن مباشرة.',
+        );
       }
     }
   }
 
   // EN: Processes Wallet Order.
   // AR: تعالج Wallet Order.
-  Future<void> _processWalletOrder({
-    required int payableAmount,
-    int pointsDiscount = 0,
-  }) async {
+  Future<void> _processWalletOrder({required int payableAmount}) async {
     Navigator.pop(context);
 
+    if (!await _ensureSelectedMerchantOnlineForCheckout()) return;
     if (!await _checkCancelLimit()) return;
     if (payableAmount <= 0) {
-      _showCustomToast(
-        "لا يوجد مبلغ مطلوب دفعه. اختر الدفع من رصيد النقاط.",
-        color: Colors.orange,
-      );
+      _showCustomToast("لا يوجد مبلغ مطلوب دفعه الآن.", color: Colors.orange);
       return;
     }
 
@@ -2642,7 +3068,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              "سيتم إرسال رقم المحفظة وتأكيدات الدفع داخل الشات بعد إنشاء الطلب.",
+              "سيتم إرسال رقم المحفظة وتأكيدات الدفع من التاجر داخل الشات بعد إنشاء الطلب.",
               textAlign: TextAlign.center,
               style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
             ),
@@ -2673,11 +3099,9 @@ class _HomeScreenState extends State<HomeScreen>
       payload: _buildOrderPayload(
         method: "Wallet",
         status: 'pending_payment',
-        paymentTarget: _walletNumber,
+        paymentTarget: '',
         priceOverride: payableAmount,
-        pointsDiscount: pointsDiscount,
       ),
-      pointsToDeduct: pointsDiscount,
     );
     if (createdOrderId == null || !mounted) return;
 
@@ -2686,35 +3110,24 @@ class _HomeScreenState extends State<HomeScreen>
     _resetCheckoutMeta();
   }
 
-  Future<void> _processBinancePay({
-    required int payableAmount,
-    int pointsDiscount = 0,
-  }) async {
+  Future<void> _processBinancePay({required int payableAmount}) async {
     Navigator.pop(context);
 
+    if (!await _ensureSelectedMerchantOnlineForCheckout()) return;
     if (!await _checkCancelLimit()) return;
     if (payableAmount <= 0) {
-      _showCustomToast(
-        "لا يوجد مبلغ مطلوب دفعه. اختر الدفع من رصيد النقاط.",
-        color: Colors.orange,
-      );
+      _showCustomToast("لا يوجد مبلغ مطلوب دفعه الآن.", color: Colors.orange);
       return;
     }
 
     final String binanceId = _binanceId.trim();
-    if (binanceId.isEmpty) {
-      _showCustomToast("Binance ID غير متاح حالياً", color: Colors.orange);
-      return;
-    }
 
     await _refreshUsdtPriceFromExternal(forceRefresh: true);
 
     final usdtAmount = _computeOrderUsdtAmount(egpAmount: payableAmount);
-    if (usdtAmount == null) {
-      _showCustomToast("سعر USDT غير متاح حالياً", color: Colors.orange);
-      return;
-    }
-    final usdtAmountText = _formatUsdtAmount(usdtAmount);
+    final usdtAmountText = usdtAmount == null
+        ? ''
+        : _formatUsdtAmount(usdtAmount);
 
     bool proceed = false;
 
@@ -2732,7 +3145,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             const SizedBox(height: 10),
             Text(
-              "المبلغ المطلوب: $usdtAmountText USDT",
+              "المبلغ المطلوب: ${usdtAmountText.isEmpty ? payableAmount : '$usdtAmountText USDT'}",
               textAlign: TextAlign.center,
               style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
             ),
@@ -2744,7 +3157,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              "سيتم إرسال Binance Pay ID وتأكيدات الدفع داخل الشات.",
+              "سيتم إرسال Binance Pay ID وتأكيدات الدفع داخل الشات من التاجر.",
               textAlign: TextAlign.center,
               style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
             ),
@@ -2775,14 +3188,12 @@ class _HomeScreenState extends State<HomeScreen>
       payload: _buildOrderPayload(
         method: "Binance Pay",
         status: 'pending_payment',
-        paymentTarget: binanceId,
-        binanceId: binanceId,
-        usdtAmount: usdtAmountText,
-        usdtPrice: _usdtPrice,
+        paymentTarget: '',
+        binanceId: binanceId.isEmpty ? null : binanceId,
+        usdtAmount: usdtAmountText.isEmpty ? null : usdtAmountText,
+        usdtPrice: usdtAmount == null ? null : _usdtPrice,
         priceOverride: payableAmount,
-        pointsDiscount: pointsDiscount,
       ),
-      pointsToDeduct: pointsDiscount,
     );
     if (createdOrderId == null || !mounted) return;
 
@@ -2793,24 +3204,17 @@ class _HomeScreenState extends State<HomeScreen>
 
   // EN: Processes Insta Pay.
   // AR: تعالج Insta Pay.
-  Future<void> _processInstaPay({
-    required int payableAmount,
-    int pointsDiscount = 0,
-  }) async {
+  Future<void> _processInstaPay({required int payableAmount}) async {
     Navigator.pop(context);
 
+    if (!await _ensureSelectedMerchantOnlineForCheckout()) return;
     if (!await _checkCancelLimit()) return;
     if (payableAmount <= 0) {
-      _showCustomToast(
-        "لا يوجد مبلغ مطلوب دفعه. اختر الدفع من رصيد النقاط.",
-        color: Colors.orange,
-      );
+      _showCustomToast("لا يوجد مبلغ مطلوب دفعه الآن.", color: Colors.orange);
       return;
     }
 
     bool proceed = false;
-
-    final instapayLink = ensureHttps(_instapayLink);
 
     await _showBlurDialog<void>(
       barrierLabel: 'instapay-order-dialog',
@@ -2826,7 +3230,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              "سيتم إرسال رابط InstaPay داخل الشات بعد إنشاء الطلب.",
+              "سيقوم التاجر بإرسال رابط أو رقم InstaPay داخل الشات بعد إنشاء الطلب.",
               textAlign: TextAlign.center,
               style: TextStyle(color: TTColors.goldAccent),
             ),
@@ -2864,59 +3268,15 @@ class _HomeScreenState extends State<HomeScreen>
       payload: _buildOrderPayload(
         method: "InstaPay",
         status: 'pending_payment',
-        instapayLink: instapayLink,
-        paymentTarget: instapayLink,
+        instapayLink: null,
+        paymentTarget: '',
         priceOverride: payableAmount,
-        pointsDiscount: pointsDiscount,
       ),
-      pointsToDeduct: pointsDiscount,
     );
     if (createdOrderId == null || !mounted) return;
 
     _showCustomToast("تم إنشاء الطلب ✅", color: Colors.green);
     await _openSupportChat(orderId: createdOrderId);
-    if (!mounted) return;
-    _resetCheckoutMeta();
-  }
-
-  Future<void> _processPointsPayment({required int totalAmount}) async {
-    Navigator.pop(context);
-
-    if (!await _checkCancelLimit()) return;
-    if (totalAmount <= 0) return;
-    if (_isBalanceTopupOrder) {
-      _showCustomToast(
-        "لا يمكن شحن الرصيد باستخدام نفس الرصيد",
-        color: Colors.orange,
-      );
-      return;
-    }
-
-    await _refreshBalancePoints(forceServer: true);
-    if (_balancePoints < totalAmount) {
-      _showCustomToast(
-        "رصيدك غير كافٍ للدفع الكامل بالنقاط",
-        color: Colors.orange,
-      );
-      return;
-    }
-
-    final createdOrderId = await _createOrderWithOptionalPoints(
-      payload: _buildOrderPayload(
-        method: "Points",
-        status: 'processing',
-        priceOverride: 0,
-        pointsPaid: totalAmount,
-      ),
-      pointsToDeduct: totalAmount,
-    );
-    if (createdOrderId == null || !mounted) return;
-
-    _showCustomToast(
-      "تم إنشاء الطلب والدفع من رصيد النقاط ✅",
-      color: Colors.green,
-    );
-    await _openSupportChat(orderId: createdOrderId, autoOpenedByStatus: true);
     if (!mounted) return;
     _resetCheckoutMeta();
   }
@@ -3001,7 +3361,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     setState(() {
-      _isBalanceTopupOrder = false;
       _promoLink = link;
       _priceValue = amount;
       _pointsValue = null;
@@ -3011,85 +3370,6 @@ class _HomeScreenState extends State<HomeScreen>
     });
 
     _startCheckoutFlow();
-  }
-
-  Future<void> _openBalanceTopupDialog() async {
-    if (!await _checkCancelLimit()) return;
-
-    final amountCtrl = TextEditingController();
-    bool proceed = false;
-
-    await _showBlurDialog<void>(
-      barrierLabel: 'balance-topup-dialog',
-      builder: (ctx) => _buildMaterialDialogCard(
-        ctx,
-        title: "شحن الرصيد",
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "كل 1 نقطة = 1 جنيه",
-              style: TextStyle(
-                color: TTColors.goldAccent,
-                fontFamily: 'Cairo',
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "شحن النقاط اختياري وليس إجباريًا.",
-              style: TextStyle(color: TTColors.textGray, fontFamily: 'Cairo'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: amountCtrl,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(
-                labelText: "قيمة الشحن بالجنيه",
-                hintText: "من 200 إلى 60000",
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("إلغاء"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              proceed = true;
-              Navigator.pop(ctx);
-            },
-            child: const Text("متابعة"),
-          ),
-        ],
-      ),
-    );
-
-    if (!proceed) return;
-
-    final amount = _validateWholeAmountEnding(
-      raw: amountCtrl.text,
-      min: 200,
-      max: 60000,
-    );
-    if (amount == null) return;
-
-    setState(() {
-      _isBalanceTopupOrder = true;
-      _selectedPackage = null;
-      _selectedGameId = null;
-      _promoLink = null;
-      _pointsValue = amount;
-      _priceValue = amount;
-      _isInputValid = true;
-      _resultText = "شحن الرصيد: $amount نقطة";
-    });
-
-    _openPaymentDialogSafely();
   }
 
   Future<bool> _checkCancelLimit() async {
@@ -3307,7 +3587,7 @@ class _HomeScreenState extends State<HomeScreen>
       );
     }
 
-    final String compactTitle = "رصيدك $_balancePoints 🪙";
+    const String compactTitle = "";
     final socialLinks = _socialLinks();
     final bool showWebSocialDock = kIsWeb && socialLinks.isNotEmpty;
     final double webContentBottomPadding = showWebSocialDock ? 104 : 24;
@@ -3395,21 +3675,7 @@ class _HomeScreenState extends State<HomeScreen>
     bool showAboutAction = true,
   }) {
     return GlassAppBar(
-      title: LayoutBuilder(
-        builder: (context, constraints) => FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            title,
-            maxLines: 1,
-            softWrap: false,
-            style: const TextStyle(
-              fontFamily: 'Cairo',
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ),
+      title: const SizedBox.shrink(),
       centerTitle: true,
       automaticallyImplyLeading: false,
       leading: showBack
@@ -3461,39 +3727,6 @@ class _HomeScreenState extends State<HomeScreen>
             onPressed: _openAboutDialog,
           ),
       ],
-    );
-  }
-
-  Widget _buildLargePointsWarningCard() {
-    if (!_requiresLargeOrderReview) {
-      return const SizedBox.shrink();
-    }
-    return GlassCard(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(14),
-      borderColor: Colors.orange.withAlpha(160),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.warning_amber_rounded, color: Colors.orange),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  "الطلبات فوق $_manualContactPointsThreshold عملة تتم بالتواصل المباشر فقط من صفحة سياسة الخصوصية > التواصل مع الدعم.",
-                  style: TextStyle(
-                    color: TTColors.textWhite,
-                    fontFamily: 'Cairo',
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
     );
   }
 
@@ -3609,12 +3842,6 @@ class _HomeScreenState extends State<HomeScreen>
         },
       ),
       _MenuItem(
-        title: "شحن الرصيد",
-        subtitle: "اختياري - كل 1 نقطة = 1 جنيه",
-        icon: Icons.savings,
-        onTap: _openBalanceTopupDialog,
-      ),
-      _MenuItem(
         title: "شحن عملات تيك توك",
         icon: Icons.monetization_on,
         onTap: _openTiktokDialog,
@@ -3648,6 +3875,13 @@ class _HomeScreenState extends State<HomeScreen>
           AppNavigator.pushNamed(context, '/privacy');
         },
       ),
+      _MenuItem(
+        title: "الذهاب لوضع التاجر",
+        icon: Icons.storefront_rounded,
+        onTap: () {
+          unawaited(_switchToMerchantMode());
+        },
+      ),
     ];
 
     return Column(
@@ -3673,19 +3907,6 @@ class _HomeScreenState extends State<HomeScreen>
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                subtitle: item.subtitle == null
-                    ? null
-                    : Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          item.subtitle!,
-                          style: TextStyle(
-                            color: TTColors.textGray,
-                            fontFamily: 'Cairo',
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
                 onTap: item.onTap,
               ),
             ),
@@ -3703,14 +3924,7 @@ class _HomeScreenState extends State<HomeScreen>
       height: 80,
       centerTitle: false,
       titleSpacing: 24,
-      title: Text(
-        AppInfo.appName,
-        style: TextStyle(
-          color: TTColors.textWhite,
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+      title: const SizedBox.shrink(),
       actions: [
         Padding(
           padding: const EdgeInsets.only(right: 16),
@@ -3718,7 +3932,6 @@ class _HomeScreenState extends State<HomeScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               _webBtn("طلباتي", () => _openOrders()),
-              _webBtn("شحن الرصيد", _openBalanceTopupDialog),
               _webBtn("شحن عملات تيك توك", _openTiktokDialog),
               _webBtn("ترويج فيديو تيك توك", _openPromoDialog),
               _webBtn("شحن ألعاب", _openGamesDialog),
@@ -3802,13 +4015,11 @@ class _HomeScreenState extends State<HomeScreen>
 
 class _MenuItem {
   final String title;
-  final String? subtitle;
   final IconData icon;
   final VoidCallback onTap;
 
   const _MenuItem({
     required this.title,
-    this.subtitle,
     required this.icon,
     required this.onTap,
   });

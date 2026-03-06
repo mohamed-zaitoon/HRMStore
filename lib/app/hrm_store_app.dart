@@ -15,6 +15,7 @@ import '../core/app_navigator.dart';
 import '../services/theme_service.dart';
 import '../widgets/connection_blocker.dart';
 import '../widgets/access_blocker.dart';
+import '../widgets/account_status_blocker.dart';
 import '../widgets/availability_blocker.dart';
 import '../widgets/pull_to_retry.dart';
 
@@ -27,19 +28,19 @@ import '../features/support/support_chat_screen.dart';
 import '../features/support/support_inquiry_screen.dart';
 
 import '../features/admin/admin_login_screen.dart';
-import '../features/admin/admin_orders_screen.dart';
 import '../features/admin/admin_code_requests_screen.dart';
 import '../features/admin/admin_promo_codes_screen.dart';
 import '../features/admin/admin_prices_screen.dart';
 import '../features/admin/admin_offers_screen.dart';
 import '../features/admin/admin_cost_calculator_screen.dart';
-import '../features/admin/admin_availability_screen.dart';
 import '../features/admin/admin_game_packages_screen.dart';
+import '../features/admin/admin_availability_screen.dart';
 import '../features/admin/admin_users_screen.dart';
-import '../features/admin/admin_wallets_screen.dart';
 import '../features/admin/admin_devices_screen.dart';
 import '../features/admin/admin_support_inquiries_screen.dart';
 import '../features/admin/admin_route_guard.dart';
+import '../features/merchant/merchant_orders_screen.dart';
+import '../features/merchant/merchant_verification_screen.dart';
 
 import '../features/platform/android_landing_page.dart';
 import '../features/platform/about_app_screen.dart';
@@ -50,6 +51,7 @@ import '../core/app_info.dart';
 class HrmStoreApp extends StatelessWidget {
   final SharedPreferences prefs;
   final bool isAdminApp;
+  final bool isMerchantApp;
   final NavigatorObserver _titleObserver;
   late final RootStackRouter _appRouter = RootStackRouter.build(
     navigatorKey: AppNavigator.key,
@@ -88,6 +90,19 @@ class HrmStoreApp extends StatelessWidget {
         path: '/orders',
         name: 'OrdersRoute',
         builder: (context, data) => _buildOrdersPage(data),
+      ),
+      NamedRouteDef(
+        path: '/merchant/orders',
+        name: 'MerchantOrdersRoute',
+        builder: (context, data) => _buildMerchantOrdersPage(),
+      ),
+      NamedRouteDef(
+        path: '/merchant/verify',
+        name: 'MerchantVerifyRoute',
+        builder: (context, data) => _withAndroidLanding(
+          '/merchant/verify',
+          const MerchantVerificationScreen(),
+        ),
       ),
       NamedRouteDef(
         path: '/support_chat',
@@ -143,7 +158,7 @@ class HrmStoreApp extends StatelessWidget {
         path: '/admin/orders',
         name: 'AdminOrdersRoute',
         builder: (context, data) =>
-            const AdminRouteGuard(child: AdminOrdersScreen()),
+            const AdminRouteGuard(child: AdminUsersScreen()),
       ),
       NamedRouteDef(
         path: '/admin/codes',
@@ -197,7 +212,7 @@ class HrmStoreApp extends StatelessWidget {
         path: '/admin/wallets',
         name: 'AdminWalletsRoute',
         builder: (context, data) =>
-            const AdminRouteGuard(child: AdminWalletsScreen()),
+            const AdminRouteGuard(child: AdminUsersScreen()),
       ),
       NamedRouteDef(
         path: '/admin/devices',
@@ -221,17 +236,33 @@ class HrmStoreApp extends StatelessWidget {
 
   // EN: Creates HrmStoreApp.
   // AR: ينشئ HrmStoreApp.
-  HrmStoreApp({super.key, required this.prefs, required this.isAdminApp})
-    : _titleObserver = _WebTitleObserver(isAdminApp: isAdminApp);
+  HrmStoreApp({
+    super.key,
+    required this.prefs,
+    required this.isAdminApp,
+    required this.isMerchantApp,
+  }) : _titleObserver = _WebTitleObserver(
+         isAdminApp: isAdminApp,
+         isMerchantApp: isMerchantApp,
+       ) {
+    AppNavigator.bindRootRouter(_appRouter);
+  }
 
   Widget _buildRootPage(String routeName) {
     if (isAdminApp) {
       return const AdminLoginScreen();
     }
+    if (isMerchantApp || AppInfo.isMerchantApp) {
+      return _buildMerchantOrdersPage();
+    }
     return _withAndroidLanding(routeName, const UserAuthScreen());
   }
 
   Widget _buildHomePage(RouteData data, String routeName) {
+    if (_isMerchantModeActive()) {
+      return _buildMerchantOrdersPage();
+    }
+
     final args = _resolveArgsMap(data, routeName);
     final query = data.queryParams;
 
@@ -293,6 +324,9 @@ class HrmStoreApp extends StatelessWidget {
   }
 
   Widget _buildOrdersPage(RouteData data) {
+    if (_isMerchantModeActive()) {
+      return _buildMerchantOrdersPage();
+    }
     final args = _resolveArgsMap(data, '/orders');
     final routeArgs = _resolveRawArgs(data, '/orders');
     String? whatsapp = _stringFromDynamic(routeArgs);
@@ -317,7 +351,31 @@ class HrmStoreApp extends StatelessWidget {
     );
   }
 
+  Widget _buildMerchantOrdersPage() {
+    final bool merchantFlag =
+        AppInfo.isMerchantApp || (prefs.getBool('is_merchant') ?? false);
+    final merchantId = prefs.getString('user_uid') ?? '';
+    final merchantName = prefs.getString('user_name') ?? '';
+    final merchantWhatsapp = prefs.getString('user_whatsapp') ?? '';
+
+    if (!merchantFlag || merchantId.isEmpty || merchantWhatsapp.isEmpty) {
+      return _withAndroidLanding('/login', const UserAuthScreen());
+    }
+
+    return _withAndroidLanding(
+      '/merchant/orders',
+      MerchantOrdersScreen(
+        merchantId: merchantId,
+        merchantName: merchantName,
+        merchantWhatsapp: merchantWhatsapp,
+      ),
+    );
+  }
+
   Widget _buildCodeRequestsPage(RouteData data) {
+    if (_isMerchantModeActive()) {
+      return _buildMerchantOrdersPage();
+    }
     final args = _resolveArgsMap(data, '/code_requests');
     final routeArgs = _resolveRawArgs(data, '/code_requests');
     String? whatsapp = _stringFromDynamic(routeArgs);
@@ -352,6 +410,9 @@ class HrmStoreApp extends StatelessWidget {
   }
 
   Widget _buildSupportChatPage(RouteData data) {
+    if (_isMerchantModeActive()) {
+      return _buildMerchantOrdersPage();
+    }
     final args = _resolveArgsMap(data, '/support_chat');
     final query = data.queryParams;
     final name =
@@ -387,6 +448,13 @@ class HrmStoreApp extends StatelessWidget {
   Widget _buildSupportInquiryPage(RouteData data) {
     final args = _resolveArgsMap(data, '/support_inquiry');
     final query = data.queryParams;
+    final allowMerchantSupport =
+        _boolArg(args, 'merchant_support') ??
+        _boolText(query.optString('merchant_support')) ??
+        false;
+    if (_isMerchantModeActive() && !allowMerchantSupport) {
+      return _buildMerchantOrdersPage();
+    }
     final name =
         _stringArg(args, 'name') ??
         query.optString('name') ??
@@ -417,7 +485,7 @@ class HrmStoreApp extends StatelessWidget {
       queryParams: data.queryParams.rawMap,
     );
     if (adminId.isEmpty) {
-      return const AdminRouteGuard(child: AdminOrdersScreen());
+      return const AdminRouteGuard(child: AdminUsersScreen());
     }
     return AdminRouteGuard(child: AdminDevicesScreen(adminId: adminId));
   }
@@ -429,6 +497,12 @@ class HrmStoreApp extends StatelessWidget {
     return _withGlobalPullToRefresh(routeName, child);
   }
 
+  bool _isMerchantModeActive() {
+    // اعتمد على الحالة المتغيرة (prefs/AppInfo) فقط حتى ينتقل
+    // المستخدم فوراً من وضع التاجر إلى وضع المستخدم بدون loop.
+    return AppInfo.isMerchantApp || (prefs.getBool('is_merchant') ?? false);
+  }
+
   Widget _withGlobalPullToRefresh(String routeName, Widget child) {
     final normalized = _normalizeRoute(routeName);
     const localRefreshRoutes = <String>{
@@ -438,7 +512,8 @@ class HrmStoreApp extends StatelessWidget {
       '/orders',
       '/code_requests',
       '/support_inquiry',
-      '/admin/orders',
+      '/admin/users',
+      '/merchant/orders',
     };
     if (localRefreshRoutes.contains(normalized)) {
       return child;
@@ -532,7 +607,11 @@ class HrmStoreApp extends StatelessWidget {
 
   bool _shouldForceAndroidLanding(String route) {
     if (!kIsWeb || isAdminApp) return false;
-    if (route == '/android' || route.startsWith('/admin')) return false;
+    if (route == '/android' ||
+        route.startsWith('/admin') ||
+        route.startsWith('/merchant')) {
+      return false;
+    }
     final userAgent = html.window.navigator.userAgent;
     final lowered = userAgent.toLowerCase();
     if (!lowered.contains('android')) return false;
@@ -619,7 +698,11 @@ class HrmStoreApp extends StatelessWidget {
                     ? wrapped
                     : AvailabilityBlocker(child: wrapped);
 
-                final gated = AccessBlocker(child: availabilityWrapped);
+                final accountWrapped = isAdminApp
+                    ? availabilityWrapped
+                    : AccountStatusBlocker(child: availabilityWrapped);
+
+                final gated = AccessBlocker(child: accountWrapped);
 
                 final appContent = AnnotatedRegion<SystemUiOverlayStyle>(
                   value: overlayStyle,
@@ -970,8 +1053,9 @@ class HrmStoreApp extends StatelessWidget {
 
 class _WebTitleObserver extends NavigatorObserver {
   final bool isAdminApp;
+  final bool isMerchantApp;
 
-  _WebTitleObserver({required this.isAdminApp});
+  _WebTitleObserver({required this.isAdminApp, required this.isMerchantApp});
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {

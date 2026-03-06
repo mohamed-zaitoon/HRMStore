@@ -77,6 +77,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
     _processingStatusSub = FirebaseFirestore.instance
         .collection('orders')
         .where('user_whatsapp', isEqualTo: widget.whatsapp)
+        .orderBy('created_at', descending: true)
+        .limit(120)
         .snapshots()
         .listen((snapshot) {
           if (!_processingStatusPrimed) {
@@ -116,8 +118,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   bool _isChatSupportedType(String productType) {
     return productType == 'tiktok' ||
         productType == 'game' ||
-        productType == 'tiktok_promo' ||
-        productType == 'balance_topup';
+        productType == 'tiktok_promo';
   }
 
   void _focusOrderChat(String orderId, {bool autoOpenedByStatus = false}) {
@@ -225,8 +226,20 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   }
 
                   _cleanupOldOrders(s.data!.docs);
+                  final visibleDocs = s.data!.docs
+                      .where(
+                        (doc) => _isChatSupportedType(
+                          (doc.data()['product_type'] ?? 'tiktok')
+                              .toString()
+                              .trim(),
+                        ),
+                      )
+                      .toList(growable: false);
+                  if (visibleDocs.isEmpty) {
+                    return const Center(child: Text("لا توجد طلبات"));
+                  }
 
-                  final chatOrderIds = s.data!.docs
+                  final chatOrderIds = visibleDocs
                       .where((doc) {
                         final data = doc.data();
                         final productType = (data['product_type'] ?? 'tiktok')
@@ -258,7 +271,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       ),
                       child: ListView(
                         padding: const EdgeInsets.all(12),
-                        children: s.data!.docs.map((d) {
+                        children: visibleDocs.map((d) {
                           final data = d.data();
                           final status = (data['status'] ?? 'unknown')
                               .toString();
@@ -280,8 +293,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           final bool isGameOrder = productType == 'game';
                           final bool isPromoOrder =
                               productType == 'tiktok_promo';
-                          final bool isBalanceTopupOrder =
-                              productType == 'balance_topup';
                           final String tiktokChargeMode =
                               (data['tiktok_charge_mode'] ?? '')
                                   .toString()
@@ -302,7 +313,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                               (data['package_label'] ?? '').toString();
                           final String gameId = (data['game_id'] ?? '')
                               .toString();
-                          String titleText = isGameOrder
+                          final String titleText = isGameOrder
                               ? "${GamePackage.gameLabel(gameKey)} - $packageLabel"
                               : (isPromoOrder
                                     ? "ترويج فيديو تيك توك"
@@ -366,17 +377,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           final int pointsPaid =
                               parseLooseNumber(data['points_paid'])?.round() ??
                               0;
-                          final int topupPoints =
-                              parseLooseNumber(
-                                data['balance_points_requested'],
-                              )?.round() ??
-                              (parseLooseNumber(data['points'])?.round() ?? 0);
-
-                          if (isBalanceTopupOrder) {
-                            titleText = topupPoints > 0
-                                ? "شحن الرصيد - $topupPoints نقطة"
-                                : "شحن الرصيد";
-                          }
 
                           final String orderAmountText = isPointsMethod
                               ? (originalEgpAmount != null
@@ -454,7 +454,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
                                 if (!isGameOrder &&
                                     !isPromoOrder &&
-                                    !isBalanceTopupOrder &&
                                     tiktokChargeModeLabel.isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text(
@@ -481,14 +480,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                     style: TextStyle(
                                       color: TTColors.goldAccent,
                                     ),
-                                  ),
-                                ],
-
-                                if (isBalanceTopupOrder) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'شحن النقاط اختياري وليس إجباريًا',
-                                    style: TextStyle(color: TTColors.textGray),
                                   ),
                                 ],
 

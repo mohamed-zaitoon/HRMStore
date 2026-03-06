@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:crypto/crypto.dart';
 
 import '../../services/device_service.dart';
-import '../../services/notification_service.dart';
 import '../../services/admin_session_service.dart';
 import '../../core/app_info.dart';
 import '../../core/app_navigator.dart';
@@ -16,6 +15,7 @@ import '../../widgets/glass_card.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/theme_mode_sheet.dart';
 import '../../utils/html_meta.dart';
+import '../../utils/whatsapp_utils.dart';
 
 class AdminLoginScreen extends StatefulWidget {
   const AdminLoginScreen({super.key});
@@ -56,7 +56,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     if (kIsWeb) {
       setPageTitle(AppInfo.appName);
       setMetaDescription(
-        'لوحة تحكم الأدمن لإدارة طلبات شحن نقاط تيك توك، مراجعة إيصالات الدفع، واعتماد أكواد الخصم.',
+        'لوحة تحكم الأدمن لإدارة المستخدمين والتجار والأسعار والأكواد والدعم.',
       );
     }
     _checkExistingSession(); // 👈 أول ما الشاشة تفتح: نحاول نعمل auto-login
@@ -85,17 +85,8 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         return;
       }
 
-      NotificationService.listenToAdminOrders();
-      NotificationService.listenToAdminRamadanCodes();
-      if (session.whatsapp.isNotEmpty) {
-        await NotificationService.initAdminNotifications(
-          session.whatsapp,
-          requestPermission: true,
-        );
-      }
-
       if (!mounted) return;
-      AppNavigator.pushReplacementNamed(context, '/admin/orders');
+      AppNavigator.pushReplacementNamed(context, '/admin/users');
     } catch (_) {
       await AdminSessionService.clearLocalSession();
       if (mounted) {
@@ -121,7 +112,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   }
 
   String _normalizeWhatsapp(String value) {
-    return value.replaceAll(RegExp(r'[^0-9+]'), '').trim();
+    return WhatsappUtils.normalizeEgyptianWhatsapp(value);
   }
 
   Future<void> _persistSessionAndLogin({
@@ -130,11 +121,6 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     required String whatsappInput,
   }) async {
     final String deviceId = await DeviceService.getDeviceId();
-
-    await NotificationService.saveUserToken(
-      collection: 'admins',
-      docId: adminId,
-    );
 
     final DateTime expiryDate = DateTime.now().add(Duration(days: _days));
 
@@ -157,30 +143,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       expiryAt: expiryDate,
     );
 
-    NotificationService.listenToAdminOrders();
-    NotificationService.listenToAdminRamadanCodes();
-    await NotificationService.initAdminNotifications(
-      whatsappInput,
-      requestPermission: true,
-    );
-
     if (mounted) {
-      AppNavigator.pushReplacementNamed(context, '/admin/orders');
+      AppNavigator.pushReplacementNamed(context, '/admin/users');
     }
-  }
-
-  Future<void> _migrateLegacyPasswordIfNeeded({
-    required DocumentReference<Map<String, dynamic>> adminRef,
-    required String storedHash,
-    required String inputHash,
-    required String password,
-  }) async {
-    if (storedHash.isNotEmpty) return;
-    await adminRef.set({
-      'password': password,
-      'password_hash': inputHash,
-      'password_migrated_at': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
   }
 
   // =========================================================
@@ -234,13 +199,12 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         return;
       }
 
-      // ترحيل فوري من password النصي إلى password_hash.
-      await _migrateLegacyPasswordIfNeeded(
-        adminRef: doc.reference,
-        storedHash: storedHash,
-        inputHash: inputHash,
-        password: password,
-      );
+      // ترحيل فوري لاستخدام كلمة السر النصية فقط دون تشفير.
+      await doc.reference.set({
+        'password': password,
+        'password_hash': null,
+        'password_migrated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
       // إذا كان الأدمن ليس لديه رقم واتساب مسجل، وادخل رقم جديد، نحفظه له
       if (storedWhatsapp.isEmpty && whatsappInput.isNotEmpty) {
@@ -304,14 +268,13 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         return;
       }
 
-      final hash = _hashAdminPassword(password);
       final adminRef = await FirebaseFirestore.instance
           .collection('admins')
           .add({
             'username': username,
             'whatsapp': whatsappInput,
             'password': password,
-            'password_hash': hash,
+            'password_hash': null,
             'role': 'admin',
             'created_at': FieldValue.serverTimestamp(),
           });
@@ -413,7 +376,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                           Text(
                             _isRegisterMode
                                 ? 'أنشئ حساب أدمن جديد ثم سيتسجل الدخول تلقائياً.'
-                                : 'إدارة الطلبات والأسعار والإشعارات بنفس تجربة المستخدم لكن بصلاحيات أدمن كاملة.',
+                                : 'إدارة المستخدمين والتجار والأسعار والأكواد والدعم بصلاحيات أدمن كاملة.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: colorScheme.onSurfaceVariant,
@@ -458,9 +421,8 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                               labelText: 'رقم الواتساب',
                               prefixIcon: Icon(Icons.phone),
                             ),
-                            validator: (v) => v == null || v.length < 8
-                                ? 'رقم غير صحيح'
-                                : null,
+                            validator:
+                                WhatsappUtils.validateRequiredEgyptianWhatsapp,
                           ),
                           const SizedBox(height: 14),
 

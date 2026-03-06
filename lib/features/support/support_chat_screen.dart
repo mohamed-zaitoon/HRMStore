@@ -68,8 +68,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   bool _isChatSupportedType(String productType) {
     return productType == 'tiktok' ||
         productType == 'game' ||
-        productType == 'tiktok_promo' ||
-        productType == 'balance_topup';
+        productType == 'tiktok_promo';
   }
 
   bool _isExecutionChatOpen(String status) {
@@ -179,7 +178,11 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
         final text = (data['text'] ?? '').toString();
         final attachmentUrl = (data['attachment_url'] ?? '').toString();
         final senderRole = (data['sender_role'] ?? '').toString().trim();
-        if (senderRole != 'admin' && senderRole != 'system') continue;
+        if (senderRole != 'admin' &&
+            senderRole != 'system' &&
+            senderRole != 'merchant') {
+          continue;
+        }
 
         final body = '$text\n$attachmentUrl';
         if (method == 'Wallet') {
@@ -481,8 +484,6 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       productLabel = 'شحن ألعاب';
     } else if (productType == 'tiktok_promo') {
       productLabel = 'ترويج فيديو';
-    } else if (productType == 'balance_topup') {
-      productLabel = 'شحن رصيد';
     } else {
       productLabel = 'شحن تيك توك';
     }

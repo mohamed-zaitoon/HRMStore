@@ -19,9 +19,10 @@ class AdminAvailabilityScreen extends StatefulWidget {
 class _AdminAvailabilityScreenState extends State<AdminAvailabilityScreen> {
   bool _loading = true;
   bool _saving = false;
-  bool _enabled = true;
-  final TextEditingController _maintenanceCtrl = TextEditingController(
-    text: "الشحن غير متاح حاليا",
+  bool _webEnabled = true;
+  bool _androidReleaseEnabled = true;
+  final TextEditingController _platformPauseCtrl = TextEditingController(
+    text: "الخدمة متوقفة مؤقتاً حالياً (ليست صيانة).",
   );
 
   @override
@@ -32,7 +33,7 @@ class _AdminAvailabilityScreenState extends State<AdminAvailabilityScreen> {
 
   @override
   void dispose() {
-    _maintenanceCtrl.dispose();
+    _platformPauseCtrl.dispose();
     super.dispose();
   }
 
@@ -45,9 +46,21 @@ class _AdminAvailabilityScreenState extends State<AdminAvailabilityScreen> {
 
       if (doc.exists) {
         final data = doc.data() ?? {};
-        _enabled = data['enabled'] == null ? true : data['enabled'] == true;
-        _maintenanceCtrl.text =
-            (data['maintenance_message'] ?? "الشحن غير متاح حاليا ").toString();
+        final hasWebKey = data.containsKey('web_enabled');
+        final hasAndroidReleaseKey = data.containsKey('android_release_enabled');
+        final legacyEnabled =
+            data['enabled'] == null ? true : data['enabled'] == true;
+        _webEnabled = hasWebKey
+            ? data['web_enabled'] == true
+            : legacyEnabled;
+        _androidReleaseEnabled = hasAndroidReleaseKey
+            ? data['android_release_enabled'] == true
+            : legacyEnabled;
+        _platformPauseCtrl.text =
+            (data['platform_pause_message'] ??
+                    data['maintenance_message'] ??
+                    "الخدمة متوقفة مؤقتاً حالياً (ليست صيانة).")
+                .toString();
       }
     } catch (_) {}
 
@@ -57,12 +70,24 @@ class _AdminAvailabilityScreenState extends State<AdminAvailabilityScreen> {
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
+      final pauseMessage = _platformPauseCtrl.text.trim();
+      final fallbackMessage = pauseMessage.isEmpty
+          ? "الخدمة متوقفة مؤقتاً حالياً (ليست صيانة)."
+          : pauseMessage;
+      final legacyEnabled = _webEnabled && _androidReleaseEnabled;
+
       await FirebaseFirestore.instance
           .collection('app_settings')
           .doc('availability')
           .set({
-            'enabled': _enabled,
-            'maintenance_message': _maintenanceCtrl.text.trim(),
+            'web_enabled': _webEnabled,
+            'android_release_enabled': _androidReleaseEnabled,
+            'platform_pause_message': fallbackMessage,
+            'web_pause_message': fallbackMessage,
+            'android_release_pause_message': fallbackMessage,
+            // توافق خلفي: النسخ القديمة تقرأ enabled/maintenance_message فقط.
+            'enabled': legacyEnabled,
+            'maintenance_message': fallbackMessage,
             'updated_at': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
 
@@ -92,7 +117,7 @@ class _AdminAvailabilityScreenState extends State<AdminAvailabilityScreen> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: const GlassAppBar(title: Text("إدارة الصيانة")),
+      appBar: const GlassAppBar(title: Text("إدارة التوافر")),
       body: Stack(
         children: [
           const SnowBackground(),
@@ -108,25 +133,38 @@ class _AdminAvailabilityScreenState extends State<AdminAvailabilityScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           SwitchListTile(
-                            value: _enabled,
-                            onChanged: (v) => setState(() => _enabled = v),
+                            value: _webEnabled,
+                            onChanged: (v) => setState(() => _webEnabled = v),
                             title: const Text(
-                              "تشغيل الموقع / التطبيق",
+                              "تشغيل موقع الويب",
+                              style: TextStyle(fontFamily: 'Cairo'),
+                            ),
+                          ),
+                          SwitchListTile(
+                            value: _androidReleaseEnabled,
+                            onChanged: (v) =>
+                                setState(() => _androidReleaseEnabled = v),
+                            title: const Text(
+                              "تشغيل أندرويد Release",
+                              style: TextStyle(fontFamily: 'Cairo'),
+                            ),
+                            subtitle: const Text(
+                              "وضع Debug غير متأثر بهذا الإيقاف.",
                               style: TextStyle(fontFamily: 'Cairo'),
                             ),
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            "عند الإيقاف سيظهر للمستخدمين: صيانة",
+                            "الإيقاف يطبّق فقط على الويب وAndroid Release، ونسخة Debug غير متأثرة.",
                             style: TextStyle(
                               color: colorScheme.onSurfaceVariant,
                             ),
                           ),
                           const SizedBox(height: 10),
                           TextField(
-                            controller: _maintenanceCtrl,
+                            controller: _platformPauseCtrl,
                             decoration: const InputDecoration(
-                              labelText: "رسالة الصيانة",
+                              labelText: "سبب الإيقاف (تعديل يدوي)",
                             ),
                           ),
                         ],

@@ -129,12 +129,13 @@ class _AboutAppScreenState extends State<AboutAppScreen> {
             final info = snapshot.data;
             final version = info?.version ?? '...';
             final build = info?.buildNumber ?? '...';
+            final displayAppName = AppInfo.appName.replaceAll(' (تاجر)', '');
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  AppInfo.appName,
+                  displayAppName,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: textColor,

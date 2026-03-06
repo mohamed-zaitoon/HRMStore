@@ -11,13 +11,11 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
-import 'services/onesignal_service.dart';
 import 'services/app_check_service.dart';
 import 'services/app_links_service.dart';
 import 'services/easy_loading_service.dart';
 import 'services/remote_config_service.dart';
 import 'services/theme_service.dart';
-import 'services/admin_session_service.dart';
 import 'services/update_manager.dart';
 import 'app/hrm_store_app.dart';
 import 'core/app_info.dart';
@@ -56,10 +54,6 @@ Future<void> main() async {
   final prefs = await SharedPreferences.getInstance();
   ThemeService.init(prefs);
   EasyLoadingService.configure();
-  final adminSession = await AdminSessionService.getLocalSession();
-  final whatsapp =
-      (adminSession?.whatsapp ?? prefs.getString('admin_whatsapp') ?? '')
-          .trim();
 
   // هذه نسخة الأدمن: نثبّت العلم لكل تشغيل لضمان تحميل مسارات الأدمن
   const bool isAdmin = true;
@@ -69,16 +63,19 @@ Future<void> main() async {
   AppInfo.isAdminApp = isAdmin;
   AppInfo.isMerchantApp = isMerchant;
 
-  runApp(HrmStoreApp(prefs: prefs, isAdminApp: isAdmin));
+  runApp(
+    HrmStoreApp(
+      prefs: prefs,
+      isAdminApp: isAdmin,
+      isMerchantApp: isMerchant,
+    ),
+  );
 
   unawaited(AppLinksService.start(isAdminApp: isAdmin));
-  unawaited(_postInit(whatsapp: whatsapp, isAdmin: isAdmin));
+  unawaited(_postInit());
 }
 
-Future<void> _postInit({
-  required String whatsapp,
-  required bool isAdmin,
-}) async {
+Future<void> _postInit() async {
   const mobilePlatforms = {TargetPlatform.android, TargetPlatform.iOS};
   final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
 
@@ -88,16 +85,6 @@ Future<void> _postInit({
   }
 
   await RemoteConfigService.instance.init();
-
-  // Push/OneSignal للموبايل فقط.
-  if (isMobile) {
-    await OneSignalService.init();
-    await OneSignalService.requestPermission();
-
-    if (whatsapp.isNotEmpty) {
-      await OneSignalService.registerUser(whatsapp: whatsapp, isAdmin: isAdmin);
-    }
-  }
 
   unawaited(_runGlobalUpdateCheck());
 }

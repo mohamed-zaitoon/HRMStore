@@ -49,7 +49,7 @@ Future<void> main() async {
   EasyLoadingService.configure();
   final whatsapp = prefs.getString('user_whatsapp') ?? '';
   const bool isAdmin = false;
-  const bool isMerchant = false;
+  final bool isMerchant = prefs.getBool('is_merchant') ?? false;
 
   AppInfo.isAdminApp = isAdmin;
   AppInfo.isMerchantApp = isMerchant;
@@ -57,7 +57,9 @@ Future<void> main() async {
   await prefs.setBool('is_admin', isAdmin);
   await prefs.setBool('is_merchant', isMerchant);
 
-  runApp(HrmStoreApp(prefs: prefs, isAdminApp: isAdmin));
+  runApp(
+    HrmStoreApp(prefs: prefs, isAdminApp: isAdmin, isMerchantApp: isMerchant),
+  );
 
   unawaited(AppLinksService.start(isAdminApp: isAdmin));
   unawaited(_postInit(whatsapp: whatsapp, isAdmin: isAdmin));
@@ -76,28 +78,26 @@ Future<void> _postInit({
 
   await RemoteConfigService.instance.init();
 
-  // Push notifications (OneSignal) are mobile-only.
+  await NotificationService.init();
+  // Auto permission prompt on startup is kept for mobile only.
   if (isMobile) {
-    await NotificationService.init();
     await NotificationService.requestPermission();
   }
 
   if (whatsapp.isNotEmpty) {
-    if (isMobile) {
-      if (isAdmin) {
-        await NotificationService.initAdminNotifications(
-          whatsapp,
-          requestPermission: true,
-        );
-        NotificationService.listenToAdminOrders();
-        NotificationService.listenToAdminRamadanCodes();
-      } else {
-        await NotificationService.initUserNotifications(
-          whatsapp,
-          requestPermission: true,
-        );
-        NotificationService.listenToUserRamadanCodes(whatsapp);
-      }
+    if (isAdmin) {
+      await NotificationService.initAdminNotifications(
+        whatsapp,
+        requestPermission: isMobile,
+      );
+      NotificationService.listenToAdminOrders();
+      NotificationService.listenToAdminRamadanCodes();
+    } else {
+      await NotificationService.initUserNotifications(
+        whatsapp,
+        requestPermission: isMobile,
+      );
+      NotificationService.listenToUserRamadanCodes(whatsapp);
     }
   }
 

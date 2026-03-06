@@ -16,6 +16,7 @@ import '../../core/app_navigator.dart';
 import '../../core/tt_colors.dart';
 import '../../services/notification_service.dart';
 import '../../utils/html_meta.dart';
+import '../../utils/whatsapp_utils.dart';
 import '../../widgets/theme_mode_sheet.dart';
 
 class _UserLookup {
@@ -55,7 +56,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
   }
 
   String _normalizeWhatsapp(String input) {
-    return input.replaceAll(RegExp(r'[^0-9+]'), '').trim();
+    return WhatsappUtils.normalizeEgyptianWhatsapp(input);
   }
 
   String _normalizeDisplayName(String input) {
@@ -105,40 +106,35 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     }
   }
 
-  String _deriveDisplayName({
-    required String email,
-    required String whatsapp,
-    String? fallback,
-  }) {
-    final preferred = (fallback ?? '').trim();
-    if (preferred.length >= 3) return preferred;
-
-    final localPart = email.split('@').first.trim();
-    final sanitizedLocalPart = localPart.replaceAll(
-      RegExp(r'[^a-zA-Z0-9_\-.\u0600-\u06FF]'),
-      '',
-    );
-    if (sanitizedLocalPart.length >= 3) {
-      return sanitizedLocalPart;
-    }
-
-    final digits = whatsapp.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.length >= 4) {
-      return 'user_${digits.substring(digits.length - 4)}';
-    }
-    return 'مستخدم';
-  }
-
   Future<void> _checkExistingSession() async {
     final prefs = await SharedPreferences.getInstance();
     final name = prefs.getString('user_name') ?? '';
     final whatsapp = prefs.getString('user_whatsapp') ?? '';
     final tiktok = prefs.getString('user_tiktok') ?? '';
+    final uid = (prefs.getString('user_uid') ?? '').trim();
+    final email = (prefs.getString('user_email') ?? '').trim().toLowerCase();
+    var isMerchant = prefs.getBool('is_merchant') ?? false;
+
+    if (isMerchant) {
+      final existing = await _getUserByUidOrEmail(uid: uid, email: email);
+      final status = (existing?.data['merchant_verification_status'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final verified =
+          existing?.data['merchant_verified'] == true || status == 'approved';
+      if (!verified) {
+        isMerchant = false;
+        await prefs.setBool('is_merchant', false);
+      }
+    }
+    AppInfo.isMerchantApp = isMerchant;
 
     if (name.isNotEmpty && whatsapp.isNotEmpty && mounted) {
+      final route = isMerchant ? '/merchant/orders' : '/home';
       AppNavigator.pushReplacementNamed(
         context,
-        '/home',
+        route,
         arguments: {'name': name, 'whatsapp': whatsapp, 'tiktok': tiktok},
       );
       return;
@@ -149,8 +145,13 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     }
   }
 
-  Future<void> _saveUserPrefs(Map<String, dynamic> data) async {
+  Future<void> _saveUserPrefs(
+    Map<String, dynamic> data, {
+    required bool merchantMode,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_merchant', merchantMode);
+    AppInfo.isMerchantApp = merchantMode;
     final savedUsername = (data['username'] ?? '').toString().trim();
     final savedTiktok = (data['tiktok'] ?? savedUsername).toString().trim();
     final normalizedHandle = _normalizeTiktokHandle(
@@ -173,10 +174,56 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     final snap = await FirebaseFirestore.instance
         .collection('users')
         .where(field, isEqualTo: value)
-        .limit(1)
+        .limit(20)
         .get();
-    if (snap.docs.isEmpty) return null;
-    return _UserLookup(snap.docs.first.id, snap.docs.first.data());
+    return _pickMostRestrictedLookup(snap.docs);
+  }
+
+  int _accountStatusWeight(Map<String, dynamic> data) {
+    final status = _accountStatus(data);
+    if (status == 'blocked') return 3;
+    if (status == 'suspended') return 2;
+    return 1;
+  }
+
+  String _accountStatus(Map<String, dynamic> data) {
+    return (data['account_status'] ?? 'active')
+        .toString()
+        .trim()
+        .toLowerCase();
+  }
+
+  String? _restrictedAuthMessage(
+    Map<String, dynamic>? data, {
+    required String action,
+  }) {
+    if (data == null) return null;
+    final status = _accountStatus(data);
+    if (status == 'blocked') {
+      return 'لا يمكن $action: هذه البيانات مرتبطة بحساب محظور نهائياً.';
+    }
+    if (status == 'suspended') {
+      return 'لا يمكن $action: هذه البيانات مرتبطة بحساب موقوف حالياً.';
+    }
+    return null;
+  }
+
+  _UserLookup? _pickMostRestrictedLookup(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    if (docs.isEmpty) return null;
+    _UserLookup? selected;
+    var selectedWeight = -1;
+    for (final doc in docs) {
+      final lookup = _UserLookup(doc.id, doc.data());
+      final weight = _accountStatusWeight(lookup.data);
+      if (selected == null || weight > selectedWeight) {
+        selected = lookup;
+        selectedWeight = weight;
+      }
+      if (selectedWeight >= 3) break;
+    }
+    return selected;
   }
 
   Future<_UserLookup?> _getUserByUidOrEmail({
@@ -184,26 +231,42 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     String? email,
   }) async {
     final users = FirebaseFirestore.instance.collection('users');
+    _UserLookup? best;
+    var bestWeight = -1;
 
-    if (uid != null && uid.trim().isNotEmpty) {
-      final snap = await users
-          .where('uid', isEqualTo: uid.trim())
-          .limit(1)
-          .get();
-      if (snap.docs.isNotEmpty) {
-        final doc = snap.docs.first;
-        return _UserLookup(doc.id, doc.data());
+    void consider(_UserLookup? candidate) {
+      if (candidate == null) return;
+      final weight = _accountStatusWeight(candidate.data);
+      if (best == null || weight > bestWeight) {
+        best = candidate;
+        bestWeight = weight;
       }
     }
 
     if (email != null && email.trim().isNotEmpty) {
-      return _findByField('email', email.trim().toLowerCase());
+      final normalizedEmail = email.trim().toLowerCase();
+      final byEmail = await users
+          .where('email', isEqualTo: normalizedEmail)
+          .limit(20)
+          .get();
+      consider(_pickMostRestrictedLookup(byEmail.docs));
     }
 
-    return null;
+    if (uid != null && uid.trim().isNotEmpty) {
+      final byUid = await users
+          .where('uid', isEqualTo: uid.trim())
+          .limit(20)
+          .get();
+      consider(_pickMostRestrictedLookup(byUid.docs));
+    }
+
+    return best;
   }
 
-  Future<void> _persistAndNavigate(Map<String, dynamic> data) async {
+  Future<void> _persistAndNavigate(
+    Map<String, dynamic> data, {
+    bool? forceMerchantMode,
+  }) async {
     data = Map<String, dynamic>.from(data);
     if (!data.containsKey('uid')) {
       data['uid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -218,7 +281,20 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
         ? normalizedHandle
         : (data['tiktok'] ?? data['username'] ?? '');
     data['name'] = _normalizeDisplayName((data['name'] ?? '').toString());
-    await _saveUserPrefs(data);
+    final bool hasMerchantAccess = data['is_merchant'] == true;
+    final bool requestedMerchantMode = forceMerchantMode ?? false;
+    final verificationStatus = (data['merchant_verification_status'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    final bool merchantVerified =
+        data['merchant_verified'] == true || verificationStatus == 'approved';
+    final bool isMerchantMode =
+        requestedMerchantMode && hasMerchantAccess && merchantVerified;
+    final bool shouldOpenMerchantVerification =
+        requestedMerchantMode && hasMerchantAccess && !merchantVerified;
+    AppInfo.isMerchantApp = isMerchantMode;
+    await _saveUserPrefs(data, merchantMode: isMerchantMode);
 
     final whatsapp = _normalizeWhatsapp((data['whatsapp'] ?? '').toString());
     if (whatsapp.isNotEmpty) {
@@ -229,7 +305,12 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     }
 
     if (!mounted) return;
-    AppNavigator.pushReplacementNamed(context, '/home');
+    AppNavigator.pushReplacementNamed(
+      context,
+      isMerchantMode
+          ? '/merchant/orders'
+          : (shouldOpenMerchantVerification ? '/merchant/verify' : '/home'),
+    );
   }
 
   Future<String?> _handleAuthSuccess(
@@ -243,6 +324,15 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     final existing = await _getUserByUidOrEmail(uid: user.uid, email: email);
 
     if (existing != null) {
+      final restrictedMessage = _restrictedAuthMessage(
+        existing.data,
+        action: 'تسجيل الدخول',
+      );
+      if (restrictedMessage != null) {
+        await FirebaseAuth.instance.signOut();
+        return restrictedMessage;
+      }
+
       final normalizedHandle = _normalizeTiktokHandle(
         (existing.data['tiktok'] ?? existing.data['username'] ?? '').toString(),
       );
@@ -274,6 +364,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
       }
 
       final mergedData = {...existing.data, ...updates};
+      mergedData['is_merchant'] = mergedData['is_merchant'] == true;
       await _persistAndNavigate(mergedData);
       return null;
     }
@@ -284,6 +375,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
       'username': '',
       'whatsapp': '',
       'uid': user.uid,
+      'is_merchant': false,
     };
     await users.doc(user.uid).set({
       ...minimal,
@@ -318,6 +410,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
           .set({
             'uid': uid,
             'email': email.toLowerCase(),
+            'is_merchant': legacy.data['is_merchant'] == true,
             'updated_at': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
 
@@ -387,6 +480,14 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
 
     try {
       final email = identifier.toLowerCase();
+      final restrictedMessage = _restrictedAuthMessage(
+        (await _findByField('email', email))?.data,
+        action: 'تسجيل الدخول',
+      );
+      if (restrictedMessage != null) {
+        return restrictedMessage;
+      }
+
       final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: password,
@@ -418,12 +519,14 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
       (additional['tiktok_username'] ?? '').toString(),
     );
     final whatsapp = _normalizeWhatsapp(additional['whatsapp'] ?? '');
-    final passwordHash = _hashPassword(password);
 
     if (!_isValidEmail(email)) return 'بريد إلكتروني غير صحيح';
     if (inputDisplayName.length < 3) return 'الاسم قصير جدا';
     if (inputTiktok.isEmpty) return 'يوزر تيك توك مطلوب';
     if (whatsapp.isEmpty) return 'رقم الواتساب مطلوب';
+    if (!WhatsappUtils.isValidEgyptianWhatsapp(whatsapp)) {
+      return 'رقم الواتساب يجب أن يكون 11 رقم ويبدأ بـ 01';
+    }
     if (password.length < 6) return 'كلمة السر لا تقل عن 6 أحرف';
 
     try {
@@ -431,31 +534,85 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
 
       final emailDoc = await _findByField('email', email);
       final whatsappDoc = await _findByField('whatsapp', whatsapp);
+      final restrictedByEmail = _restrictedAuthMessage(
+        emailDoc?.data,
+        action: 'إنشاء حساب',
+      );
+      if (restrictedByEmail != null) return restrictedByEmail;
+      final restrictedByWhatsapp = _restrictedAuthMessage(
+        whatsappDoc?.data,
+        action: 'إنشاء حساب',
+      );
+      if (restrictedByWhatsapp != null) return restrictedByWhatsapp;
 
-      if (whatsappDoc != null &&
-          (emailDoc == null || whatsappDoc.docId != emailDoc.docId)) {
-        if (whatsappDoc.uid.isNotEmpty) {
-          return 'هذا الحساب مسجل بالفعل';
-        }
-        return 'رقم الواتساب مستخدم بالفعل';
+      if (emailDoc != null &&
+          whatsappDoc != null &&
+          emailDoc.docId != whatsappDoc.docId) {
+        return 'البيانات مرتبطة بحسابين مختلفين';
       }
 
-      if (emailDoc != null) {
-        if (emailDoc.uid.isNotEmpty) {
-          return 'البريد الإلكتروني مستخدم بالفعل';
+      final existing = emailDoc ?? whatsappDoc;
+      if (existing != null) {
+        if (existing.email.isNotEmpty && existing.email != email) {
+          return 'رقم الواتساب مرتبط ببريد آخر';
         }
-        if (emailDoc.whatsapp.isNotEmpty && emailDoc.whatsapp != whatsapp) {
+        final existingWhatsapp = _normalizeWhatsapp(existing.whatsapp);
+        if (existingWhatsapp.isNotEmpty && existingWhatsapp != whatsapp) {
           return 'البريد مرتبط برقم واتساب آخر';
         }
       }
 
       final name = inputDisplayName;
       final username = inputTiktok;
+      final existingData = existing?.data ?? const <String, dynamic>{};
+      final existingIsMerchant = existingData['is_merchant'] == true;
+      final accountHasMerchantAccess = existingIsMerchant;
+      final existingVerificationStatus =
+          (existingData['merchant_verification_status'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
+      final merchantVerified =
+          existingData['merchant_verified'] == true ||
+          existingVerificationStatus == 'approved';
+      final merchantVerificationStatus = merchantVerified
+          ? 'approved'
+          : (accountHasMerchantAccess
+                ? (existingVerificationStatus.isEmpty
+                      ? 'not_submitted'
+                      : existingVerificationStatus)
+                : '');
 
-      final authCred = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(email: email, password: password);
+      String uid = existing?.uid ?? '';
+      UserCredential? authCred;
 
-      final uid = authCred.user?.uid ?? '';
+      if (existing != null && existing.uid.isNotEmpty) {
+        try {
+          authCred = await FirebaseAuth.instance.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+        } on FirebaseAuthException catch (e) {
+          if (e.code == 'user-not-found') {
+            authCred = await FirebaseAuth.instance
+                .createUserWithEmailAndPassword(
+                  email: email,
+                  password: password,
+                );
+          } else if (e.code == 'wrong-password' ||
+              e.code == 'invalid-credential') {
+            return 'الحساب موجود بالفعل، أدخل كلمة السر الصحيحة';
+          } else {
+            return _mapAuthError(e);
+          }
+        }
+      } else {
+        authCred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      }
+      uid = (authCred.user?.uid ?? uid).trim();
 
       Future<void> persistInDoc({
         required String docId,
@@ -469,7 +626,19 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
           'tiktok': username,
           'uid': uid,
           'password': password,
-          'password_hash': passwordHash,
+          'password_hash': null,
+          'is_merchant': accountHasMerchantAccess,
+          if (accountHasMerchantAccess) ...{
+            'merchant_whatsapp': whatsapp,
+            'merchant_active': merchantVerified
+                ? (existingData['merchant_active'] != false)
+                : false,
+            'merchant_billing_mode': 'monthly_fixed',
+            'merchant_monthly_fee': 750,
+            'merchant_revenue_percent': FieldValue.delete(),
+            'merchant_verification_status': merchantVerificationStatus,
+            'merchant_verified': merchantVerified,
+          },
           'created_at': createdAt ?? FieldValue.serverTimestamp(),
           'updated_at': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
@@ -487,6 +656,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
           'username': username,
           'tiktok': username,
           'uid': uid,
+          'is_merchant': accountHasMerchantAccess,
         });
         return null;
       }
@@ -507,6 +677,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
           'username': username,
           'tiktok': username,
           'uid': uid,
+          'is_merchant': accountHasMerchantAccess,
         });
         return null;
       }
@@ -524,11 +695,83 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
         'username': username,
         'tiktok': username,
         'uid': uid,
+        'is_merchant': accountHasMerchantAccess,
       });
       return null;
     } on FirebaseAuthException catch (e) {
       if (e.code == 'email-already-in-use') {
-        return 'البريد الإلكتروني مستخدم بالفعل';
+        try {
+          final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+          if (cred.user == null) return 'تعذر الوصول للحساب الموجود';
+          final users = FirebaseFirestore.instance.collection('users');
+          final existing = await _getUserByUidOrEmail(
+            uid: cred.user!.uid,
+            email: email,
+          );
+          final restrictedMessage = _restrictedAuthMessage(
+            existing?.data,
+            action: 'إنشاء حساب',
+          );
+          if (restrictedMessage != null) {
+            await FirebaseAuth.instance.signOut();
+            return restrictedMessage;
+          }
+          final hasMerchantAccess =
+              (existing?.data['is_merchant'] == true);
+          final existingVerificationStatus =
+              (existing?.data['merchant_verification_status'] ?? '')
+                  .toString()
+                  .trim()
+                  .toLowerCase();
+          final merchantVerified =
+              existing?.data['merchant_verified'] == true ||
+              existingVerificationStatus == 'approved';
+          final merchantVerificationStatus = merchantVerified
+              ? 'approved'
+              : (hasMerchantAccess
+                    ? (existingVerificationStatus.isEmpty
+                          ? 'not_submitted'
+                          : existingVerificationStatus)
+                    : '');
+          final payload = <String, dynamic>{
+            'name': inputDisplayName,
+            'email': email,
+            'whatsapp': whatsapp,
+            'username': inputTiktok,
+            'tiktok': inputTiktok,
+            'uid': cred.user!.uid,
+            'password': password,
+            'password_hash': null,
+            'is_merchant': hasMerchantAccess,
+            'updated_at': FieldValue.serverTimestamp(),
+            if (hasMerchantAccess)
+              'merchant_active': merchantVerified
+                  ? (existing?.data['merchant_active'] != false)
+                  : false,
+            if (hasMerchantAccess) 'merchant_whatsapp': whatsapp,
+            if (hasMerchantAccess) 'merchant_billing_mode': 'monthly_fixed',
+            if (hasMerchantAccess) 'merchant_monthly_fee': 750,
+            'merchant_revenue_percent': FieldValue.delete(),
+            if (hasMerchantAccess)
+              'merchant_verification_status': merchantVerificationStatus,
+            if (hasMerchantAccess) 'merchant_verified': merchantVerified,
+          };
+          final docId = existing?.docId ?? cred.user!.uid;
+          await users.doc(docId).set({
+            ...payload,
+            'created_at':
+                existing?.data['created_at'] ?? FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+          await _persistAndNavigate(
+            payload,
+          );
+          return null;
+        } on FirebaseAuthException catch (_) {
+          return 'الحساب موجود بالفعل بكلمة سر مختلفة';
+        }
       }
       if (e.code == 'weak-password') {
         return 'كلمة السر ضعيفة';
@@ -705,9 +948,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
   }
 
   static String? _validateSignupWhatsapp(String? value) {
-    final normalized = (value ?? '').replaceAll(RegExp(r'[^0-9+]'), '').trim();
-    if (normalized.isEmpty) return 'رقم الواتساب مطلوب';
-    return null;
+    return WhatsappUtils.validateRequiredEgyptianWhatsapp(value);
   }
 
   @override

@@ -57,7 +57,10 @@ class OrderChatService {
     if (normalizedText.isEmpty && normalizedAttachmentUrl.isEmpty) return;
 
     final role = senderRole.trim().toLowerCase();
-    final safeRole = role == 'admin' || role == 'user' || role == 'system'
+    final safeRole = (role == 'admin' ||
+            role == 'user' ||
+            role == 'system' ||
+            role == 'merchant')
         ? role
         : 'system';
     final safeSenderName = senderName.trim();
@@ -123,11 +126,13 @@ class OrderChatService {
     try {
       final knownRecipientWhatsapp = recipientUserWhatsapp.trim();
       var userWhatsapp = knownRecipientWhatsapp;
+      var merchantWhatsapp = '';
       var orderName = '';
+      var merchantName = '';
 
       // Use order snapshot as fallback only when recipient whatsapp is missing,
       // or when we need a better display name for admin notification.
-      if (userWhatsapp.isEmpty || safeSenderName.isEmpty) {
+      if (userWhatsapp.isEmpty || safeSenderName.isEmpty || safeRole == 'user') {
         try {
           final orderSnap = await orderRef.get();
           final orderData = orderSnap.data() ?? <String, dynamic>{};
@@ -137,7 +142,39 @@ class OrderChatService {
                     .toString()
                     .trim();
           }
+          merchantWhatsapp = (orderData['merchant_whatsapp'] ?? '')
+              .toString()
+              .trim();
+          merchantName = (orderData['merchant_name'] ?? '').toString().trim();
           orderName = (orderData['name'] ?? '').toString().trim();
+
+          if (merchantWhatsapp.isEmpty && safeRole == 'user') {
+            final merchantId = (orderData['merchant_id'] ?? '')
+                .toString()
+                .trim();
+            if (merchantId.isNotEmpty) {
+              try {
+                final merchantSnap = await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(merchantId)
+                    .get();
+                final merchantData = merchantSnap.data() ?? <String, dynamic>{};
+                merchantWhatsapp =
+                    (merchantData['merchant_whatsapp'] ??
+                            merchantData['whatsapp'] ??
+                            '')
+                        .toString()
+                        .trim();
+                if (merchantName.isEmpty) {
+                  merchantName = (merchantData['name'] ?? '')
+                      .toString()
+                      .trim();
+                }
+              } catch (_) {
+                // Keep notify path alive when merchant profile lookup fails.
+              }
+            }
+          }
         } catch (_) {
           // Keep notify path alive using available local data.
         }
@@ -145,20 +182,34 @@ class OrderChatService {
       final displayName = safeSenderName.isNotEmpty
           ? safeSenderName
           : (orderName.isNotEmpty ? orderName : null);
+      final merchantDisplayName = safeSenderName.isNotEmpty
+          ? safeSenderName
+          : (merchantName.isNotEmpty ? merchantName : null);
 
       Future<bool> sendOnce() async {
-        if (safeRole == 'admin') {
+        if (safeRole == 'admin' || safeRole == 'merchant') {
           if (userWhatsapp.isEmpty) return false;
           return CloudflareNotifyService.notifyUserChatMessage(
             orderId: normalizedOrderId,
             userWhatsapp: userWhatsapp,
             messagePreview: messagePreview,
+            senderRole: safeRole,
           );
         }
         if (safeRole == 'user') {
+          if (merchantWhatsapp.isNotEmpty) {
+            final merchantNotified =
+                await CloudflareNotifyService.notifyMerchantChatMessage(
+                  orderId: normalizedOrderId,
+                  merchantWhatsapp: merchantWhatsapp,
+                  userName: displayName,
+                  messagePreview: messagePreview,
+                );
+            if (merchantNotified) return true;
+          }
           return CloudflareNotifyService.notifyAdminsChatMessage(
             orderId: normalizedOrderId,
-            userName: displayName,
+            userName: merchantDisplayName ?? displayName,
             messagePreview: messagePreview,
           );
         }

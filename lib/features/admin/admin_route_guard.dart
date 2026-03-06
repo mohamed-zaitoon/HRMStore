@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_navigator.dart';
 import '../../services/admin_session_service.dart';
-import '../../services/notification_service.dart';
 import '../../widgets/snow_background.dart';
 
 class AdminRouteGuard extends StatefulWidget {
@@ -32,8 +31,6 @@ class _AdminRouteGuardState extends State<AdminRouteGuard> {
     if (!mounted) return;
 
     if (!allowed) {
-      await NotificationService.disposeListeners();
-      await NotificationService.pushLogout();
       await AdminSessionService.clearLocalSession();
     }
 

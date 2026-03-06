@@ -1,5 +1,6 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
+import 'dart:async';
 import 'dart:developer';
 import 'package:universal_html/js.dart' as js;
 
@@ -20,7 +21,7 @@ class OneSignalWebBridge {
   // AR: تضبط وسوم المستخدم للاستهداف الاحتياطي.
   static Future<void> setTags(Map<String, String> tags) async {
     if (tags.isEmpty) return;
-    await _callPromise('hrmstoreOneSignalSetTags', [tags]);
+    await _callPromise('hrmstoreOneSignalSetTags', [js.JsObject.jsify(tags)]);
   }
 
   // EN: Handles logout.
@@ -58,14 +59,29 @@ class OneSignalWebBridge {
 
     try {
       final result = js.context.callMethod(method, args);
-      if (result != null) {
-        final jsObject = result is js.JsObject
-            ? result
-            : js.JsObject.fromBrowserObject(result);
-        if (jsObject.hasProperty('then')) {
-          // Promise detected: fire-and-forget to avoid JS interop errors
-          return null;
-        }
+      if (result == null) return null;
+
+      final jsResult = result is js.JsObject
+          ? result
+          : js.JsObject.fromBrowserObject(result);
+
+      if (jsResult.hasProperty('then')) {
+        final completer = Completer<dynamic>();
+        final onResolve = js.JsFunction.withThis((_, dynamic value) {
+          if (!completer.isCompleted) {
+            completer.complete(value);
+          }
+        });
+        final onReject = js.JsFunction.withThis((_, dynamic error) {
+          if (!completer.isCompleted) {
+            completer.completeError(error ?? 'JS promise rejected');
+          }
+        });
+        jsResult.callMethod('then', [
+          onResolve,
+          onReject,
+        ]);
+        return await completer.future;
       }
       return result;
     } catch (e, s) {

@@ -19,6 +19,7 @@ enum _AttachmentAction { image, link }
 class OrderChatPanel extends StatefulWidget {
   final String orderId;
   final bool isAdmin;
+  final bool isMerchant;
   final String userDisplayName;
   final String adminDisplayName;
   final double maxHeight;
@@ -33,6 +34,7 @@ class OrderChatPanel extends StatefulWidget {
     super.key,
     required this.orderId,
     required this.isAdmin,
+    this.isMerchant = false,
     required this.userDisplayName,
     this.adminDisplayName = '',
     this.maxHeight = 220,
@@ -77,7 +79,9 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
 
   bool _isMine(Map<String, dynamic> data) {
     final role = (data['sender_role'] ?? '').toString().trim();
-    return widget.isAdmin ? role == 'admin' : role == 'user';
+    if (widget.isAdmin) return role == 'admin';
+    if (widget.isMerchant) return role == 'merchant';
+    return role == 'user';
   }
 
   String _senderLabel(Map<String, dynamic> data) {
@@ -96,6 +100,18 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
       return 'أنت';
     }
 
+    if (widget.isMerchant) {
+      if (role == 'user') {
+        final userName = widget.userDisplayName.trim();
+        if (userName.isNotEmpty) return userName;
+        if (senderName.isNotEmpty) return senderName;
+        return 'المستخدم';
+      }
+      if (role == 'merchant') return 'أنت';
+      if (role == 'admin') return 'الدعم';
+    }
+
+    if (role == 'merchant') return 'التاجر';
     if (role == 'admin') return 'الدعم';
     return 'أنت';
   }
@@ -159,6 +175,23 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
     return numbers;
   }
 
+  String? _extractFirstUrl(String input) {
+    if (input.trim().isEmpty) return null;
+    final patterns = [
+      RegExp(r'(https?:\/\/\S+)', caseSensitive: false),
+      RegExp(r'instapay\.me\/\S+', caseSensitive: false),
+      RegExp(r'\b[\w\.\-]+@instapay\b', caseSensitive: false),
+    ];
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(input);
+      if (match != null) {
+        final url = match.group(0);
+        if (url != null && url.trim().isNotEmpty) return url;
+      }
+    }
+    return null;
+  }
+
   Future<void> _copyNumber(String number) async {
     final value = number.trim();
     if (value.isEmpty) return;
@@ -192,12 +225,22 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
 
     setState(() => _isSending = true);
     try {
-      final senderRole = widget.isAdmin ? 'admin' : 'user';
-      final senderName = widget.isAdmin
-          ? ''
-          : (widget.userDisplayName.trim().isEmpty
-                ? 'المستخدم'
-                : widget.userDisplayName.trim());
+      String senderRole;
+      String senderName;
+      if (widget.isAdmin) {
+        senderRole = 'admin';
+        senderName = '';
+      } else if (widget.isMerchant) {
+        senderRole = 'merchant';
+        senderName = widget.adminDisplayName.trim().isEmpty
+            ? 'التاجر'
+            : widget.adminDisplayName.trim();
+      } else {
+        senderRole = 'user';
+        senderName = widget.userDisplayName.trim().isEmpty
+            ? 'المستخدم'
+            : widget.userDisplayName.trim();
+      }
 
       final expiresAt = attachmentExpiresIn == null
           ? null
@@ -237,7 +280,7 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
   }
 
   Future<void> _promptAndSendLinkAttachment() async {
-    if (!widget.isAdmin) return;
+    if (!widget.isAdmin && !widget.isMerchant) return;
     if (!widget.chatEnabled || _isUploadingAttachment) return;
     final linkCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
@@ -521,6 +564,8 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
     final attachmentRemaining = hasAttachment && !attachmentExpired
         ? _attachmentRemainingSeconds(data)
         : null;
+    final inlineLink =
+        attachmentType == 'link' ? null : _extractFirstUrl(text);
     final sender = _senderLabel(data);
     final time = _formatTime(_timestampFrom(data));
     final colorScheme = Theme.of(context).colorScheme;
@@ -579,6 +624,17 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
                     fontFamily: 'Cairo',
                   ),
                 ),
+                if (inlineLink != null) ...[
+                  const SizedBox(height: 6),
+                  OutlinedButton.icon(
+                    onPressed: () => _openLink(inlineLink),
+                    icon: const Icon(Icons.open_in_new, size: 16),
+                    label: const Text(
+                      'فتح الرابط',
+                      style: TextStyle(fontFamily: 'Cairo'),
+                    ),
+                  ),
+                ],
                 if (primaryCopyableNumber != null) ...[
                   const SizedBox(height: 6),
                   Align(
@@ -833,7 +889,7 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
                     _pickAndSendImageAttachment();
                     return;
                   }
-                  if (widget.isAdmin) {
+                  if (widget.isAdmin || widget.isMerchant) {
                     _promptAndSendLinkAttachment();
                   }
                 },
@@ -847,7 +903,7 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
                       ),
                     ),
                   ];
-                  if (widget.isAdmin) {
+                  if (widget.isAdmin || widget.isMerchant) {
                     items.add(
                       const PopupMenuItem<_AttachmentAction>(
                         value: _AttachmentAction.link,

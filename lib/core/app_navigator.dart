@@ -7,8 +7,13 @@ import 'package:flutter/material.dart';
 class AppNavigator {
   static final GlobalKey<NavigatorState> key = GlobalKey<NavigatorState>();
   static final Map<String, Object?> _argumentsByPath = <String, Object?>{};
+  static StackRouter? _rootRouter;
 
   static BuildContext? get context => key.currentState?.overlay?.context;
+
+  static void bindRootRouter(StackRouter router) {
+    _rootRouter = router;
+  }
 
   static Future<T?> pushNamed<T extends Object?>(
     BuildContext context,
@@ -17,7 +22,7 @@ class AppNavigator {
   }) {
     final path = _buildPath(routeName);
     _rememberArguments(path, arguments);
-    return context.router.pushPath<T>(path);
+    return _routerFor(context).pushPath<T>(path);
   }
 
   static Future<T?> pushReplacementNamed<T extends Object?, TO extends Object?>(
@@ -28,7 +33,7 @@ class AppNavigator {
   }) {
     final path = _buildPath(routeName);
     _rememberArguments(path, arguments);
-    return context.router.replacePath<T>(path);
+    return _routerFor(context).replacePath<T>(path);
   }
 
   static Future<T?> pushNamedAndRemoveUntil<T extends Object?>(
@@ -37,10 +42,11 @@ class AppNavigator {
     RoutePredicate predicate, {
     Object? arguments,
   }) {
-    context.router.popUntilRoot();
+    final router = _routerFor(context);
+    router.popUntilRoot();
     final path = _buildPath(newRouteName);
     _rememberArguments(path, arguments);
-    return context.router.replacePath<T>(path);
+    return router.replacePath<T>(path);
   }
 
   static Object? argsForPath(String routeName) {
@@ -81,5 +87,26 @@ class AppNavigator {
       return List<Object?>.from(arguments);
     }
     return arguments;
+  }
+
+  static StackRouter _routerFor(BuildContext context) {
+    final direct = StackRouterScope.of(context, watch: false)?.controller;
+    if (direct != null) return direct;
+
+    final fallbackContext =
+        key.currentState?.context ?? key.currentState?.overlay?.context;
+    if (fallbackContext != null) {
+      final fallback =
+          StackRouterScope.of(fallbackContext, watch: false)?.controller;
+      if (fallback != null) return fallback;
+    }
+
+    if (_rootRouter != null) {
+      return _rootRouter!;
+    }
+
+    throw FlutterError(
+      'Navigation requested without an AutoRouter context for route operation.',
+    );
   }
 }

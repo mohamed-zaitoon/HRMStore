@@ -57,6 +57,65 @@ class CloudflareNotifyService {
     );
   }
 
+  // EN: Sends new-order notification to assigned merchant endpoint.
+  // AR: ترسل إشعار الطلب الجديد للتاجر المكلّف.
+  static Future<bool> notifyMerchantNewOrder({
+    required String orderId,
+    required Map<String, dynamic> order,
+    required String merchantWhatsapp,
+  }) async {
+    final normalized = _normalizeWhatsapp(merchantWhatsapp);
+    if (normalized.isEmpty) return false;
+
+    final methodLabel = _paymentMethodLabel((order['method'] ?? '').toString());
+    final label = _orderLabel(order);
+    final who = (order['name'] ?? '').toString().trim();
+    final body = [
+      'طلب جديد من ${who.isEmpty ? 'عميل' : who}',
+      if (label.isNotEmpty) label,
+      if (methodLabel.isNotEmpty) 'وسيلة الدفع: $methodLabel',
+    ].join(' - ');
+
+    return _send(
+      title: 'لديك طلب شحن جديد',
+      message: body,
+      data: <String, dynamic>{'type': 'merchant_new_order', 'order_id': orderId},
+      targetExternalIds: _merchantExternalIdsForWhatsapp(normalized),
+      fallbackRole: 'user',
+      fallbackWhatsapp: normalized,
+    );
+  }
+
+  // EN: Sends chat-message notification to merchant endpoint.
+  // AR: ترسل إشعار رسالة الشات لنقطة نهاية التاجر.
+  static Future<bool> notifyMerchantChatMessage({
+    required String orderId,
+    required String merchantWhatsapp,
+    String? userName,
+    String? messagePreview,
+  }) async {
+    final normalized = _normalizeWhatsapp(merchantWhatsapp);
+    if (normalized.isEmpty) return false;
+    final who = (userName ?? '').trim();
+    final preview = (messagePreview ?? '').trim();
+    final body = preview.isNotEmpty
+        ? preview
+        : (who.isNotEmpty ? 'رسالة جديدة من $who' : 'رسالة جديدة من مستخدم');
+
+    return _send(
+      title: 'رسالة جديدة من العميل',
+      message: body,
+      data: <String, dynamic>{
+        'type': 'chat_message',
+        'order_id': orderId,
+        'sender_role': 'user',
+      },
+      targetExternalIds: _merchantExternalIdsForWhatsapp(normalized),
+      fallbackRole: 'user',
+      fallbackWhatsapp: normalized,
+    );
+  }
+
   // EN: Sends receipt-uploaded notification to admin endpoint.
   // AR: ترسل إشعار رفع الإيصال لنقطة نهاية الأدمن.
   static Future<bool> notifyAdminsReceiptUploaded({
@@ -192,17 +251,27 @@ class CloudflareNotifyService {
     required String orderId,
     required String userWhatsapp,
     String? messagePreview,
+    String senderRole = 'admin',
   }) async {
     final normalized = _normalizeWhatsapp(userWhatsapp);
     if (normalized.isEmpty) return false;
+    final safeSenderRole = senderRole.trim().toLowerCase() == 'merchant'
+        ? 'merchant'
+        : 'admin';
     final preview = (messagePreview ?? '').trim();
+    final title = safeSenderRole == 'merchant'
+        ? 'رسالة جديدة من التاجر'
+        : 'رسالة جديدة من الدعم';
+    final defaultBody = safeSenderRole == 'merchant'
+        ? 'هناك رد جديد من التاجر على طلبك.'
+        : 'هناك رد جديد على طلبك.';
     return _send(
-      title: 'رسالة جديدة من الدعم',
-      message: preview.isNotEmpty ? preview : 'هناك رد جديد على طلبك.',
+      title: title,
+      message: preview.isNotEmpty ? preview : defaultBody,
       data: <String, dynamic>{
         'type': 'chat_message',
         'order_id': orderId,
-        'sender_role': 'admin',
+        'sender_role': safeSenderRole,
       },
       targetExternalIds: _externalIdsForWhatsapp(normalized, isAdmin: false),
       fallbackRole: 'user',
@@ -597,6 +666,18 @@ class CloudflareNotifyService {
     return out.toList(growable: false);
   }
 
+  static List<String> _merchantExternalIdsForWhatsapp(String rawWhatsapp) {
+    final variants = _whatsappVariants(rawWhatsapp);
+    final out = <String>{};
+    for (final v in variants) {
+      if (v.trim().isEmpty) continue;
+      out.add('user:$v');
+      out.add('merchant:$v');
+      out.add(v);
+    }
+    return out.toList(growable: false);
+  }
+
   static List<String> _whatsappVariants(String value) {
     final digits = _normalizeWhatsapp(value);
     if (digits.isEmpty) return const <String>[];
@@ -631,13 +712,6 @@ class CloudflareNotifyService {
       final packageLabel = (order['package_label'] ?? '').toString().trim();
       if (packageLabel.isNotEmpty) return packageLabel;
       return 'شحن لعبة';
-    }
-    if (productType == 'balance_topup') {
-      final points = (order['balance_points_requested'] ?? '')
-          .toString()
-          .trim();
-      if (points.isNotEmpty) return 'شحن رصيد $points نقطة';
-      return 'شحن رصيد';
     }
     if (productType == 'tiktok_promo') {
       return 'ترويج فيديو تيك توك';

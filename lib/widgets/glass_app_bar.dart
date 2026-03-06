@@ -102,7 +102,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   String _fallbackRouteFor(String path) {
     final normalized = _normalizePath(path);
-    if (normalized.startsWith('/admin')) return '/admin/orders';
+    if (normalized.startsWith('/admin')) return '/admin/users';
     return '/home';
   }
 
@@ -141,6 +141,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
     '/home',
     '/admin',
     '/admin/login',
+    '/admin/users',
     '/admin/orders',
     '/android',
   };
