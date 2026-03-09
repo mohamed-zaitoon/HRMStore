@@ -7,6 +7,7 @@ import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart' as launcher;
 
@@ -14,13 +15,13 @@ import '../../core/app_info.dart';
 import '../../core/app_navigator.dart';
 import '../../core/order_status.dart';
 import '../../core/tt_colors.dart';
+import '../../models/game_package.dart';
 import '../../services/cloudflare_notify_service.dart';
 import '../../services/merchant_presence_service.dart';
 import '../../services/order_chat_service.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_bottom_sheet.dart';
 import '../../widgets/glass_card.dart';
-import '../../widgets/order_chat_panel.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/theme_mode_sheet.dart';
 import '../../widgets/top_snackbar.dart';
@@ -45,6 +46,7 @@ class MerchantOrdersScreen extends StatefulWidget {
 
 class _MerchantOrdersScreenState extends State<MerchantOrdersScreen>
     with WidgetsBindingObserver {
+  static const double _usdCostPer1000 = 10.41;
   String _statusFilter = 'all';
   late Stream<QuerySnapshot<Map<String, dynamic>>> _ordersStream;
   bool _useIndexedOrdersQuery = true;
@@ -58,6 +60,12 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen>
       FirebaseFirestore.instance
           .collection('users')
           .doc(widget.merchantId)
+          .snapshots();
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> get _currencyStream =>
+      FirebaseFirestore.instance
+          .collection('app_settings')
+          .doc('currency')
           .snapshots();
 
   String _normalizeWhatsapp(String value) {
@@ -224,6 +232,20 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen>
     return productType == 'tiktok' ||
         productType == 'game' ||
         productType == 'tiktok_promo';
+  }
+
+  double? _parseUsdValue(dynamic raw) {
+    if (raw is num) return raw.toDouble();
+    if (raw is String) {
+      return double.tryParse(raw.trim().replaceAll(',', '.'));
+    }
+    return null;
+  }
+
+  double? _merchantAutoBaseCostPer1000(Map<String, dynamic>? data) {
+    final usdRate = _parseUsdValue(data?['usd_price'] ?? data?['usd_egp']);
+    if (usdRate == null || usdRate <= 0) return null;
+    return (usdRate * _usdCostPer1000).ceilToDouble();
   }
 
   Future<void> _logout() async {
@@ -705,101 +727,119 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen>
 
                     return CustomMaterialIndicator(
                       onRefresh: _handleRefresh,
-                      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: _ordersStream,
-                        builder: (context, snapshot) {
-                          if (snapshot.hasError) {
-                            if (_isMissingIndexError(snapshot.error) &&
-                                _useIndexedOrdersQuery) {
-                              unawaited(_switchToFallbackQuery());
-                              return _buildRefreshableCenteredState(
-                                child: const Text(
-                                  'جاري تجهيز تحميل الطلبات...',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(fontFamily: 'Cairo'),
-                                ),
+                      child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: _currencyStream,
+                        builder: (context, currencySnap) {
+                          final autoBaseCostPer1000 =
+                              _merchantAutoBaseCostPer1000(
+                                currencySnap.data?.data(),
                               );
-                            }
-                            return _buildRefreshableCenteredState(
-                              child: Text(
-                                _useIndexedOrdersQuery
-                                    ? 'تعذر تحميل الطلبات حالياً. اسحب للتحديث.'
-                                    : 'تعذر تحميل الطلبات حتى في الوضع الاحتياطي. اسحب للتحديث أو تحقق من الإنترنت.',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(fontFamily: 'Cairo'),
-                              ),
-                            );
-                          }
-                          if (!snapshot.hasData) {
-                            return _buildRefreshableCenteredState(
-                              child: const CircularProgressIndicator(),
-                            );
-                          }
-                          final rawDocs = snapshot.data!.docs
-                              .where(
-                                (doc) => _isSupportedMerchantOrderType(
-                                  (doc.data()['product_type'] ?? 'tiktok')
-                                      .toString()
-                                      .trim(),
-                                ),
-                              )
-                              .toList(growable: false);
-                          if (rawDocs.isEmpty &&
-                              !_useMerchantWhatsappLookup &&
-                              widget.merchantWhatsapp.trim().isNotEmpty) {
-                            unawaited(_switchToWhatsappLookup());
-                            return _buildRefreshableCenteredState(
-                              child: const Text(
-                                'لا توجد طلبات حالياً.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(fontFamily: 'Cairo'),
-                              ),
-                            );
-                          }
-                          if (!_useIndexedOrdersQuery) {
-                            rawDocs.sort((a, b) {
-                              final aTs = a.data()['created_at'];
-                              final bTs = b.data()['created_at'];
-                              if (aTs is Timestamp && bTs is Timestamp) {
-                                return bTs.compareTo(aTs);
+                          return StreamBuilder<
+                            QuerySnapshot<Map<String, dynamic>>
+                          >(
+                            stream: _ordersStream,
+                            builder: (context, snapshot) {
+                              if (snapshot.hasError) {
+                                if (_isMissingIndexError(snapshot.error) &&
+                                    _useIndexedOrdersQuery) {
+                                  unawaited(_switchToFallbackQuery());
+                                  return _buildRefreshableCenteredState(
+                                    child: const Text(
+                                      'جاري تجهيز تحميل الطلبات...',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(fontFamily: 'Cairo'),
+                                    ),
+                                  );
+                                }
+                                return _buildRefreshableCenteredState(
+                                  child: Text(
+                                    _useIndexedOrdersQuery
+                                        ? 'تعذر تحميل الطلبات حالياً. اسحب للتحديث.'
+                                        : 'تعذر تحميل الطلبات حتى في الوضع الاحتياطي. اسحب للتحديث أو تحقق من الإنترنت.',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontFamily: 'Cairo'),
+                                  ),
+                                );
                               }
-                              if (bTs is Timestamp) return 1;
-                              if (aTs is Timestamp) return -1;
-                              return b.id.compareTo(a.id);
-                            });
-                          }
-                          final docs = _statusFilter == 'all'
-                              ? rawDocs
-                              : rawDocs
-                                    .where(
-                                      (doc) =>
-                                          (doc.data()['status'] ?? '')
-                                              .toString() ==
-                                          _statusFilter,
-                                    )
-                                    .toList(growable: false);
+                              if (!snapshot.hasData) {
+                                return _buildRefreshableCenteredState(
+                                  child: const CircularProgressIndicator(),
+                                );
+                              }
+                              final rawDocs = snapshot.data!.docs
+                                  .where(
+                                    (doc) => _isSupportedMerchantOrderType(
+                                      (doc.data()['product_type'] ?? 'tiktok')
+                                          .toString()
+                                          .trim(),
+                                    ),
+                                  )
+                                  .toList(growable: false);
+                              if (rawDocs.isEmpty &&
+                                  !_useMerchantWhatsappLookup &&
+                                  widget.merchantWhatsapp.trim().isNotEmpty) {
+                                unawaited(_switchToWhatsappLookup());
+                                return _buildRefreshableCenteredState(
+                                  child: const Text(
+                                    'لا توجد طلبات حالياً.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(fontFamily: 'Cairo'),
+                                  ),
+                                );
+                              }
+                              if (!_useIndexedOrdersQuery) {
+                                rawDocs.sort((a, b) {
+                                  final aTs = a.data()['created_at'];
+                                  final bTs = b.data()['created_at'];
+                                  if (aTs is Timestamp && bTs is Timestamp) {
+                                    return bTs.compareTo(aTs);
+                                  }
+                                  if (bTs is Timestamp) return 1;
+                                  if (aTs is Timestamp) return -1;
+                                  return b.id.compareTo(a.id);
+                                });
+                              }
+                              final docs = _statusFilter == 'all'
+                                  ? rawDocs
+                                  : rawDocs
+                                        .where(
+                                          (doc) =>
+                                              (doc.data()['status'] ?? '')
+                                                  .toString() ==
+                                              _statusFilter,
+                                        )
+                                        .toList(growable: false);
 
-                          if (docs.isEmpty) {
-                            return _buildRefreshableCenteredState(
-                              child: const Text(
-                                'لا توجد طلبات حالياً.',
-                                style: TextStyle(fontFamily: 'Cairo'),
-                              ),
-                            );
-                          }
+                              if (docs.isEmpty) {
+                                return _buildRefreshableCenteredState(
+                                  child: const Text(
+                                    'لا توجد طلبات حالياً.',
+                                    style: TextStyle(fontFamily: 'Cairo'),
+                                  ),
+                                );
+                              }
 
-                          return ListView.builder(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 18),
-                            itemCount: docs.length,
-                            itemBuilder: (context, index) {
-                              final doc = docs[index];
-                              return MerchantOrderCard(
-                                id: doc.id,
-                                data: doc.data(),
-                                merchantId: widget.merchantId,
-                                merchantName: widget.merchantName,
-                                merchantWhatsapp: widget.merchantWhatsapp,
+                              return ListView.builder(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  8,
+                                  12,
+                                  18,
+                                ),
+                                itemCount: docs.length,
+                                itemBuilder: (context, index) {
+                                  final doc = docs[index];
+                                  return MerchantOrderCard(
+                                    key: ValueKey(doc.id),
+                                    id: doc.id,
+                                    data: doc.data(),
+                                    merchantId: widget.merchantId,
+                                    merchantName: widget.merchantName,
+                                    merchantWhatsapp: widget.merchantWhatsapp,
+                                    autoBaseCostPer1000: autoBaseCostPer1000,
+                                  );
+                                },
                               );
                             },
                           );
@@ -823,6 +863,7 @@ class MerchantOrderCard extends StatefulWidget {
   final String merchantId;
   final String merchantName;
   final String merchantWhatsapp;
+  final double? autoBaseCostPer1000;
 
   const MerchantOrderCard({
     super.key,
@@ -831,6 +872,7 @@ class MerchantOrderCard extends StatefulWidget {
     required this.merchantId,
     required this.merchantName,
     required this.merchantWhatsapp,
+    this.autoBaseCostPer1000,
   });
 
   @override
@@ -931,8 +973,51 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
     return int.tryParse((raw ?? '').toString().trim()) ?? 0;
   }
 
-  Timestamp _newDeliveryExpiryTimestamp() {
-    return Timestamp.fromDate(DateTime.now().add(const Duration(seconds: 20)));
+  double _parseDoubleValue(dynamic raw) {
+    if (raw is double) return raw;
+    if (raw is int) return raw.toDouble();
+    if (raw is num) return raw.toDouble();
+    return double.tryParse(
+          (raw ?? '').toString().trim().replaceAll(',', '.'),
+        ) ??
+        0;
+  }
+
+  String _formatAmount(double value) {
+    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+    if ((value * 10) == (value * 10).roundToDouble()) {
+      return value.toStringAsFixed(1);
+    }
+    return value.toStringAsFixed(2);
+  }
+
+  double? _requestedCoinsValue(Map<String, dynamic> orderData) {
+    final productType = (orderData['product_type'] ?? 'tiktok')
+        .toString()
+        .trim();
+    if (productType == 'game') {
+      final quantity = _parseDoubleValue(orderData['package_quantity']);
+      return quantity > 0 ? quantity : null;
+    }
+    if (productType == 'tiktok') {
+      final points = _parseDoubleValue(orderData['points']);
+      return points > 0 ? points : null;
+    }
+    return null;
+  }
+
+  String? _requestedCoinsText(Map<String, dynamic> orderData) {
+    final value = _requestedCoinsValue(orderData);
+    if (value == null || value <= 0) return null;
+    return _formatAmount(value);
+  }
+
+  double? _estimatedAutoCost() {
+    final basePrice = widget.autoBaseCostPer1000;
+    if (basePrice == null || basePrice <= 0) return null;
+    final coins = _requestedCoinsValue(widget.data);
+    if (coins == null) return null;
+    return ((coins / 1000) * basePrice).ceilToDouble();
   }
 
   bool _isChatSupportedOrderType(String productType) {
@@ -941,24 +1026,21 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
         productType == 'tiktok_promo';
   }
 
-  bool _isExecutionChatOpen(String status) {
-    return status == 'pending_payment' ||
-        status == 'pending_review' ||
-        status == 'processing';
-  }
-
-  String _chatDisabledHint({
-    required String status,
-    required bool supportsChat,
-  }) {
-    if (!supportsChat) return 'هذا النوع من الطلبات لا يدعم الشات.';
-    if (status == 'completed') return 'تم إغلاق الشات لأن الطلب مكتمل ✅';
-    if (status == 'rejected') return 'تم إغلاق الشات لأن الطلب مرفوض ❌';
-    if (status == 'cancelled') return 'تم إغلاق الشات لأن الطلب ملغي.';
-    if (status == 'pending_payment') {
-      return 'يمكن للمستخدم إرسال إثبات الدفع عبر الشات.';
+  Future<void> _openOrderChatFullscreen() async {
+    final status = (widget.data['status'] ?? '').toString().trim();
+    if (!_isFinalStatus && status != 'processing') {
+      await _updateStatus('processing');
+      if (!mounted) return;
     }
-    return 'الشات غير متاح حالياً لهذا الطلب.';
+    AppNavigator.pushNamed(
+      context,
+      '/order_chat',
+      arguments: <String, dynamic>{
+        'order_id': widget.id,
+        'viewer_role': 'merchant',
+        'viewer_name': widget.merchantName,
+      },
+    );
   }
 
   int _extractPointsUsed(Map<String, dynamic> orderData) {
@@ -968,138 +1050,6 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
     final discount = _parseIntValue(orderData['points_discount']);
     final sum = paid + discount;
     return sum > 0 ? sum : 0;
-  }
-
-  Future<void> _markOrderAsProcessingAndClearLegacyDelivery() async {
-    await FirebaseFirestore.instance.collection('orders').doc(widget.id).set({
-      'status': 'processing',
-      'updated_at': FieldValue.serverTimestamp(),
-      'delivery_link': null,
-      'delivery_qr_url': null,
-      'delivery_qr_path': null,
-      'delivery_expires_at': null,
-      'delivery_expired_at': null,
-      'delivery_refresh_requested_at': null,
-      'delivery_refresh_requested_by': null,
-    }, SetOptions(merge: true));
-  }
-
-  Future<void> _notifyUserProcessingStatus() async {
-    final userWhatsapp = _orderUserWhatsapp(widget.data);
-    if (userWhatsapp.isEmpty) return;
-    unawaited(
-      CloudflareNotifyService.notifyUserOrderStatus(
-        userWhatsapp: userWhatsapp,
-        orderId: widget.id,
-        status: 'processing',
-      ),
-    );
-  }
-
-  Future<void> _sendDeliveryLoginLinkViaChat() async {
-    if (_isFinalStatus) {
-      if (mounted) {
-        TopSnackBar.show(
-          context,
-          "لا يمكن تعديل بيانات طلب مكتمل أو مرفوض",
-          backgroundColor: Colors.red,
-          textColor: Colors.white,
-          icon: Icons.block,
-        );
-      }
-      return;
-    }
-
-    final linkCtrl = TextEditingController();
-    final noteCtrl = TextEditingController();
-    final result = await showDialog<(String, String)>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
-        title: const Text(
-          'إرسال لينك تسجيل الدخول',
-          style: TextStyle(fontFamily: 'Cairo'),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: linkCtrl,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'الرابط',
-                hintText: 'https://...',
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: noteCtrl,
-              maxLines: 2,
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(labelText: 'ملاحظة (اختياري)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("إلغاء"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final value = linkCtrl.text.trim();
-              if (value.isEmpty) return;
-              Navigator.pop(ctx, (value, noteCtrl.text.trim()));
-            },
-            child: const Text("إرسال"),
-          ),
-        ],
-      ),
-    );
-
-    if (!mounted || result == null) return;
-
-    final safeLink = ensureHttps(result.$1);
-    final note = result.$2;
-    setState(() => _isUpdating = true);
-    try {
-      await OrderChatService.addMessage(
-        orderId: widget.id,
-        senderRole: 'merchant',
-        senderName: widget.merchantName,
-        text: note,
-        attachmentType: 'link',
-        attachmentUrl: safeLink,
-        attachmentLabel: 'لينك تسجيل الدخول',
-        attachmentExpiresAt: _newDeliveryExpiryTimestamp(),
-        recipientUserWhatsapp: _orderUserWhatsapp(widget.data),
-      );
-      await _markOrderAsProcessingAndClearLegacyDelivery();
-      await _notifyUserProcessingStatus();
-      if (!mounted) return;
-      setState(() {
-        _isUpdating = false;
-        widget.data['status'] = 'processing';
-      });
-      TopSnackBar.show(
-        context,
-        "تم إرسال لينك تسجيل الدخول داخل الشات ✅",
-        backgroundColor: Colors.green,
-        textColor: Colors.white,
-        icon: Icons.check_circle,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isUpdating = false);
-      TopSnackBar.show(
-        context,
-        "حدث خطأ أثناء إرسال الرابط",
-        backgroundColor: Colors.red,
-        textColor: Colors.white,
-        icon: Icons.error_outline,
-      );
-      debugPrint('merchant send delivery link failed: $e');
-    }
   }
 
   Future<void> _updateStatus(
@@ -1162,6 +1112,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
         if (newStatus == 'rejected') 'rejection_reason': safeRejectionReason,
         if (newStatus == 'rejected')
           'rejection_contact_whatsapp': safeRejectionContact,
+        if (newStatus == 'rejected') 'tiktok_password': FieldValue.delete(),
         if (newStatus != 'rejected') 'rejection_reason': FieldValue.delete(),
         if (newStatus != 'rejected')
           'rejection_contact_whatsapp': FieldValue.delete(),
@@ -1191,6 +1142,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
         if (newStatus == 'rejected') {
           widget.data['rejection_reason'] = safeRejectionReason;
           widget.data['rejection_contact_whatsapp'] = safeRejectionContact;
+          widget.data.remove('tiktok_password');
         } else {
           widget.data.remove('rejection_reason');
           widget.data.remove('rejection_contact_whatsapp');
@@ -1213,7 +1165,9 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
             userWhatsapp: userWhatsapp,
             orderId: widget.id,
             status: newStatus,
-            rejectionReason: newStatus == 'rejected' ? safeRejectionReason : null,
+            rejectionReason: newStatus == 'rejected'
+                ? safeRejectionReason
+                : null,
           ),
         );
       }
@@ -1229,7 +1183,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
           OrderChatService.addSystemMessage(
             orderId: widget.id,
             text:
-                'تم رفض الطلب بواسطة التاجر.\nسبب الرفض: $safeRejectionReason\nرقم التواصل: $safeRejectionContact',
+                'تم رفض الطلب بواسطة التاجر.\nسبب الرفض: $safeRejectionReason',
           ),
         );
       } else if (newStatus == 'completed') {
@@ -1326,24 +1280,26 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
     final bool isGameOrder = productType == 'game';
     final bool isPromoOrder = productType == 'tiktok_promo';
     final bool supportsOrderChat = _isChatSupportedOrderType(productType);
-    final bool isExecutionChatOpen = _isExecutionChatOpen(status);
-    final bool shouldShowChatSection = supportsOrderChat;
 
     final name = (widget.data['name'] ?? '').toString().trim();
-    final userWhatsapp = _orderUserWhatsapp(widget.data);
     final tiktok = (widget.data['user_tiktok'] ?? '').toString().trim();
     final createdAt = widget.data['created_at'];
     final createdAtText = createdAt is Timestamp
         ? createdAt.toDate().toLocal().toString().substring(0, 16)
         : '';
+    final requestedCoinsText = _requestedCoinsText(widget.data);
     final pointsUsed = _extractPointsUsed(widget.data);
     final price = (widget.data['price'] ?? '').toString();
     final paymentMethod = (widget.data['method'] ?? '').toString();
+    final gameKey = (widget.data['game'] ?? '').toString().trim();
+    final packageLabel = (widget.data['package_label'] ?? '').toString().trim();
     final gameId = (widget.data['game_id'] ?? '').toString();
     final promoVideoLink = (widget.data['video_link'] ?? '').toString().trim();
     final tiktokPassword = (widget.data['tiktok_password'] ?? '')
         .toString()
         .trim();
+    final autoBaseCostPer1000 = widget.autoBaseCostPer1000;
+    final estimatedAutoCost = _estimatedAutoCost();
     final tiktokChargeMode = (widget.data['tiktok_charge_mode'] ?? '')
         .toString()
         .trim();
@@ -1400,11 +1356,6 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
           ),
           const SizedBox(height: 4),
           Text(
-            'واتساب: $userWhatsapp',
-            style: TextStyle(color: colorScheme.onSurfaceVariant),
-          ),
-          const SizedBox(height: 4),
-          Text(
             'المنتج: ${productType == 'tiktok'
                 ? 'شحن تيك توك'
                 : productType == 'game'
@@ -1414,6 +1365,32 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
                 : 'نوع غير مدعوم'}',
             style: TextStyle(color: colorScheme.onSurfaceVariant),
           ),
+          if (isGameOrder && gameKey.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'اللعبة: ${GamePackage.gameLabel(gameKey)}',
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+            ),
+          ],
+          if (isGameOrder && packageLabel.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'الباقة: $packageLabel',
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+            ),
+          ],
+          if (requestedCoinsText != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              isGameOrder
+                  ? 'الكمية المطلوبة: $requestedCoinsText'
+                  : 'عدد العملات المطلوبة: $requestedCoinsText',
+              style: TextStyle(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
           if (tiktok.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
@@ -1455,8 +1432,9 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
                 style: TextStyle(color: colorScheme.onSurfaceVariant),
               ),
             ],
-            if (tiktokChargeMode == 'username_password' ||
-                tiktokPassword.isNotEmpty) ...[
+            if (!_isFinalStatus &&
+                (tiktokChargeMode == 'username_password' ||
+                    tiktokPassword.isNotEmpty)) ...[
               const SizedBox(height: 6),
               Row(
                 children: [
@@ -1476,6 +1454,21 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
                             ? Icons.visibility_off
                             : Icons.visibility,
                       ),
+                    ),
+                  if (tiktokPassword.isNotEmpty)
+                    IconButton(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: tiktokPassword));
+                        TopSnackBar.show(
+                          this.context,
+                          "تم نسخ باسورد تيك توك",
+                          backgroundColor: colorScheme.surface,
+                          textColor: colorScheme.onSurface,
+                          icon: Icons.check_circle,
+                        );
+                      },
+                      icon: const Icon(Icons.copy, size: 18),
+                      tooltip: "نسخ باسورد تيك توك",
                     ),
                 ],
               ),
@@ -1532,20 +1525,77 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
               ],
             ),
           ],
-          const SizedBox(height: 12),
-          if (!isGameOrder && !isPromoOrder && !_isFinalStatus) ...[
-            if (tiktokChargeMode == 'link' || tiktokChargeMode.isEmpty)
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _sendDeliveryLoginLinkViaChat,
-                  icon: const Icon(Icons.link),
-                  label: const Text(
-                    "إرسال لينك تسجيل الدخول داخل الشات",
-                    style: TextStyle(fontFamily: 'Cairo'),
+          if (requestedCoinsText != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer.withAlpha(54),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: colorScheme.primary.withAlpha(70)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'حساب التكلفة التلقائي',
+                    style: TextStyle(
+                      color: colorScheme.onSurface,
+                      fontFamily: 'Cairo',
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
+                  const SizedBox(height: 8),
+                  if (autoBaseCostPer1000 != null) ...[
+                    Text(
+                      'سعر ال1000 بدون تكلفة: ${_formatAmount(autoBaseCostPer1000)} ج.م',
+                      style: TextStyle(
+                        color: colorScheme.primary,
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ] else
+                    Text(
+                      'تعذر تحميل سعر التكلفة من إعدادات الأدمن حالياً.',
+                      style: TextStyle(
+                        color: Colors.orange.shade700,
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  if (estimatedAutoCost != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'سعر التكلفة: ${estimatedAutoCost.toStringAsFixed(0)} ج.م',
+                      style: TextStyle(
+                        color: colorScheme.primary,
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          if (supportsOrderChat) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _openOrderChatFullscreen,
+                icon: const Icon(Icons.forum_outlined),
+                label: const Text(
+                  'فتح المحادثة كاملة',
+                  style: TextStyle(fontFamily: 'Cairo'),
                 ),
               ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          if (!isGameOrder && !isPromoOrder && !_isFinalStatus) ...[
             if (tiktokChargeMode == 'qr')
               Container(
                 width: double.infinity,
@@ -1584,22 +1634,6 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
               ),
             const SizedBox(height: 10),
           ],
-          if (shouldShowChatSection) ...[
-            OrderChatPanel(
-              orderId: widget.id,
-              isAdmin: false,
-              isMerchant: true,
-              userDisplayName: name,
-              adminDisplayName: 'التاجر',
-              userWhatsapp: _orderUserWhatsapp(widget.data),
-              chatEnabled: isExecutionChatOpen,
-              disabledHint: _chatDisabledHint(
-                status: status,
-                supportsChat: supportsOrderChat,
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
           Builder(
             builder: (_) {
               if (_isUpdating) {
@@ -1630,49 +1664,44 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
 
               return Column(
                 children: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => _updateStatus('processing'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        foregroundColor: Colors.white,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _completeOrderDirect,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(0, 48),
+                          ),
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              "تم التنفيذ",
+                              style: TextStyle(fontFamily: 'Cairo'),
+                            ),
+                          ),
+                        ),
                       ),
-                      child: const Text(
-                        "قيد التنفيذ",
-                        style: TextStyle(fontFamily: 'Cairo'),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _rejectOrderDirect,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                            minimumSize: const Size(0, 48),
+                          ),
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              "رفض الطلب",
+                              style: TextStyle(fontFamily: 'Cairo'),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _completeOrderDirect,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Text(
-                        "تم التنفيذ",
-                        style: TextStyle(fontFamily: 'Cairo'),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: _rejectOrderDirect,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.red,
-                        side: const BorderSide(color: Colors.red),
-                      ),
-                      child: const Text(
-                        "رفض الطلب",
-                        style: TextStyle(fontFamily: 'Cairo'),
-                      ),
-                    ),
+                    ],
                   ),
                 ],
               );

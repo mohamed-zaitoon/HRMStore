@@ -1093,7 +1093,9 @@ class _HomeScreenState extends State<HomeScreen>
               .get();
           final merchantData = merchantSnap.data() ?? <String, dynamic>{};
           merchantWhatsapp = _normalizeWhatsapp(
-            (merchantData['merchant_whatsapp'] ?? merchantData['whatsapp'] ?? '')
+            (merchantData['merchant_whatsapp'] ??
+                    merchantData['whatsapp'] ??
+                    '')
                 .toString(),
           );
         } catch (_) {
@@ -2649,7 +2651,6 @@ class _HomeScreenState extends State<HomeScreen>
                             final online = _isMerchantOnline(m);
                             final verified = m['merchant_verified'] == true;
                             final name = (m['name'] ?? 'تاجر').toString();
-                            final wa = (m['whatsapp'] ?? '').toString();
                             return ListTile(
                               leading: Icon(
                                 online ? Icons.circle : Icons.circle_outlined,
@@ -2674,9 +2675,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 ],
                               ),
                               subtitle: Text(
-                                wa.isEmpty
-                                    ? 'واتساب غير متوفر'
-                                    : '${online ? 'متصل الآن' : 'غير متصل الآن'} • $wa',
+                                online ? 'متصل الآن' : 'غير متصل الآن',
                                 style: TextStyle(
                                   color: colorScheme.onSurfaceVariant,
                                 ),
@@ -3004,27 +3003,19 @@ class _HomeScreenState extends State<HomeScreen>
       if (tiktokChargeModeLabel.isNotEmpty) {
         await _safeAddOrderChatMessage(
           orderId: orderId,
-          senderRole: 'user',
-          senderName: displayName,
+          senderRole: 'system',
           text: 'طريقة الشحن المطلوبة: $tiktokChargeModeLabel',
         );
       }
       if (tiktokUser.isNotEmpty) {
         await _safeAddOrderChatMessage(
           orderId: orderId,
-          senderRole: 'user',
-          senderName: displayName,
+          senderRole: 'system',
           text: 'حساب تيك توك: $tiktokUser',
         );
       }
       if (tiktokChargeMode == _tiktokChargeModeUserPass &&
           tiktokPassword.isNotEmpty) {
-        await _safeAddOrderChatMessage(
-          orderId: orderId,
-          senderRole: 'user',
-          senderName: displayName,
-          text: 'كلمة المرور: $tiktokPassword',
-        );
         await _safeAddOrderChatMessage(
           orderId: orderId,
           senderRole: 'system',

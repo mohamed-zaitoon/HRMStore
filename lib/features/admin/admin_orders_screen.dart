@@ -23,7 +23,6 @@ import '../../widgets/top_snackbar.dart';
 import '../../widgets/glass_bottom_sheet.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
-import '../../widgets/order_chat_panel.dart';
 import '../../widgets/snow_background.dart';
 import '../../utils/url_sanitizer.dart';
 
@@ -652,24 +651,16 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         productType == 'tiktok_promo';
   }
 
-  bool _isExecutionChatOpen(String status) {
-    return status == 'pending_payment' ||
-        status == 'pending_review' ||
-        status == 'processing';
-  }
-
-  String _chatDisabledHint({
-    required String status,
-    required bool supportsChat,
-  }) {
-    if (!supportsChat) return 'هذا النوع من الطلبات لا يدعم الشات.';
-    if (status == 'completed') return 'تم إغلاق الشات لأن الطلب مكتمل ✅';
-    if (status == 'rejected') return 'تم إغلاق الشات لأن الطلب مرفوض ❌';
-    if (status == 'cancelled') return 'تم إغلاق الشات لأن الطلب ملغي.';
-    if (status == 'pending_payment') {
-      return 'يمكن للمستخدم إرسال إثبات الدفع عبر الشات.';
-    }
-    return 'الشات غير متاح حالياً لهذا الطلب.';
+  void _openOrderChatFullscreen() {
+    AppNavigator.pushNamed(
+      context,
+      '/order_chat',
+      arguments: <String, dynamic>{
+        'order_id': widget.id,
+        'viewer_role': 'admin',
+        'viewer_name': 'الدعم',
+      },
+    );
   }
 
   int _extractPointsUsed(Map<String, dynamic> orderData) {
@@ -710,10 +701,8 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     required String merchantWhatsapp,
   }) {
     final trimmedReason = reason.trim();
-    final normalizedWhatsapp = _normalizeWhatsapp(merchantWhatsapp);
     if (trimmedReason.isEmpty) return '';
-    if (normalizedWhatsapp.isEmpty) return trimmedReason;
-    return '$trimmedReason\nللتواصل مع التاجر: $normalizedWhatsapp';
+    return trimmedReason;
   }
 
   Future<void> _declineMerchantStatusRequest() async {
@@ -958,112 +947,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         status: 'processing',
       ),
     );
-  }
-
-  Future<void> _sendDeliveryLoginLinkViaChat() async {
-    if (_isFinalStatus) {
-      if (mounted) {
-        TopSnackBar.show(
-          context,
-          "لا يمكن تعديل بيانات طلب مكتمل أو مرفوض",
-          backgroundColor: Colors.red,
-          textColor: Colors.white,
-          icon: Icons.block,
-        );
-      }
-      return;
-    }
-
-    final linkCtrl = TextEditingController();
-    final noteCtrl = TextEditingController();
-    final result = await showDialog<(String, String)>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
-        title: const Text(
-          'إرسال لينك تسجيل الدخول',
-          style: TextStyle(fontFamily: 'Cairo'),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: linkCtrl,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'الرابط',
-                hintText: 'https://...',
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: noteCtrl,
-              maxLines: 2,
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(labelText: 'ملاحظة (اختياري)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("إلغاء"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final value = linkCtrl.text.trim();
-              if (value.isEmpty) return;
-              Navigator.pop(ctx, (value, noteCtrl.text.trim()));
-            },
-            child: const Text("إرسال"),
-          ),
-        ],
-      ),
-    );
-
-    if (!mounted || result == null) return;
-
-    final safeLink = ensureHttps(result.$1);
-    final note = result.$2;
-    setState(() => _isUpdating = true);
-    try {
-      await OrderChatService.addMessage(
-        orderId: widget.id,
-        senderRole: 'admin',
-        senderName: '',
-        text: note,
-        attachmentType: 'link',
-        attachmentUrl: safeLink,
-        attachmentLabel: 'لينك تسجيل الدخول',
-        attachmentExpiresAt: _newDeliveryExpiryTimestamp(),
-        recipientUserWhatsapp: _orderUserWhatsapp(widget.data),
-      );
-      await _markOrderAsProcessingAndClearLegacyDelivery();
-      await _notifyUserProcessingStatus();
-      if (!mounted) return;
-      setState(() {
-        _isUpdating = false;
-        widget.data['status'] = 'processing';
-      });
-      TopSnackBar.show(
-        context,
-        "تم إرسال لينك تسجيل الدخول داخل الشات ✅",
-        backgroundColor: Colors.green,
-        textColor: Colors.white,
-        icon: Icons.check_circle,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isUpdating = false);
-      TopSnackBar.show(
-        context,
-        "حدث خطأ أثناء إرسال الرابط",
-        backgroundColor: Colors.red,
-        textColor: Colors.white,
-        icon: Icons.error_outline,
-      );
-      debugPrint('send delivery login link via chat failed: $e');
-    }
   }
 
   Future<void> _sendDeliveryQrViaChat() async {
@@ -1430,6 +1313,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
           'status': 'rejected',
           'rejection_reason': reason,
           'rejected_at': FieldValue.serverTimestamp(),
+          'tiktok_password': FieldValue.delete(),
           if (isPromoOrder) 'video_link': null,
           if (isPromoOrder)
             'video_link_removed_at': FieldValue.serverTimestamp(),
@@ -1453,6 +1337,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         _isUpdating = false;
         widget.data['status'] = 'rejected';
         widget.data['rejection_reason'] = reason;
+        widget.data.remove('tiktok_password');
         if ((latestOrderData['product_type'] ?? '').toString() ==
             'tiktok_promo') {
           widget.data['video_link'] = null;
@@ -1572,8 +1457,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     final bool isGameOrder = productType == 'game';
     final bool isPromoOrder = productType == 'tiktok_promo';
     final bool supportsOrderChat = _isChatSupportedOrderType(productType);
-    final bool shouldShowChatSection = supportsOrderChat && !isFinalStatus;
-    final bool isExecutionChatOpen = _isExecutionChatOpen(status);
     final String egpPriceText = (widget.data['price'] ?? '').toString().trim();
     final String originalEgpPriceText =
         (widget.data['original_price'] ?? widget.data['price'] ?? '')
@@ -1668,9 +1551,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         : tiktokChargeMode == 'link'
         ? 'لينك'
         : '';
-    final String userDisplayName = (widget.data['name'] ?? '')
-        .toString()
-        .trim();
     final statusColor = OrderStatusHelper.color(status);
     final statusTextColor =
         ThemeData.estimateBrightnessForColor(statusColor) == Brightness.dark
@@ -1961,21 +1841,22 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
 
           const SizedBox(height: 12),
 
-          if (!isFinalStatus) ...[
-            if (!isGameOrder && !isPromoOrder) ...[
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _sendDeliveryLoginLinkViaChat,
-                  icon: const Icon(Icons.link),
-                  label: const Text(
-                    "إرسال لينك تسجيل الدخول داخل الشات",
-                    style: TextStyle(fontFamily: 'Cairo'),
-                  ),
+          if (supportsOrderChat) ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _openOrderChatFullscreen,
+                icon: const Icon(Icons.forum_outlined),
+                label: const Text(
+                  "فتح المحادثة كاملة",
+                  style: TextStyle(fontFamily: 'Cairo'),
                 ),
               ),
-              const SizedBox(height: 10),
-            ],
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          if (!isFinalStatus) ...[
             if (!isGameOrder && !isPromoOrder) ...[
               SizedBox(
                 width: double.infinity,
@@ -1990,22 +1871,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
               ),
               const SizedBox(height: 12),
             ],
-          ],
-
-          if (shouldShowChatSection) ...[
-            OrderChatPanel(
-              orderId: widget.id,
-              isAdmin: true,
-              userDisplayName: userDisplayName,
-              userWhatsapp: _orderUserWhatsapp(widget.data),
-              adminDisplayName: 'الدعم',
-              chatEnabled: isExecutionChatOpen,
-              disabledHint: _chatDisabledHint(
-                status: status,
-                supportsChat: supportsOrderChat,
-              ),
-            ),
-            const SizedBox(height: 12),
           ],
           if (hasPendingMerchantStatusRequest && !isFinalStatus) ...[
             Container(

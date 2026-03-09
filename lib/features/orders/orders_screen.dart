@@ -121,6 +121,21 @@ class _OrdersScreenState extends State<OrdersScreen> {
         productType == 'tiktok_promo';
   }
 
+  String _sanitizeMerchantContactText(String raw) {
+    var text = raw.trim();
+    if (text.isEmpty) return '';
+    text = text.replaceAll(
+      RegExp(r'\n?\s*للتواصل مع التاجر:\s*[^\n]+', caseSensitive: false),
+      '',
+    );
+    text = text.replaceAll(
+      RegExp(r'\n?\s*رقم التواصل:\s*[^\n]+', caseSensitive: false),
+      '',
+    );
+    text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+    return text;
+  }
+
   void _focusOrderChat(String orderId, {bool autoOpenedByStatus = false}) {
     final trimmedOrderId = orderId.trim();
     if (!mounted || trimmedOrderId.isEmpty) return;
@@ -149,10 +164,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final trimmedOrderId = orderId.trim();
     if (!mounted || trimmedOrderId.isEmpty) return;
     final args = <String, dynamic>{
-      'whatsapp': widget.whatsapp,
       'order_id': trimmedOrderId,
+      'viewer_role': 'user',
+      'whatsapp': widget.whatsapp,
     };
-    AppNavigator.pushNamed(context, '/support_chat', arguments: args);
+    AppNavigator.pushNamed(context, '/order_chat', arguments: args);
   }
 
   Future<void> _returnToHome() async {
@@ -276,9 +292,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           final status = (data['status'] ?? 'unknown')
                               .toString();
                           final String rejectionReason =
-                              (data['rejection_reason'] ?? '')
-                                  .toString()
-                                  .trim();
+                              _sanitizeMerchantContactText(
+                                (data['rejection_reason'] ?? '')
+                                    .toString()
+                                    .trim(),
+                              );
                           final String productType =
                               (data['product_type'] ?? 'tiktok').toString();
                           final bool isSupportedChatType = _isChatSupportedType(
@@ -656,6 +674,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
         'status': 'cancelled',
         'cancelled_at': FieldValue.serverTimestamp(),
         'cancelled_by': 'user',
+        'tiktok_password': FieldValue.delete(),
         'video_link': null,
         'video_link_removed_at': FieldValue.serverTimestamp(),
         'updated_at': FieldValue.serverTimestamp(),

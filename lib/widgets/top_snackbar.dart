@@ -6,6 +6,8 @@ import 'package:awesome_snackbar_content/awesome_snackbar_content.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../core/app_navigator.dart';
+
 class TopSnackBar {
   static OverlayEntry? _activeEntry;
   static Timer? _dismissTimer;
@@ -26,7 +28,8 @@ class TopSnackBar {
     String? dedupeKey,
     Duration dedupeDuration = const Duration(minutes: 10),
   }) {
-    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    final effectiveContext = AppNavigator.context ?? context;
+    final overlay = Overlay.maybeOf(effectiveContext, rootOverlay: true);
 
     final contentType = _resolveContentType(
       backgroundColor: backgroundColor,
@@ -53,7 +56,7 @@ class TopSnackBar {
 
     if (overlay == null) {
       _showFallbackSnackBar(
-        context,
+        effectiveContext,
         message,
         contentType: contentType,
         duration: duration,

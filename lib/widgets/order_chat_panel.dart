@@ -116,6 +116,34 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
     return 'أنت';
   }
 
+  String _sanitizeUserVisibleText(String text) {
+    var sanitized = text;
+    sanitized = sanitized.replaceAll(
+      RegExp(r'\n?\s*كلمة المرور:\s*[^\n]+', caseSensitive: false),
+      '',
+    );
+    sanitized = sanitized.replaceAll(
+      RegExp(r'\n?\s*للتواصل مع التاجر:\s*[^\n]+', caseSensitive: false),
+      '',
+    );
+    if (!widget.isAdmin) {
+      sanitized = sanitized.replaceAll(
+        RegExp(r'\n?\s*رقم التواصل:\s*[^\n]+', caseSensitive: false),
+        '',
+      );
+      sanitized = sanitized.replaceAll(
+        RegExp(r'\n?\s*واتساب العميل:\s*[^\n]+', caseSensitive: false),
+        '',
+      );
+      sanitized = sanitized.replaceAll(
+        RegExp(r'\n?\s*واتساب التاجر:\s*[^\n]+', caseSensitive: false),
+        '',
+      );
+    }
+    sanitized = sanitized.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+    return sanitized;
+  }
+
   Timestamp? _timestampFrom(Map<String, dynamic> data) {
     final direct = data['created_at'];
     if (direct is Timestamp) return direct;
@@ -555,7 +583,8 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
     Map<String, dynamic> data, {
     required bool isMine,
   }) {
-    final text = (data['text'] ?? '').toString().trim();
+    final rawText = (data['text'] ?? '').toString().trim();
+    final text = _sanitizeUserVisibleText(rawText);
     final attachmentType = (data['attachment_type'] ?? '').toString().trim();
     final attachmentUrl = (data['attachment_url'] ?? '').toString().trim();
     final attachmentLabel = (data['attachment_label'] ?? '').toString().trim();
@@ -564,8 +593,7 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
     final attachmentRemaining = hasAttachment && !attachmentExpired
         ? _attachmentRemainingSeconds(data)
         : null;
-    final inlineLink =
-        attachmentType == 'link' ? null : _extractFirstUrl(text);
+    final inlineLink = attachmentType == 'link' ? null : _extractFirstUrl(text);
     final sender = _senderLabel(data);
     final time = _formatTime(_timestampFrom(data));
     final colorScheme = Theme.of(context).colorScheme;
@@ -834,6 +862,9 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
 
         return ListView.builder(
           reverse: true,
+          padding: widget.fullScreen
+              ? const EdgeInsets.symmetric(vertical: 6)
+              : EdgeInsets.zero,
           itemCount: docs.length,
           itemBuilder: (context, index) {
             final data = docs[index].data();
@@ -850,13 +881,26 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
       },
     );
 
+    final panelRadius = BorderRadius.circular(widget.fullScreen ? 20 : 12);
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(10),
+      padding: EdgeInsets.all(widget.fullScreen ? 14 : 10),
       decoration: BoxDecoration(
-        color: TTColors.cardBg.withAlpha(120),
-        borderRadius: BorderRadius.circular(12),
+        color: widget.fullScreen
+            ? colorScheme.surface.withAlpha(220)
+            : TTColors.cardBg.withAlpha(120),
+        borderRadius: panelRadius,
         border: Border.all(color: colorScheme.outline.withAlpha(90)),
+        boxShadow: widget.fullScreen
+            ? [
+                BoxShadow(
+                  color: Colors.black.withAlpha(18),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
+                ),
+              ]
+            : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -866,75 +910,92 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
           else
             SizedBox(height: widget.maxHeight, child: messagesList),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _messageCtrl,
-                  enabled: widget.chatEnabled,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _sendTextMessage(),
-                  decoration: const InputDecoration(
-                    hintText: 'اكتب رسالتك...',
-                    isDense: true,
+          Container(
+            padding: EdgeInsets.fromLTRB(
+              widget.fullScreen ? 12 : 8,
+              widget.fullScreen ? 10 : 6,
+              widget.fullScreen ? 8 : 6,
+              widget.fullScreen ? 10 : 6,
+            ),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerHighest.withAlpha(140),
+              borderRadius: BorderRadius.circular(widget.fullScreen ? 18 : 12),
+              border: Border.all(color: colorScheme.outline.withAlpha(70)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _messageCtrl,
+                    enabled: widget.chatEnabled,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _sendTextMessage(),
+                    decoration: const InputDecoration(
+                      hintText: 'اكتب رسالتك...',
+                      isDense: true,
+                      border: InputBorder.none,
+                    ),
                   ),
                 ),
-              ),
-              PopupMenuButton<_AttachmentAction>(
-                tooltip: 'إرفاق',
-                icon: Icon(Icons.attach_file, color: colorScheme.primary),
-                enabled: widget.chatEnabled && !_isUploadingAttachment,
-                onSelected: (action) {
-                  if (action == _AttachmentAction.image) {
-                    _pickAndSendImageAttachment();
-                    return;
-                  }
-                  if (widget.isAdmin || widget.isMerchant) {
-                    _promptAndSendLinkAttachment();
-                  }
-                },
-                itemBuilder: (context) {
-                  final items = <PopupMenuEntry<_AttachmentAction>>[
-                    const PopupMenuItem<_AttachmentAction>(
-                      value: _AttachmentAction.image,
-                      child: Text(
-                        'إرسال صورة',
-                        style: TextStyle(fontFamily: 'Cairo'),
-                      ),
-                    ),
-                  ];
-                  if (widget.isAdmin || widget.isMerchant) {
-                    items.add(
+                PopupMenuButton<_AttachmentAction>(
+                  tooltip: 'إرفاق',
+                  icon: Icon(
+                    Icons.add_circle_outline,
+                    color: colorScheme.primary,
+                  ),
+                  enabled: widget.chatEnabled && !_isUploadingAttachment,
+                  onSelected: (action) {
+                    if (action == _AttachmentAction.image) {
+                      _pickAndSendImageAttachment();
+                      return;
+                    }
+                    if (widget.isAdmin || widget.isMerchant) {
+                      _promptAndSendLinkAttachment();
+                    }
+                  },
+                  itemBuilder: (context) {
+                    final items = <PopupMenuEntry<_AttachmentAction>>[
                       const PopupMenuItem<_AttachmentAction>(
-                        value: _AttachmentAction.link,
+                        value: _AttachmentAction.image,
                         child: Text(
-                          'إرسال رابط',
+                          'إرسال صورة',
                           style: TextStyle(fontFamily: 'Cairo'),
                         ),
                       ),
-                    );
-                  }
-                  return items;
-                },
-              ),
-              const SizedBox(width: 6),
-              IconButton(
-                tooltip: 'إرسال',
-                onPressed:
-                    (_isSending ||
-                        _isUploadingAttachment ||
-                        !widget.chatEnabled)
-                    ? null
-                    : _sendTextMessage,
-                icon: _isSending
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(Icons.send_rounded, color: colorScheme.primary),
-              ),
-            ],
+                    ];
+                    if (widget.isAdmin || widget.isMerchant) {
+                      items.add(
+                        const PopupMenuItem<_AttachmentAction>(
+                          value: _AttachmentAction.link,
+                          child: Text(
+                            'إرسال رابط',
+                            style: TextStyle(fontFamily: 'Cairo'),
+                          ),
+                        ),
+                      );
+                    }
+                    return items;
+                  },
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: 'إرسال',
+                  onPressed:
+                      (_isSending ||
+                          _isUploadingAttachment ||
+                          !widget.chatEnabled)
+                      ? null
+                      : _sendTextMessage,
+                  icon: _isSending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(Icons.send_rounded, color: colorScheme.primary),
+                ),
+              ],
+            ),
           ),
           if (!widget.chatEnabled) ...[
             const SizedBox(height: 6),

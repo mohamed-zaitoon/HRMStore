@@ -25,6 +25,7 @@ import '../features/home/privacy_screen.dart';
 import '../features/auth/account_screen.dart';
 import '../features/auth/user_auth_screen.dart';
 import '../features/support/support_chat_screen.dart';
+import '../features/support/order_chat_screen.dart';
 import '../features/support/support_inquiry_screen.dart';
 
 import '../features/admin/admin_login_screen.dart';
@@ -108,6 +109,11 @@ class HrmStoreApp extends StatelessWidget {
         path: '/support_chat',
         name: 'SupportChatRoute',
         builder: (context, data) => _buildSupportChatPage(data),
+      ),
+      NamedRouteDef(
+        path: '/order_chat',
+        name: 'OrderChatRoute',
+        builder: (context, data) => _buildOrderChatPage(data),
       ),
       NamedRouteDef(
         path: '/support_inquiry',
@@ -445,6 +451,52 @@ class HrmStoreApp extends StatelessWidget {
     );
   }
 
+  Widget _buildOrderChatPage(RouteData data) {
+    final args = _resolveArgsMap(data, '/order_chat');
+    final query = data.queryParams;
+    final orderId =
+        _stringArg(args, 'order_id') ?? query.optString('order_id') ?? '';
+    final requestedRole =
+        _stringArg(args, 'viewer_role') ??
+        query.optString('viewer_role') ??
+        (isAdminApp
+            ? 'admin'
+            : (_isMerchantModeActive() ? 'merchant' : 'user'));
+    final viewerRole = requestedRole.trim().toLowerCase();
+    final viewerName =
+        _stringArg(args, 'viewer_name') ??
+        query.optString('viewer_name') ??
+        (viewerRole == 'admin'
+            ? 'الدعم'
+            : (prefs.getString('user_name') ?? ''));
+    final fallbackWhatsapp =
+        _stringArg(args, 'whatsapp') ??
+        query.optString('whatsapp') ??
+        prefs.getString('user_whatsapp') ??
+        '';
+    final resolvedOrderId = orderId.trim();
+
+    if (resolvedOrderId.isEmpty) {
+      return _buildRootPage('/order_chat');
+    }
+    if (viewerRole == 'merchant' && !_isMerchantModeActive()) {
+      return _buildMerchantOrdersPage();
+    }
+
+    final page = OrderChatScreen(
+      orderId: resolvedOrderId,
+      viewerRole: viewerRole,
+      viewerName: viewerName.trim(),
+      fallbackUserWhatsapp: fallbackWhatsapp.trim(),
+    );
+
+    if (viewerRole == 'admin') {
+      return AdminRouteGuard(child: page);
+    }
+
+    return _withAndroidLanding('/order_chat', page);
+  }
+
   Widget _buildSupportInquiryPage(RouteData data) {
     final args = _resolveArgsMap(data, '/support_inquiry');
     final query = data.queryParams;
@@ -512,6 +564,7 @@ class HrmStoreApp extends StatelessWidget {
       '/orders',
       '/code_requests',
       '/support_inquiry',
+      '/order_chat',
       '/admin/users',
       '/merchant/orders',
     };

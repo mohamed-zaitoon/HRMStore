@@ -187,10 +187,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
   }
 
   String _accountStatus(Map<String, dynamic> data) {
-    return (data['account_status'] ?? 'active')
-        .toString()
-        .trim()
-        .toLowerCase();
+    return (data['account_status'] ?? 'active').toString().trim().toLowerCase();
   }
 
   String? _restrictedAuthMessage(
@@ -719,8 +716,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
             await FirebaseAuth.instance.signOut();
             return restrictedMessage;
           }
-          final hasMerchantAccess =
-              (existing?.data['is_merchant'] == true);
+          final hasMerchantAccess = (existing?.data['is_merchant'] == true);
           final existingVerificationStatus =
               (existing?.data['merchant_verification_status'] ?? '')
                   .toString()
@@ -765,9 +761,7 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
             'created_at':
                 existing?.data['created_at'] ?? FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
-          await _persistAndNavigate(
-            payload,
-          );
+          await _persistAndNavigate(payload);
           return null;
         } on FirebaseAuthException catch (_) {
           return 'الحساب موجود بالفعل بكلمة سر مختلفة';
@@ -789,25 +783,43 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     }
 
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      return null;
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found') {
+      final existing = await _findByField('email', email);
+      final restrictedMessage = _restrictedAuthMessage(
+        existing?.data,
+        action: 'إعادة تعيين كلمة السر',
+      );
+      if (restrictedMessage != null) {
+        return restrictedMessage;
+      }
+
+      // Firebase may suppress user-not-found here when email enumeration
+      // protection is enabled, so bootstrap legacy Firestore-only accounts first.
+      if (existing != null) {
         try {
-          final restored = await _bootstrapLegacyAuthForRecovery(email);
-          if (!restored) {
-            return "لم يتم العثور على الحساب";
-          }
-          await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-          return null;
+          await _bootstrapLegacyAuthForRecovery(email);
         } on FirebaseAuthException catch (legacyError) {
           if (legacyError.code == 'operation-not-allowed') {
             return "تم تعطيل إعادة التعيين عبر البريد من Firebase";
           }
           return "تعذّر تجهيز حسابك القديم، حاول لاحقًا";
-        } catch (_) {
-          return "تعذّر تجهيز حسابك القديم، حاول لاحقًا";
         }
+      }
+
+      await FirebaseAuth.instance.setLanguageCode('ar');
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      return null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found') {
+        return "لم يتم العثور على الحساب";
+      }
+      if (e.code == 'invalid-email') {
+        return "أدخل بريدًا إلكترونيًا صحيحًا";
+      }
+      if (e.code == 'operation-not-allowed') {
+        return "تم تعطيل إعادة التعيين عبر البريد من Firebase";
+      }
+      if (e.code == 'too-many-requests') {
+        return "عدد محاولات كبير، حاول لاحقًا";
       }
       return "تعذّر إرسال رابط التعيين، حاول لاحقًا";
     } catch (_) {

@@ -355,11 +355,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       _showFinalStatusToastOnce(orderId: orderId, status: status);
-      final trimmedOrderId = orderId.trim();
       final args = <String, dynamic>{'whatsapp': widget.whatsapp};
-      if (trimmedOrderId.isNotEmpty) {
-        args['order_id'] = trimmedOrderId;
-      }
       AppNavigator.pushNamedAndRemoveUntil(
         context,
         '/orders',
@@ -410,6 +406,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
             'status': 'cancelled',
             'cancelled_at': FieldValue.serverTimestamp(),
             'cancelled_by': 'user',
+            'tiktok_password': FieldValue.delete(),
             'video_link': null,
             'video_link_removed_at': FieldValue.serverTimestamp(),
             'updated_at': FieldValue.serverTimestamp(),
