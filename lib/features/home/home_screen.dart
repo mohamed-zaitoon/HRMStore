@@ -32,6 +32,8 @@ import '../../services/theme_service.dart';
 import '../../services/update_manager.dart';
 import '../../services/usdt_price_service.dart';
 import '../../utils/html_meta.dart';
+import '../../utils/offer_discount_tiers.dart';
+import '../../utils/pricing_math.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/theme_mode_sheet.dart';
 import '../../widgets/glass_app_bar.dart';
@@ -109,6 +111,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   String _binanceId = "";
   double _usdtPrice = 0;
+  List<OfferPriceTier> _offerPriceTiers = const <OfferPriceTier>[];
+  List<OfferDiscountTier> _offerDiscountTiers = const <OfferDiscountTier>[];
   double _offerRateFor100 = 0;
   double _offerRateFor500 = 0;
   double _offerRateFor1000 = 0;
@@ -623,8 +627,7 @@ class _HomeScreenState extends State<HomeScreen>
             _recompute(val);
             refreshDialog?.call();
           },
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
             labelText: _isPointsMode
                 ? "ادخل عدد النقاط المطلوب"
@@ -1200,6 +1203,29 @@ class _HomeScreenState extends State<HomeScreen>
         !_isSeasonalPromoEnabled) {
       return fallbackRate;
     }
+    if (_offerPriceTiers.isNotEmpty) {
+      final manualOfferRate = resolveOfferRate(
+        tiers: _offerPriceTiers,
+        points: points,
+      );
+      if (manualOfferRate != null && manualOfferRate > 0) {
+        return manualOfferRate;
+      }
+    }
+    if (_offerDiscountTiers.isNotEmpty) {
+      final discountPercent = resolveOfferDiscountPercent(
+        tiers: _offerDiscountTiers,
+        points: points,
+      );
+      if (discountPercent == null || discountPercent <= 0) {
+        return fallbackRate;
+      }
+      final discountedRate = applyDiscountPercent(
+        baseRate: fallbackRate,
+        discountPercent: discountPercent,
+      );
+      return discountedRate > 0 ? discountedRate : fallbackRate;
+    }
     if (points >= 75000 && _offerRateFor75000 > 0) return _offerRateFor75000;
     if (points >= 50000 && _offerRateFor50000 > 0) return _offerRateFor50000;
     if (points >= 1000 && _offerRateFor1000 > 0) return _offerRateFor1000;
@@ -1210,6 +1236,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _applyOffersData(Map<String, dynamic>? rawData) {
     final data = rawData ?? const <String, dynamic>{};
+    final parsedOfferTiers = OfferPriceTier.parseList(data['offer_tiers']);
+    final parsedDiscountTiers = OfferDiscountTier.parseList(
+      data['discount_tiers'],
+    );
     final parsed100 =
         _tryReadDouble(data['rate_100']) ?? _tryReadDouble(data['offer5']) ?? 0;
     final parsed500 = _tryReadDouble(data['rate_500']) ?? parsed100;
@@ -1224,6 +1254,8 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted) return;
     setState(() {
       _offersEnabled = data['enabled'] as bool? ?? true;
+      _offerPriceTiers = parsedOfferTiers;
+      _offerDiscountTiers = parsedDiscountTiers;
       _offerRateFor100 = parsed100;
       _offerRateFor500 = parsed500;
       _offerRateFor1000 = parsed1000;
@@ -1579,7 +1611,15 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    final double inputVal = double.tryParse(val) ?? 0;
+    final double inputVal = parseFlexibleDouble(val) ?? 0;
+
+    final tiers = _prices.map((rule) {
+      return PriceTier(
+        min: (rule['min'] as num?)?.toInt() ?? 0,
+        max: (rule['max'] as num?)?.toInt() ?? 0,
+        pricePer1000: (rule['pricePer1000'] as num?)?.toDouble() ?? 0,
+      );
+    }).toList();
 
     if (_isPointsMode) {
       if (inputVal < _minPoints || inputVal > _maxPoints) {
@@ -1592,77 +1632,38 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
-      final firstRange = _prices.first;
-      final lastRange = _prices.last;
-      final rule = _prices.firstWhere(
-        (r) => inputVal >= r['min'] && inputVal <= r['max'],
-        orElse: () {
-          final firstMin = (firstRange['min'] as num?)?.toDouble() ?? 0;
-          return inputVal < firstMin ? firstRange : lastRange;
-        },
-      );
-
-      double rate = rule['pricePer1000'].toDouble();
+      final rule = resolveTierForPoints(tiers: tiers, points: inputVal);
+      double rate = rule.pricePer1000;
       rate = _resolveOfferRateForPoints(points: inputVal, fallbackRate: rate);
 
-      final rawPrice = (inputVal / 1000) * rate;
-      _priceValue = _ceilToNearestFive(rawPrice);
-      _pointsValue = inputVal.round();
+      _priceValue = calculatePriceFromPoints(
+        points: inputVal,
+        pricePer1000: rate,
+      );
+      _pointsValue = floorCoinAmount(inputVal);
       _resultText = "السعر: $_priceValue جنيه";
       _isInputValid = true;
     } else {
-      final hasFractions = val.contains('.') || val.contains(',');
-      if (hasFractions || inputVal % 1 != 0) {
-        _resultText = "أدخل مبلغًا صحيحًا ينتهي بـ 0 أو 5 (بدون كسور)";
-        _isInputValid = false;
+      if (inputVal <= 0) {
+        _resultText = "أدخل مبلغًا صحيحًا";
         setState(() {});
         _refreshActiveTiktokDialog();
         return;
       }
 
-      final int amountInt = inputVal.toInt();
-      final lastDigit = amountInt % 10;
-      final isAllowedEnding = lastDigit == 0 || lastDigit == 5;
-      if (!isAllowedEnding) {
-        _resultText =
-            "المبلغ يجب أن ينتهي بـ 0 أو 5 فقط. لا نقبل الفكة أو القروش.";
-        setState(() {});
-        _refreshActiveTiktokDialog();
-        return;
-      }
-
-      final normalizedAmount = amountInt;
-      int bestPoints = 0;
-      bool foundTier = false;
-
-      final reversedPrices = _prices.reversed.toList();
-      for (var rule in reversedPrices) {
-        final baseRate = rule['pricePer1000'].toDouble();
-        int potentialPoints = ((normalizedAmount * 1000) / baseRate).floor();
-        final appliedRate = _resolveOfferRateForPoints(
-          points: potentialPoints.toDouble(),
-          fallbackRate: baseRate,
-        );
-        potentialPoints = ((normalizedAmount * 1000) / appliedRate).floor();
-
-        if (potentialPoints >= rule['min']) {
-          bestPoints = potentialPoints;
-          foundTier = true;
-          break;
-        }
-      }
-
-      if (!foundTier) {
-        double rate = _prices.first['pricePer1000'].toDouble();
-        bestPoints = ((normalizedAmount * 1000) / rate).floor();
-      }
+      final int normalizedAmount = ceilMoneyAmount(inputVal);
+      final bestPoints = calculateBestPointsFromAmount(
+        amount: normalizedAmount,
+        tiers: tiers,
+        offerRateResolver: _resolveOfferRateForPoints,
+      );
 
       if (bestPoints < _minPoints || bestPoints > _maxPoints) {
         _outOfRange = bestPoints < _minPoints
             ? _OutOfRange.belowMin
             : _OutOfRange.aboveMax;
         _pointsValue = bestPoints;
-        _priceValue = inputVal.ceil();
+        _priceValue = normalizedAmount;
         _isInputValid = false;
         setState(() {});
         _refreshActiveTiktokDialog();
@@ -1684,28 +1685,18 @@ class _HomeScreenState extends State<HomeScreen>
 
   _OutOfRange _outOfRange = _OutOfRange.none;
 
-  int _ceilToNearestFive(num value) {
-    final rounded = value.ceil();
-    final rem = rounded % 5;
-    return rem == 0 ? rounded : rounded + (5 - rem);
-  }
-
-  int? _validateWholeAmountEnding({
+  int? _normalizeMoneyAmount({
     required String raw,
     int? min,
     int? max,
     bool allowZero = false,
   }) {
-    final normalized = raw.replaceAll(',', '.').trim();
-    final amountDouble = double.tryParse(normalized);
-    if (amountDouble == null || amountDouble % 1 != 0) {
-      _showCustomToast(
-        "أدخل مبلغًا صحيحًا ينتهي بـ 0 أو 5 (بدون كسور)",
-        color: Colors.orange,
-      );
+    final amountDouble = parseFlexibleDouble(raw);
+    if (amountDouble == null) {
+      _showCustomToast("أدخل مبلغًا صحيحًا", color: Colors.orange);
       return null;
     }
-    final amount = amountDouble.toInt();
+    final amount = ceilMoneyAmount(amountDouble);
     if (!allowZero && amount == 0) {
       _showCustomToast("المبلغ يجب أن يكون أكبر من صفر", color: Colors.orange);
       return null;
@@ -1716,14 +1707,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
     if (max != null && amount > max) {
       _showCustomToast("أقصى مبلغ مسموح هو $max", color: Colors.orange);
-      return null;
-    }
-    final lastDigit = amount % 10;
-    if (lastDigit != 0 && lastDigit != 5) {
-      _showCustomToast(
-        "المبلغ يجب أن ينتهي بـ 0 أو 5 فقط. لا نقبل الفكة أو القروش.",
-        color: Colors.orange,
-      );
       return null;
     }
     return amount;
@@ -3298,8 +3281,9 @@ class _HomeScreenState extends State<HomeScreen>
             const SizedBox(height: 10),
             TextField(
               controller: amountCtrl,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 labelText: "المبلغ بالجنيه",
                 hintText: "100 - 60000",
@@ -3327,7 +3311,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted) return;
 
     final link = linkCtrl.text.trim();
-    final amount = _validateWholeAmountEnding(
+    final amount = _normalizeMoneyAmount(
       raw: amountCtrl.text,
       min: 100,
       max: 60000,

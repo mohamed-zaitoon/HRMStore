@@ -245,7 +245,7 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen>
   double? _merchantAutoBaseCostPer1000(Map<String, dynamic>? data) {
     final usdRate = _parseUsdValue(data?['usd_price'] ?? data?['usd_egp']);
     if (usdRate == null || usdRate <= 0) return null;
-    return (usdRate * _usdCostPer1000).ceilToDouble();
+    return usdRate * _usdCostPer1000;
   }
 
   Future<void> _logout() async {
@@ -342,8 +342,10 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen>
   }
 
   String _formatMoney(double amount) {
-    if (amount % 1 == 0) return amount.toInt().toString();
-    return amount.toStringAsFixed(2);
+    final fixed = amount.toStringAsFixed(6);
+    return fixed
+        .replaceFirst(RegExp(r'\.?0+$'), '')
+        .replaceAll(RegExp(r'(\.\d*?)0+$'), r'$1');
   }
 
   String _merchantBillingLabel(Map<String, dynamic> data) {
@@ -984,11 +986,10 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
   }
 
   String _formatAmount(double value) {
-    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
-    if ((value * 10) == (value * 10).roundToDouble()) {
-      return value.toStringAsFixed(1);
-    }
-    return value.toStringAsFixed(2);
+    final fixed = value.toStringAsFixed(6);
+    return fixed
+        .replaceFirst(RegExp(r'\.?0+$'), '')
+        .replaceAll(RegExp(r'(\.\d*?)0+$'), r'$1');
   }
 
   double? _requestedCoinsValue(Map<String, dynamic> orderData) {
@@ -1017,7 +1018,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
     if (basePrice == null || basePrice <= 0) return null;
     final coins = _requestedCoinsValue(widget.data);
     if (coins == null) return null;
-    return ((coins / 1000) * basePrice).ceilToDouble();
+    return (coins / 1000) * basePrice;
   }
 
   bool _isChatSupportedOrderType(String productType) {
@@ -1568,7 +1569,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
                   if (estimatedAutoCost != null) ...[
                     const SizedBox(height: 8),
                     Text(
-                      'سعر التكلفة: ${estimatedAutoCost.toStringAsFixed(0)} ج.م',
+                      'سعر التكلفة: ${_formatAmount(estimatedAutoCost)} ج.م',
                       style: TextStyle(
                         color: colorScheme.primary,
                         fontFamily: 'Cairo',

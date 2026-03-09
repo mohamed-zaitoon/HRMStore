@@ -368,6 +368,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
                             return v.toStringAsFixed(2);
                           }
 
+                          String roundUpMoney(num value) {
+                            return value.toDouble().ceil().toString();
+                          }
+
                           final double? egpAmount = parseLooseNumber(
                             data['price'],
                           );
@@ -398,14 +402,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
                           final String orderAmountText = isPointsMethod
                               ? (originalEgpAmount != null
-                                    ? "${compactAmount(originalEgpAmount)} جنيه (مدفوع بالنقاط)"
+                                    ? "${roundUpMoney(originalEgpAmount)} جنيه (مدفوع بالنقاط)"
                                     : "مدفوع بالنقاط")
                               : isBinanceMethod
                               ? (usdtAmount != null
                                     ? "${compactAmount(usdtAmount)} USDT"
                                     : "USDT غير متاح")
                               : (egpAmount != null
-                                    ? "${compactAmount(egpAmount)} جنيه"
+                                    ? "${roundUpMoney(egpAmount)} جنيه"
                                     : "${data['price']} جنيه");
                           final bool canCancel =
                               status == 'pending_payment' ||

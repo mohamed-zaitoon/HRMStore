@@ -68,34 +68,23 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
     return value;
   }
 
-  double? _parseMargin(dynamic raw) {
-    final value = _parseNumber(raw);
-    if (value == null || value < 0) return null;
-    return value;
-  }
-
   String _formatNumber(double value) {
-    final fixed = value.toStringAsFixed(3);
+    final fixed = value.toStringAsFixed(6);
     return fixed
         .replaceFirst(RegExp(r'\.?0+$'), '')
         .replaceAll(RegExp(r'(\.\d*?)0+$'), r'$1');
   }
 
-  double _roundToSingleDecimal(double value) {
-    return double.parse(value.toStringAsFixed(1));
-  }
-
   String _formatSingleDecimal(double value) {
-    return _roundToSingleDecimal(value).toStringAsFixed(1);
+    final rounded = double.parse(value.toStringAsFixed(1));
+    return _formatNumber(rounded);
   }
-
-  String _rangeLabel(int min, int max) => '$min - $max';
 
   _PricingInputs? _pricingInputs() {
     final usdRate = _parsePositive(_usdRateCtrl.text);
     final usdCostPer1000 = _parsePositive(_usdCostPer1000Ctrl.text);
     if (usdRate == null || usdCostPer1000 == null) return null;
-    final egpCostPer1000 = _roundToSingleDecimal(usdRate * usdCostPer1000);
+    final egpCostPer1000 = usdRate * usdCostPer1000;
     return _PricingInputs(
       usdRate: usdRate,
       usdCostPer1000: usdCostPer1000,
@@ -127,25 +116,18 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
     }
   }
 
-  double _computePricePer1000({
-    required double baseCostPer1000Egp,
-    required double marginPercent,
-  }) {
-    return _roundToSingleDecimal(
-      baseCostPer1000Egp * (1 + marginPercent / 100),
+  double? _legacyDerivedPricePer1000(
+    Map<String, dynamic> data,
+    _PricingInputs? pricing,
+  ) {
+    final storedPrice = _parsePositive(data['pricePer1000']);
+    if (storedPrice != null) return storedPrice;
+
+    final margin = _parseNumber(
+      data['marginPercent'] ?? data['margin_percent'],
     );
-  }
-
-  double? _deriveMarginFromPrice({
-    required double pricePer1000,
-    required double baseCostPer1000Egp,
-  }) {
-    if (baseCostPer1000Egp <= 0) return null;
-    return ((pricePer1000 - baseCostPer1000Egp) / baseCostPer1000Egp) * 100;
-  }
-
-  double? _storedMargin(Map<String, dynamic> data) {
-    return _parseMargin(data['marginPercent'] ?? data['margin_percent']);
+    if (pricing == null || margin == null || margin < 0) return null;
+    return pricing.egpCostPer1000 * (1 + margin / 100);
   }
 
   String? _validateRange({required int min, required int max}) {
@@ -258,77 +240,6 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
     }
   }
 
-  Future<void> _applyPricingToAllRanges() async {
-    final pricing = _requirePricingInputs();
-    if (pricing == null) return;
-
-    setState(() => _isEditing = true);
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('prices')
-          .orderBy('min')
-          .get();
-
-      final missingMargins = <String>[];
-      for (final doc in snap.docs) {
-        if (_storedMargin(doc.data()) != null) continue;
-        final data = doc.data();
-        final min = (data['min'] as num?)?.toInt() ?? 0;
-        final max = (data['max'] as num?)?.toInt() ?? 0;
-        missingMargins.add(_rangeLabel(min, max));
-      }
-
-      if (missingMargins.isNotEmpty) {
-        final preview = missingMargins.take(3).join('، ');
-        final suffix = missingMargins.length > 3 ? ' ...' : '';
-        throw FormatException(
-          'أدخل النسبة يدويًا لكل شريحة أولاً. الشرائح الناقصة: $preview$suffix',
-        );
-      }
-
-      final batch = FirebaseFirestore.instance.batch();
-      _persistPricingSettingsInBatch(batch, pricing);
-
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final margin = _storedMargin(data)!;
-        final newPrice = _computePricePer1000(
-          baseCostPer1000Egp: pricing.egpCostPer1000,
-          marginPercent: margin,
-        );
-        batch.update(doc.reference, {
-          'pricePer1000': newPrice,
-          'marginPercent': margin,
-          'margin_percent': margin,
-        });
-      }
-
-      await batch.commit();
-
-      if (!mounted) return;
-      TopSnackBar.show(
-        context,
-        'تم تحديث ${snap.docs.length} شريحة من سعر الدولار والنسب',
-        backgroundColor: Colors.green,
-        textColor: Colors.white,
-        icon: Icons.check_circle,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      TopSnackBar.show(
-        context,
-        e is FormatException ? e.message : 'تعذر تحديث الشرائح',
-        backgroundColor: Colors.red,
-        textColor: Colors.white,
-        icon: Icons.error,
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isEditing = false);
-      }
-    }
-  }
-
   double _dialogMaxHeight(BuildContext ctx) {
     final mq = MediaQuery.of(ctx);
     final available = mq.size.height - mq.viewInsets.bottom - 200;
@@ -347,14 +258,14 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'التسعير من الدولار والنسب',
+            'التكلفة من الدولار والأسعار يدويًا',
             style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Text(
-            'الأدمن يكتب سعر الدولار وسعر 1000 بالدولار، '
-            'ثم يتم إنتاج سعر 1000 بالجنيه تلقائيًا مع التقريب لمنزلة عشرية واحدة فقط. '
-            'كل شريحة تُكتب بحدها الأدنى والأقصى والنسبة فقط.',
+            'الأدمن يكتب سعر الدولار وسعر 1000 بالدولار فقط، '
+            'وسعر التكلفة بالجنيه يظهر تلقائيًا. '
+            'بعد ذلك يتم إدخال سعر كل شريحة يدويًا بدون نسب أو هوامش ربح.',
             style: TextStyle(
               color: colorScheme.onSurfaceVariant,
               fontFamily: 'Cairo',
@@ -391,13 +302,15 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
             controller: _egpCostPer1000Ctrl,
             readOnly: true,
             enableInteractiveSelection: false,
-            decoration: const InputDecoration(labelText: 'سعر 1000 بالجنيه'),
+            decoration: const InputDecoration(
+              labelText: 'سعر تكلفة 1000 بالجنيه',
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             pricing == null
-                ? 'أدخل القيم الأساسية ليتم الحساب تلقائيًا.'
-                : 'سعر 1000 بالجنيه الحالي: ${_formatSingleDecimal(pricing.egpCostPer1000)} ج.م',
+                ? 'أدخل القيم الأساسية ليظهر سعر التكلفة بالجنيه تلقائيًا.'
+                : 'سعر تكلفة 1000 الحالي: ${_formatSingleDecimal(pricing.egpCostPer1000)} ج.م',
             style: TextStyle(
               color: colorScheme.onSurfaceVariant,
               fontFamily: 'Cairo',
@@ -415,11 +328,6 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
                 label: const Text('حفظ الإعدادات'),
               ),
               OutlinedButton.icon(
-                onPressed: _isEditing ? null : _applyPricingToAllRanges,
-                icon: const Icon(Icons.auto_fix_high),
-                label: const Text('تحديث كل الشرائح'),
-              ),
-              OutlinedButton.icon(
                 onPressed: _isEditing ? null : () => _editRange(null),
                 icon: const Icon(Icons.add),
                 label: const Text('إضافة شريحة'),
@@ -434,31 +342,19 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
   Future<void> _editRange(
     QueryDocumentSnapshot<Map<String, dynamic>>? doc,
   ) async {
-    final pricing = _requirePricingInputs();
-    if (pricing == null) return;
-
+    final pricing = _pricingInputs();
     final data = doc?.data() ?? const <String, dynamic>{};
-    final storedPrice = _parsePositive(data['pricePer1000']);
-    final storedMargin = _storedMargin(data);
-    final derivedMargin =
-        storedMargin ??
-        (storedPrice == null
-            ? null
-            : _deriveMarginFromPrice(
-                pricePer1000: storedPrice,
-                baseCostPer1000Egp: pricing.egpCostPer1000,
-              ));
+    final initialPrice = _legacyDerivedPricePer1000(data, pricing);
 
     final result = await showDialog<_EditRangeDialogResult>(
       context: context,
       builder: (ctx) => _EditRangeDialog(
         title: doc == null ? 'إضافة شريحة جديدة' : 'تعديل الشريحة',
-        baseCostPer1000Egp: pricing.egpCostPer1000,
+        baseCostPer1000Egp: pricing?.egpCostPer1000,
         initialMin: (data['min'] as num?)?.toInt(),
         initialMax: (data['max'] as num?)?.toInt(),
-        initialMargin: derivedMargin,
+        initialPricePer1000: initialPrice,
         allowDelete: doc != null,
-        showDerivedMarginHint: storedMargin == null && derivedMargin != null,
         formatSingleDecimal: _formatSingleDecimal,
         dialogMaxHeight: _dialogMaxHeight,
       ),
@@ -496,12 +392,11 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
 
     final min = result.min;
     final max = result.max;
-    final margin = result.margin;
-
-    if (min == null || max == null || margin == null) {
+    final pricePer1000 = result.pricePer1000;
+    if (min == null || max == null || pricePer1000 == null) {
       TopSnackBar.show(
         context,
-        'أدخل min و max و النسبة بقيم صحيحة',
+        'أدخل min و max وسعر الشريحة بقيم صحيحة',
         backgroundColor: Colors.red,
         textColor: Colors.white,
         icon: Icons.error,
@@ -521,13 +416,7 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
       return;
     }
 
-    final latestPricing = _requirePricingInputs();
-    if (latestPricing == null) return;
-
-    final autoPrice = _computePricePer1000(
-      baseCostPer1000Egp: latestPricing.egpCostPer1000,
-      marginPercent: margin,
-    );
+    final latestPricing = _pricingInputs();
 
     setState(() => _isEditing = true);
     try {
@@ -557,21 +446,26 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
       }
 
       final batch = FirebaseFirestore.instance.batch();
-      _persistPricingSettingsInBatch(batch, latestPricing);
+      if (latestPricing != null) {
+        _persistPricingSettingsInBatch(batch, latestPricing);
+      }
 
-      final dataToSave = {
+      final createPayload = <String, dynamic>{
         'min': min,
         'max': max,
-        'marginPercent': margin,
-        'margin_percent': margin,
-        'pricePer1000': autoPrice,
+        'pricePer1000': pricePer1000,
+      };
+      final updatePayload = <String, dynamic>{
+        ...createPayload,
+        'marginPercent': FieldValue.delete(),
+        'margin_percent': FieldValue.delete(),
       };
 
       if (doc == null) {
         final ref = FirebaseFirestore.instance.collection('prices').doc();
-        batch.set(ref, dataToSave);
+        batch.set(ref, createPayload);
       } else {
-        batch.update(doc.reference, dataToSave);
+        batch.update(doc.reference, updatePayload);
       }
 
       await batch.commit();
@@ -579,7 +473,7 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
       if (!mounted) return;
       TopSnackBar.show(
         context,
-        'تم الحفظ. السعر الناتج ${_formatSingleDecimal(autoPrice)} ج.م',
+        'تم حفظ الشريحة. السعر الحالي ${_formatSingleDecimal(pricePer1000)} ج.م',
         backgroundColor: Colors.green,
         textColor: Colors.white,
         icon: Icons.check_circle,
@@ -620,11 +514,6 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
             onPressed: _isLoadingPricing || _isEditing
                 ? null
                 : () => _loadPricingSettings(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.auto_fix_high),
-            tooltip: 'تحديث كل الشرائح',
-            onPressed: _isEditing ? null : _applyPricingToAllRanges,
           ),
           IconButton(
             icon: const Icon(Icons.add),
@@ -695,18 +584,7 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
                       final data = doc.data();
                       final min = (data['min'] as num?)?.toInt() ?? 0;
                       final max = (data['max'] as num?)?.toInt() ?? 0;
-                      final price =
-                          (data['pricePer1000'] as num?)?.toDouble() ?? 0;
-                      final margin = _storedMargin(data);
-                      final livePrice = pricing == null || margin == null
-                          ? null
-                          : _computePricePer1000(
-                              baseCostPer1000Egp: pricing.egpCostPer1000,
-                              marginPercent: margin,
-                            );
-                      final showLivePrice =
-                          livePrice != null &&
-                          (livePrice - price).abs() > 0.049;
+                      final price = _legacyDerivedPricePer1000(data, pricing);
 
                       return GlassCard(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -726,30 +604,23 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'سعر كل 1000 الحالي: ${_formatSingleDecimal(price)} ج.م',
+                                    price == null
+                                        ? 'سعر كل 1000 الحالي: غير محدد'
+                                        : 'سعر كل 1000 الحالي: ${_formatSingleDecimal(price)} ج.م',
                                     style: TextStyle(
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    margin == null
-                                        ? 'النسبة: غير محددة'
-                                        : 'النسبة: ${_formatNumber(margin)}%',
-                                    style: TextStyle(
-                                      color: margin == null
+                                      color: price == null
                                           ? Colors.orange
                                           : colorScheme.onSurfaceVariant,
                                       fontFamily: 'Cairo',
                                     ),
                                   ),
-                                  if (showLivePrice)
+                                  if (pricing != null)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 2),
                                       child: Text(
-                                        'السعر بعد تطبيق الإعدادات الحالية: ${_formatSingleDecimal(livePrice)} ج.م',
-                                        style: const TextStyle(
-                                          color: Colors.green,
+                                        'سعر التكلفة الحالي: ${_formatSingleDecimal(pricing.egpCostPer1000)} ج.م',
+                                        style: TextStyle(
+                                          color: colorScheme.onSurfaceVariant,
                                           fontFamily: 'Cairo',
                                           fontSize: 12,
                                         ),
@@ -817,7 +688,7 @@ class _EditRangeDialogResult {
   const _EditRangeDialogResult({
     this.min,
     this.max,
-    this.margin,
+    this.pricePer1000,
     this.deleteRequested = false,
   });
 
@@ -825,30 +696,28 @@ class _EditRangeDialogResult {
 
   final int? min;
   final int? max;
-  final double? margin;
+  final double? pricePer1000;
   final bool deleteRequested;
 }
 
 class _EditRangeDialog extends StatefulWidget {
   const _EditRangeDialog({
     required this.title,
-    required this.baseCostPer1000Egp,
     required this.allowDelete,
-    required this.showDerivedMarginHint,
     required this.formatSingleDecimal,
     required this.dialogMaxHeight,
+    this.baseCostPer1000Egp,
     this.initialMin,
     this.initialMax,
-    this.initialMargin,
+    this.initialPricePer1000,
   });
 
   final String title;
-  final double baseCostPer1000Egp;
+  final double? baseCostPer1000Egp;
   final int? initialMin;
   final int? initialMax;
-  final double? initialMargin;
+  final double? initialPricePer1000;
   final bool allowDelete;
-  final bool showDerivedMarginHint;
   final String Function(double value) formatSingleDecimal;
   final double Function(BuildContext context) dialogMaxHeight;
 
@@ -859,7 +728,7 @@ class _EditRangeDialog extends StatefulWidget {
 class _EditRangeDialogState extends State<_EditRangeDialog> {
   late final TextEditingController _minCtrl;
   late final TextEditingController _maxCtrl;
-  late final TextEditingController _marginCtrl;
+  late final TextEditingController _priceCtrl;
   String _errorMessage = '';
 
   @override
@@ -871,23 +740,20 @@ class _EditRangeDialogState extends State<_EditRangeDialog> {
     _maxCtrl = TextEditingController(
       text: widget.initialMax == null ? '' : widget.initialMax.toString(),
     );
-    _marginCtrl = TextEditingController(
-      text: widget.initialMargin == null
+    _priceCtrl = TextEditingController(
+      text: widget.initialPricePer1000 == null
           ? ''
-          : widget.initialMargin!
-                .toStringAsFixed(3)
-                .replaceFirst(RegExp(r'\.?0+$'), '')
-                .replaceAll(RegExp(r'(\.\d*?)0+$'), r'$1'),
+          : widget.formatSingleDecimal(widget.initialPricePer1000!),
     );
-    _marginCtrl.addListener(_handleInputChanged);
+    _priceCtrl.addListener(_handleInputChanged);
   }
 
   @override
   void dispose() {
-    _marginCtrl.removeListener(_handleInputChanged);
+    _priceCtrl.removeListener(_handleInputChanged);
     _minCtrl.dispose();
     _maxCtrl.dispose();
-    _marginCtrl.dispose();
+    _priceCtrl.dispose();
     super.dispose();
   }
 
@@ -910,42 +776,30 @@ class _EditRangeDialogState extends State<_EditRangeDialog> {
     return value.toInt();
   }
 
-  double? _parseMargin(String raw) {
+  double? _parsePositivePrice(String raw) {
     final value = _parseNumber(raw);
-    if (value == null || value < 0) return null;
+    if (value == null || value <= 0) return null;
     return value;
-  }
-
-  double _roundToSingleDecimal(double value) {
-    return double.parse(value.toStringAsFixed(1));
-  }
-
-  double? _previewPrice() {
-    final margin = _parseMargin(_marginCtrl.text);
-    if (margin == null) return null;
-    return _roundToSingleDecimal(
-      widget.baseCostPer1000Egp * (1 + margin / 100),
-    );
   }
 
   void _submit() {
     final min = _parseWholeNumber(_minCtrl.text);
     final max = _parseWholeNumber(_maxCtrl.text);
-    final margin = _parseMargin(_marginCtrl.text);
-    if (min == null || max == null || margin == null) {
+    final pricePer1000 = _parsePositivePrice(_priceCtrl.text);
+    if (min == null || max == null || pricePer1000 == null) {
       setState(() {
-        _errorMessage = 'أدخل min و max و النسبة بقيم صحيحة';
+        _errorMessage = 'أدخل min و max وسعر الشريحة بقيم صحيحة';
       });
       return;
     }
-    Navigator.of(
-      context,
-    ).pop(_EditRangeDialogResult(min: min, max: max, margin: margin));
+
+    Navigator.of(context).pop(
+      _EditRangeDialogResult(min: min, max: max, pricePer1000: pricePer1000),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final previewPrice = _previewPrice();
     return AlertDialog(
       scrollable: true,
       insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
@@ -965,14 +819,15 @@ class _EditRangeDialogState extends State<_EditRangeDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'سعر 1000 بالجنيه الحالي: ${widget.formatSingleDecimal(widget.baseCostPer1000Egp)} ج.م',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontFamily: 'Cairo',
+              if (widget.baseCostPer1000Egp != null)
+                Text(
+                  'سعر تكلفة 1000 بالجنيه الحالي: ${widget.formatSingleDecimal(widget.baseCostPer1000Egp!)} ج.م',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontFamily: 'Cairo',
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
+              if (widget.baseCostPer1000Egp != null) const SizedBox(height: 10),
               TextField(
                 controller: _minCtrl,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -988,45 +843,17 @@ class _EditRangeDialogState extends State<_EditRangeDialog> {
                 decoration: const InputDecoration(labelText: 'الحد الأقصى'),
               ),
               TextField(
-                controller: _marginCtrl,
+                controller: _priceCtrl,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
                 decoration: const InputDecoration(
-                  labelText: 'النسبة %',
-                  hintText: 'مثال: 8.5',
+                  labelText: 'سعر كل 1000 يدويًا',
+                  hintText: 'مثال: 151.5',
                 ),
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submit(),
               ),
-              const SizedBox(height: 12),
-              InputDecorator(
-                decoration: const InputDecoration(
-                  labelText: 'سعر الشريحة الناتج تلقائيًا',
-                ),
-                child: Text(
-                  previewPrice == null
-                      ? '--'
-                      : '${widget.formatSingleDecimal(previewPrice)} ج.م',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontFamily: 'Cairo',
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              if (widget.showDerivedMarginHint)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    'تم استنتاج النسبة من السعر الحالي. راجعها قبل الحفظ.',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontFamily: 'Cairo',
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
               if (_errorMessage.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),

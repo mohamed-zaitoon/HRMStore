@@ -57,8 +57,8 @@ configure<ApplicationExtension>{
             resValue("string", "app_name", "HRM Store (Admin)")
             minSdk = 36
             // Fixed admin version
-            versionName = "4.1"
-            versionCode = 401
+            versionName = "4.2"
+            versionCode = 420
         }
     }
 

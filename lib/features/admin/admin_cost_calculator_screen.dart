@@ -52,8 +52,12 @@ class _AdminCostCalculatorScreenState extends State<AdminCostCalculatorScreen> {
     return null;
   }
 
-  double _roundToTwoDecimals(double value) {
-    return double.parse(value.toStringAsFixed(2));
+  String _formatNumber(double value) {
+    final rounded = double.parse(value.toStringAsFixed(1));
+    final fixed = rounded.toStringAsFixed(1);
+    return fixed
+        .replaceFirst(RegExp(r'\.?0+$'), '')
+        .replaceAll(RegExp(r'(\.\d*?)0+$'), r'$1');
   }
 
   double? _extractBaseCost(Map<String, dynamic> data) {
@@ -63,7 +67,7 @@ class _AdminCostCalculatorScreenState extends State<AdminCostCalculatorScreen> {
     final usdRate = _parsePositive(data['usd_rate']);
     final usdCostPer1000 = _parsePositive(data['usd_cost_per_1000']);
     if (usdRate != null && usdCostPer1000 != null) {
-      return _roundToTwoDecimals(usdRate * usdCostPer1000);
+      return usdRate * usdCostPer1000;
     }
 
     return null;
@@ -118,7 +122,7 @@ class _AdminCostCalculatorScreenState extends State<AdminCostCalculatorScreen> {
     final baseCostPer1000 = _baseCostPer1000;
     final coins = _parsePositive(_coinsCountCtrl.text);
     if (baseCostPer1000 == null || coins == null) return null;
-    return _roundToTwoDecimals((coins / 1000) * baseCostPer1000);
+    return (coins / 1000) * baseCostPer1000;
   }
 
   void _handleCoinsChanged() {
@@ -188,7 +192,7 @@ class _AdminCostCalculatorScreenState extends State<AdminCostCalculatorScreen> {
                           : Text(
                               _baseCostPer1000 == null
                                   ? (_loadError ?? '--')
-                                  : "${_baseCostPer1000!.toStringAsFixed(2)} ج.م",
+                                  : "${_formatNumber(_baseCostPer1000!)} ج.م",
                               style: TextStyle(
                                 color: _baseCostPer1000 == null
                                     ? colorScheme.error
@@ -214,7 +218,7 @@ class _AdminCostCalculatorScreenState extends State<AdminCostCalculatorScreen> {
                           ? "اكتب عدد العملات ليظهر السعر."
                           : _manualCalculatedCost == null
                           ? "أدخل عدد عملات صحيح مع توفر سعر 1000 الأساسي."
-                          : "السعر: ${_manualCalculatedCost!.toStringAsFixed(2)} ج.م",
+                          : "السعر: ${_formatNumber(_manualCalculatedCost!)} ج.م",
                       style: TextStyle(
                         color: _manualCalculatedCost == null
                             ? colorScheme.onSurfaceVariant
