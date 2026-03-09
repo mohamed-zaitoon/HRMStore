@@ -496,107 +496,147 @@ class _OrderChatScreenState extends State<OrderChatScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
+    final isKeyboardOpen = keyboardInset > 0;
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: const GlassAppBar(title: Text('محادثة الطلب')),
       body: Stack(
         children: [
           const SnowBackground(),
-          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('orders')
-                .doc(widget.orderId)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(
-                  child: GlassCard(
-                    margin: const EdgeInsets.all(16),
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      'تعذر تحميل المحادثة',
-                      style: TextStyle(
-                        color: colorScheme.error,
-                        fontFamily: 'Cairo',
-                      ),
-                    ),
-                  ),
-                );
-              }
-
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final data = snapshot.data?.data();
-              if (data == null || data.isEmpty) {
-                return Center(
-                  child: GlassCard(
-                    margin: const EdgeInsets.all(16),
-                    padding: const EdgeInsets.all(16),
-                    child: const Text(
-                      'الطلب غير متاح حالياً.',
-                      style: TextStyle(fontFamily: 'Cairo'),
-                    ),
-                  ),
-                );
-              }
-
-              final resolvedUserWhatsapp =
-                  (data['user_whatsapp'] ?? data['whatsapp'] ?? '')
-                      .toString()
-                      .trim();
-              final status = (data['status'] ?? '').toString().trim();
-              if (_isUser && (status == 'cancelled' || status == 'rejected')) {
-                _navigateUserBackToOrders(resolvedUserWhatsapp);
-              }
-              final productType = (data['product_type'] ?? 'tiktok')
-                  .toString()
-                  .trim();
-              final supportedType = _isSupportedChatType(productType);
-              final chatEnabled = supportedType && _isExecutionChatOpen(status);
-              final userDisplayName = (data['name'] ?? '').toString().trim();
-
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-                    child: _buildHeader(
-                      context,
-                      data,
-                      chatEnabled: chatEnabled,
-                    ),
-                  ),
-                  if (_canSendDeliveryLoginLink(data))
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                      child: _buildExecutionActions(context, data),
-                    ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                      child: OrderChatPanel(
-                        orderId: widget.orderId,
-                        isAdmin: _isAdmin,
-                        isMerchant: _isMerchant,
-                        userDisplayName: userDisplayName.isEmpty
-                            ? 'المستخدم'
-                            : userDisplayName,
-                        adminDisplayName: _resolvedViewerName(),
-                        userWhatsapp: resolvedUserWhatsapp.isEmpty
-                            ? widget.fallbackUserWhatsapp
-                            : resolvedUserWhatsapp,
-                        fullScreen: true,
-                        chatEnabled: chatEnabled,
-                        disabledHint: _disabledHint(
-                          status: status,
-                          supportedType: supportedType,
+          AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(bottom: keyboardInset),
+            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('orders')
+                  .doc(widget.orderId)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: GlassCard(
+                      margin: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'تعذر تحميل المحادثة',
+                        style: TextStyle(
+                          color: colorScheme.error,
+                          fontFamily: 'Cairo',
                         ),
                       ),
                     ),
-                  ),
-                ],
-              );
-            },
+                  );
+                }
+
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final data = snapshot.data?.data();
+                if (data == null || data.isEmpty) {
+                  return Center(
+                    child: GlassCard(
+                      margin: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(16),
+                      child: const Text(
+                        'الطلب غير متاح حالياً.',
+                        style: TextStyle(fontFamily: 'Cairo'),
+                      ),
+                    ),
+                  );
+                }
+
+                final resolvedUserWhatsapp =
+                    (data['user_whatsapp'] ?? data['whatsapp'] ?? '')
+                        .toString()
+                        .trim();
+                final status = (data['status'] ?? '').toString().trim();
+                if (_isUser &&
+                    (status == 'cancelled' || status == 'rejected')) {
+                  _navigateUserBackToOrders(resolvedUserWhatsapp);
+                }
+                final productType = (data['product_type'] ?? 'tiktok')
+                    .toString()
+                    .trim();
+                final supportedType = _isSupportedChatType(productType);
+                final chatEnabled =
+                    supportedType && _isExecutionChatOpen(status);
+                final userDisplayName = (data['name'] ?? '').toString().trim();
+
+                return Column(
+                  children: [
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      switchInCurve: Curves.easeOut,
+                      switchOutCurve: Curves.easeOut,
+                      child: isKeyboardOpen
+                          ? const SizedBox.shrink()
+                          : Column(
+                              key: const ValueKey('chat_header_block'),
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    12,
+                                    12,
+                                    10,
+                                  ),
+                                  child: _buildHeader(
+                                    context,
+                                    data,
+                                    chatEnabled: chatEnabled,
+                                  ),
+                                ),
+                                if (_canSendDeliveryLoginLink(data))
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      0,
+                                      12,
+                                      10,
+                                    ),
+                                    child: _buildExecutionActions(
+                                      context,
+                                      data,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          12,
+                          isKeyboardOpen ? 12 : 0,
+                          12,
+                          12,
+                        ),
+                        child: OrderChatPanel(
+                          orderId: widget.orderId,
+                          isAdmin: _isAdmin,
+                          isMerchant: _isMerchant,
+                          userDisplayName: userDisplayName.isEmpty
+                              ? 'المستخدم'
+                              : userDisplayName,
+                          adminDisplayName: _resolvedViewerName(),
+                          userWhatsapp: resolvedUserWhatsapp.isEmpty
+                              ? widget.fallbackUserWhatsapp
+                              : resolvedUserWhatsapp,
+                          fullScreen: true,
+                          chatEnabled: chatEnabled,
+                          disabledHint: _disabledHint(
+                            status: status,
+                            supportedType: supportedType,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
         ],
       ),
