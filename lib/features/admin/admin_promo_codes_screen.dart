@@ -3,10 +3,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
+
 import '../../core/tt_colors.dart';
 import '../../widgets/top_snackbar.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/snow_background.dart';
 
 class AdminPromoCodesScreen extends StatelessWidget {
@@ -138,7 +140,7 @@ class AdminPromoCodesScreen extends StatelessWidget {
   void _showAddCodeDialog(BuildContext context) {
     final codeCtrl = TextEditingController();
 
-    showDialog(
+    showLockedDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Theme.of(ctx).colorScheme.surface,

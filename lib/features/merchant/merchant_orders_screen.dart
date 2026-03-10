@@ -22,9 +22,11 @@ import '../../services/order_chat_service.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_bottom_sheet.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/theme_mode_sheet.dart';
 import '../../widgets/top_snackbar.dart';
+import '../../utils/promo_order_utils.dart';
 import '../../utils/url_sanitizer.dart';
 import '../../utils/whatsapp_utils.dart';
 
@@ -231,7 +233,7 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen>
   bool _isSupportedMerchantOrderType(String productType) {
     return productType == 'tiktok' ||
         productType == 'game' ||
-        productType == 'tiktok_promo';
+        isPromoProductType(productType);
   }
 
   double? _parseUsdValue(dynamic raw) {
@@ -451,7 +453,7 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen>
   }
 
   void _showMerchantMenuSheet() {
-    showModalBottomSheet(
+    showLockedModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       barrierColor: Theme.of(context).colorScheme.scrim.withAlpha(140),
@@ -905,7 +907,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
   }) async {
     final reasonCtrl = TextEditingController();
     String? errorText;
-    final result = await showDialog<String>(
+    final result = await showLockedDialog<String>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setStateDialog) => AlertDialog(
@@ -1024,7 +1026,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
   bool _isChatSupportedOrderType(String productType) {
     return productType == 'tiktok' ||
         productType == 'game' ||
-        productType == 'tiktok_promo';
+        isPromoProductType(productType);
   }
 
   Future<void> _openOrderChatFullscreen() async {
@@ -1103,8 +1105,9 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
 
     setState(() => _isUpdating = true);
     try {
-      final isPromoOrder =
-          (widget.data['product_type'] ?? '').toString() == 'tiktok_promo';
+      final isPromoOrder = isPromoProductType(
+        (widget.data['product_type'] ?? '').toString(),
+      );
       final updateData = <String, dynamic>{
         'status': newStatus,
         if (newStatus == 'completed' && isPromoOrder) 'video_link': null,
@@ -1279,7 +1282,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
         .toString()
         .trim();
     final bool isGameOrder = productType == 'game';
-    final bool isPromoOrder = productType == 'tiktok_promo';
+    final bool isPromoOrder = isPromoProductType(productType);
     final bool supportsOrderChat = _isChatSupportedOrderType(productType);
 
     final name = (widget.data['name'] ?? '').toString().trim();
@@ -1296,6 +1299,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
     final packageLabel = (widget.data['package_label'] ?? '').toString().trim();
     final gameId = (widget.data['game_id'] ?? '').toString();
     final promoVideoLink = (widget.data['video_link'] ?? '').toString().trim();
+    final promoLinkLabel = promoLinkLabelFromProductType(productType);
     final tiktokPassword = (widget.data['tiktok_password'] ?? '')
         .toString()
         .trim();
@@ -1361,8 +1365,8 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
                 ? 'شحن تيك توك'
                 : productType == 'game'
                 ? 'شحن ألعاب'
-                : productType == 'tiktok_promo'
-                ? 'ترويج فيديو'
+                : isPromoProductType(productType)
+                ? promoOrderTitleFromProductType(productType)
                 : 'نوع غير مدعوم'}',
             style: TextStyle(color: colorScheme.onSurfaceVariant),
           ),
@@ -1505,7 +1509,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
               children: [
                 Expanded(
                   child: SelectableText(
-                    "رابط الفيديو: $promoVideoLink",
+                    "$promoLinkLabel: $promoVideoLink",
                     style: TextStyle(
                       color: colorScheme.onSurfaceVariant,
                       fontSize: 12,
@@ -1521,7 +1525,7 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
                     );
                   },
                   icon: const Icon(Icons.open_in_new, size: 18),
-                  tooltip: "فتح رابط الفيديو",
+                  tooltip: "فتح $promoLinkLabel",
                 ),
               ],
             ),

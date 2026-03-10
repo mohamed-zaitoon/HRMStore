@@ -11,9 +11,11 @@ import '../../core/tt_colors.dart';
 import '../../models/game_package.dart';
 import '../../services/cloudflare_notify_service.dart';
 import '../../services/order_chat_service.dart';
+import '../../utils/promo_order_utils.dart';
 import '../../utils/url_sanitizer.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/order_chat_panel.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/top_snackbar.dart';
@@ -47,7 +49,7 @@ class _OrderChatScreenState extends State<OrderChatScreen> {
   bool _isSupportedChatType(String productType) {
     return productType == 'tiktok' ||
         productType == 'game' ||
-        productType == 'tiktok_promo';
+        isPromoProductType(productType);
   }
 
   bool _isExecutionChatOpen(String status) {
@@ -65,7 +67,9 @@ class _OrderChatScreenState extends State<OrderChatScreen> {
       if (packageLabel.isEmpty) return gameLabel;
       return '$gameLabel - $packageLabel';
     }
-    if (productType == 'tiktok_promo') return 'ترويج فيديو تيك توك';
+    if (isPromoProductType(productType)) {
+      return promoOrderTitleFromProductType(productType);
+    }
     final points = (data['points'] ?? '').toString().trim();
     return points.isEmpty ? 'شحن تيك توك' : '$points نقطة';
   }
@@ -186,7 +190,7 @@ class _OrderChatScreenState extends State<OrderChatScreen> {
 
     final linkCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
-    final result = await showDialog<(String, String)>(
+    final result = await showLockedDialog<(String, String)>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Theme.of(ctx).colorScheme.surface,

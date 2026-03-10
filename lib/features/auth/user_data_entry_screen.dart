@@ -14,6 +14,7 @@ import '../../services/notification_service.dart';
 import '../../utils/html_meta.dart';
 import '../../utils/whatsapp_utils.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/snow_background.dart';
 
 class UserDataEntryScreen extends StatefulWidget {
@@ -130,9 +131,8 @@ class _UserDataEntryScreenState extends State<UserDataEntryScreen> {
     _consentShown = true;
 
     if (!mounted) return;
-    await showDialog<void>(
+    await showLockedDialog<void>(
       context: context,
-      barrierDismissible: true,
       builder: (dialogContext) {
         return Dialog(
           backgroundColor: Colors.transparent,

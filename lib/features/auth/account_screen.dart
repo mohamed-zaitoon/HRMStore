@@ -12,6 +12,7 @@ import '../../utils/whatsapp_utils.dart';
 import '../../widgets/top_snackbar.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/snow_background.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -168,7 +169,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final currentCtrl = TextEditingController();
     final passCtrl = TextEditingController();
     final confirmCtrl = TextEditingController();
-    await showDialog(
+    await showLockedDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('تحديث كلمة السر'),

@@ -28,10 +28,7 @@ Future<void> main() async {
 
   usePathUrlStrategy();
 
-  const supportedPlatforms = {
-    TargetPlatform.android,
-    TargetPlatform.windows,
-  };
+  const supportedPlatforms = {TargetPlatform.android, TargetPlatform.windows};
   final isSupportedPlatform =
       !kIsWeb && supportedPlatforms.contains(defaultTargetPlatform);
   if (!isSupportedPlatform) {
@@ -46,12 +43,18 @@ Future<void> main() async {
   final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
 
   if (isMobile) {
-    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(
+      kReleaseMode,
+    );
+    if (kReleaseMode) {
+      FlutterError.onError =
+          FirebaseCrashlytics.instance.recordFlutterFatalError;
 
-    PlatformDispatcher.instance.onError = (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-      return true;
-    };
+      PlatformDispatcher.instance.onError = (error, stack) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        return true;
+      };
+    }
   }
 
   final prefs = await SharedPreferences.getInstance();
@@ -67,11 +70,7 @@ Future<void> main() async {
   AppInfo.isMerchantApp = isMerchant;
 
   runApp(
-    HrmStoreApp(
-      prefs: prefs,
-      isAdminApp: isAdmin,
-      isMerchantApp: isMerchant,
-    ),
+    HrmStoreApp(prefs: prefs, isAdminApp: isAdmin, isMerchantApp: isMerchant),
   );
 
   unawaited(AppLinksService.start(isAdminApp: isAdmin));

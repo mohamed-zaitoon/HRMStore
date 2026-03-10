@@ -1,11 +1,13 @@
 // Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
 import 'dart:async';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
 import 'package:flutter/material.dart';
 
 import '../core/tt_colors.dart';
+import '../services/network_health_service.dart';
 
 class ConnectionBlocker extends StatefulWidget {
   final Widget child;
@@ -22,6 +24,8 @@ class ConnectionBlocker extends StatefulWidget {
 
 class _ConnectionBlockerState extends State<ConnectionBlocker> {
   bool _isOnline = true;
+  bool _firestoreNetworkEnabled = true;
+  int _probeGeneration = 0;
   StreamSubscription<List<ConnectivityResult>>? _sub;
 
   // EN: Initializes widget state.
@@ -30,7 +34,7 @@ class _ConnectionBlockerState extends State<ConnectionBlocker> {
   void initState() {
     super.initState();
 
-    _checkInitial();
+    unawaited(_checkInitial());
 
     _listenToChanges();
   }
@@ -41,21 +45,59 @@ class _ConnectionBlockerState extends State<ConnectionBlocker> {
     final List<ConnectivityResult> results = await Connectivity()
         .checkConnectivity();
 
-    _updateFromList(results);
+    await _syncNetworkState(results);
   }
 
   // EN: Listens to To Changes.
   // AR: تستمع إلى To Changes.
   void _listenToChanges() {
-    _sub = Connectivity().onConnectivityChanged.listen(_updateFromList);
+    _sub = Connectivity().onConnectivityChanged.listen((results) {
+      unawaited(_syncNetworkState(results));
+    });
   }
 
-  // EN: Updates From List.
-  // AR: تحدّث From List.
-  void _updateFromList(List<ConnectivityResult> results) {
-    final bool hasConnection = !results.contains(ConnectivityResult.none);
-    if (_isOnline != hasConnection) {
-      setState(() => _isOnline = hasConnection);
+  // EN: Syncs UI/network state from connectivity + endpoint reachability.
+  // AR: يزامن حالة الواجهة/الشبكة من الاتصال ونقطة الوصول الحقيقية.
+  Future<void> _syncNetworkState(List<ConnectivityResult> results) async {
+    final bool hasTransport = !results.contains(ConnectivityResult.none);
+
+    if (!hasTransport) {
+      _setOnline(false);
+      await _setFirestoreNetwork(enabled: false);
+      return;
+    }
+
+    final int generation = ++_probeGeneration;
+    final bool canReachFirestore = await _probeFirestoreReachability();
+    if (!mounted || generation != _probeGeneration) return;
+
+    _setOnline(canReachFirestore);
+    await _setFirestoreNetwork(enabled: canReachFirestore);
+  }
+
+  // EN: Probes Firestore host to detect real online state.
+  // AR: يفحص خادم Firestore لاكتشاف الحالة الفعلية للاتصال.
+  Future<bool> _probeFirestoreReachability() async {
+    return NetworkHealthService.canReachFirestore();
+  }
+
+  // EN: Updates online flag safely.
+  // AR: يحدّث حالة الاتصال بشكل آمن.
+  void _setOnline(bool hasConnection) {
+    if (!mounted || _isOnline == hasConnection) return;
+    setState(() => _isOnline = hasConnection);
+  }
+
+  // EN: Enables/disables Firestore network to avoid noisy retries.
+  // AR: يفعّل/يعطّل شبكة Firestore لتقليل محاولات إعادة الاتصال المزعجة.
+  Future<void> _setFirestoreNetwork({required bool enabled}) async {
+    if (_firestoreNetworkEnabled == enabled) return;
+
+    final didSet = await NetworkHealthService.setFirestoreNetwork(
+      enabled: enabled,
+    );
+    if (didSet) {
+      _firestoreNetworkEnabled = enabled;
     }
   }
 
@@ -63,13 +105,13 @@ class _ConnectionBlockerState extends State<ConnectionBlocker> {
   // AR: تتعامل مع refresh.
   Future<void> _refresh() async {
     await _checkInitial();
-    await Future.delayed(const Duration(milliseconds: 500));
   }
 
   // EN: Releases resources.
   // AR: تفرّغ الموارد.
   @override
   void dispose() {
+    _probeGeneration++;
     _sub?.cancel();
     super.dispose();
   }
@@ -116,7 +158,7 @@ class _ConnectionBlockerState extends State<ConnectionBlocker> {
                     const SizedBox(height: 10),
 
                     Text(
-                      "تأكد من الاتصال ثم اسحب لأسفل لإعادة المحاولة",
+                      "تعذر الوصول لخوادم التطبيق. تأكد من DNS أو VPN ثم اسحب لإعادة المحاولة",
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 14,

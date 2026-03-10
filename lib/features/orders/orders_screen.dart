@@ -17,7 +17,9 @@ import '../../services/notification_service.dart';
 import '../../widgets/top_snackbar.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/snow_background.dart';
+import '../../utils/promo_order_utils.dart';
 import '../../utils/url_sanitizer.dart';
 
 class OrdersScreen extends StatefulWidget {
@@ -118,7 +120,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   bool _isChatSupportedType(String productType) {
     return productType == 'tiktok' ||
         productType == 'game' ||
-        productType == 'tiktok_promo';
+        isPromoProductType(productType);
   }
 
   String _sanitizeMerchantContactText(String raw) {
@@ -309,8 +311,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           final bool shouldShowChatSection =
                               isSupportedChatType && !isFinalChatClosed;
                           final bool isGameOrder = productType == 'game';
-                          final bool isPromoOrder =
-                              productType == 'tiktok_promo';
+                          final bool isPromoOrder = isPromoProductType(
+                            productType,
+                          );
                           final String tiktokChargeMode =
                               (data['tiktok_charge_mode'] ?? '')
                                   .toString()
@@ -334,7 +337,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           final String titleText = isGameOrder
                               ? "${GamePackage.gameLabel(gameKey)} - $packageLabel"
                               : (isPromoOrder
-                                    ? "ترويج فيديو تيك توك"
+                                    ? promoOrderTitleFromProductType(
+                                        productType,
+                                      )
                                     : "${data['points']} نقطة");
 
                           final String paymentMethod = (data['method'] ?? '')
@@ -644,7 +649,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   Future<void> _confirmCancel(BuildContext context, String orderId) async {
     bool confirm = false;
-    await showDialog(
+    await showLockedDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: TTColors.cardBg,

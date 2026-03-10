@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../models/game_package.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/top_snackbar.dart';
 
@@ -34,7 +35,7 @@ class _AdminGamePackagesScreenState extends State<AdminGamePackagesScreen> {
     );
     bool enabled = package?.enabled ?? true;
 
-    await showDialog<void>(
+    await showLockedDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(

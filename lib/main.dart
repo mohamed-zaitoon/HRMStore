@@ -48,12 +48,18 @@ Future<void> main() async {
   final isMobile = !kIsWeb && mobilePlatforms.contains(defaultTargetPlatform);
 
   if (isMobile) {
-    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(
+      kReleaseMode,
+    );
+    if (kReleaseMode) {
+      FlutterError.onError =
+          FirebaseCrashlytics.instance.recordFlutterFatalError;
 
-    PlatformDispatcher.instance.onError = (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-      return true;
-    };
+      PlatformDispatcher.instance.onError = (error, stack) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        return true;
+      };
+    }
   }
 
   final prefs = await SharedPreferences.getInstance();
@@ -142,10 +148,10 @@ class _UserDesktopBlockedApp extends StatelessWidget {
               'نسخة سطح المكتب مخصصة للإدمن فقط. استخدم نسخة الويب أو تطبيق الموبايل.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.red.shade700,
-                    fontFamily: 'Cairo',
-                    fontWeight: FontWeight.w700,
-                  ),
+                color: Colors.red.shade700,
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ),

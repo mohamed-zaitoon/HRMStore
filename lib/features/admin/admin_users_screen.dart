@@ -16,6 +16,7 @@ import '../../utils/whatsapp_utils.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_bottom_sheet.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/theme_mode_sheet.dart';
 import '../../widgets/top_snackbar.dart';
@@ -177,7 +178,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   }
 
   void _showAdminMenuSheet() {
-    showModalBottomSheet(
+    showLockedModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       barrierColor: Theme.of(context).colorScheme.scrim.withAlpha(140),
@@ -558,7 +559,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           : '',
     );
 
-    await showDialog(
+    await showLockedDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         scrollable: true,
@@ -808,7 +809,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     final name = (user['name'] ?? '').toString();
 
     final confirmed =
-        await showDialog<bool>(
+        await showLockedDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('حذف الحساب'),
@@ -1014,7 +1015,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     final note = (user['merchant_verification_note'] ?? '').toString().trim();
     final submittedAt = user['merchant_verification_submitted_at'];
 
-    await showDialog<void>(
+    await showLockedDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('مراجعة توثيق التاجر'),
@@ -1108,7 +1109,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   Future<String?> _promptVerificationRejectReason(BuildContext context) async {
     final ctrl = TextEditingController();
     String? result;
-    await showDialog<void>(
+    await showLockedDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('سبب رفض التوثيق'),

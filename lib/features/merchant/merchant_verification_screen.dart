@@ -16,6 +16,7 @@ import '../../core/app_navigator.dart';
 import '../../services/receipt_storage_service.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/top_snackbar.dart';
 import '../../utils/whatsapp_utils.dart';
@@ -205,7 +206,7 @@ class _MerchantVerificationScreenState
     if (!_cameraCaptureSupported) {
       return Future.value(_MerchantIdImageSourceOption.files);
     }
-    return showDialog<_MerchantIdImageSourceOption>(
+    return showLockedDialog<_MerchantIdImageSourceOption>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),

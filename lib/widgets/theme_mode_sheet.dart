@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/theme_service.dart';
 import '../widgets/glass_bottom_sheet.dart';
+import 'modal_utils.dart';
 
 // EN: Shows Theme Mode Sheet.
 // AR: تعرض Theme Mode Sheet.
@@ -13,7 +14,7 @@ Future<void> showThemeModeSheet(BuildContext context) async {
 
   if (!context.mounted) return;
 
-  await showModalBottomSheet<void>(
+  await showLockedModalBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black54,

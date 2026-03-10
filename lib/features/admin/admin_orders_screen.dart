@@ -23,7 +23,9 @@ import '../../widgets/top_snackbar.dart';
 import '../../widgets/glass_bottom_sheet.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/snow_background.dart';
+import '../../utils/promo_order_utils.dart';
 import '../../utils/url_sanitizer.dart';
 
 enum _QrImageSourceOption { camera, files }
@@ -66,7 +68,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
   bool _isSupportedAdminOrderType(String productType) {
     return productType == 'tiktok' ||
         productType == 'game' ||
-        productType == 'tiktok_promo';
+        isPromoProductType(productType);
   }
 
   // EN: Initializes widget state.
@@ -159,7 +161,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
   // AR: تعرض Admin Menu Sheet.
   void _showAdminMenuSheet() {
     _menuIconController.forward();
-    showModalBottomSheet(
+    showLockedModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       barrierColor: Theme.of(context).colorScheme.scrim.withAlpha(140),
@@ -648,7 +650,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
   bool _isChatSupportedOrderType(String productType) {
     return productType == 'tiktok' ||
         productType == 'game' ||
-        productType == 'tiktok_promo';
+        isPromoProductType(productType);
   }
 
   void _openOrderChatFullscreen() {
@@ -832,8 +834,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
 
     setState(() => _isUpdating = true);
     try {
-      final isPromoOrder =
-          (widget.data['product_type'] ?? '').toString() == 'tiktok_promo';
+      final isPromoOrder = isPromoProductType(
+        (widget.data['product_type'] ?? '').toString(),
+      );
       final requested = (widget.data['merchant_status_request'] ?? '')
           .toString()
           .trim()
@@ -968,7 +971,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
 
     bool confirm = false;
     if (!mounted) return;
-    await showDialog(
+    await showLockedDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Theme.of(ctx).colorScheme.surface,
@@ -1060,7 +1063,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
   }
 
   Future<_QrImageSourceOption?> _promptQrImageSource() {
-    return showDialog<_QrImageSourceOption>(
+    return showLockedDialog<_QrImageSourceOption>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Theme.of(ctx).colorScheme.surface,
@@ -1166,7 +1169,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
 
   Future<String?> _promptRejectReason() async {
     String value = '';
-    return showDialog<String>(
+    return showLockedDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Theme.of(ctx).colorScheme.surface,
@@ -1255,8 +1258,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         final orderSnap = await tx.get(orderRef);
         final orderData = orderSnap.data() ?? latestOrderData;
         final status = (orderData['status'] ?? '').toString();
-        final isPromoOrder =
-            (orderData['product_type'] ?? '').toString() == 'tiktok_promo';
+        final isPromoOrder = isPromoProductType(
+          (orderData['product_type'] ?? '').toString(),
+        );
         if (status == 'completed' || status == 'cancelled') {
           throw StateError('final-status');
         }
@@ -1338,8 +1342,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         widget.data['status'] = 'rejected';
         widget.data['rejection_reason'] = reason;
         widget.data.remove('tiktok_password');
-        if ((latestOrderData['product_type'] ?? '').toString() ==
-            'tiktok_promo') {
+        if (isPromoProductType(
+          (latestOrderData['product_type'] ?? '').toString(),
+        )) {
           widget.data['video_link'] = null;
         }
         if (pointsUsed > 0) {
@@ -1455,7 +1460,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     final String productType = (widget.data['product_type'] ?? 'tiktok')
         .toString();
     final bool isGameOrder = productType == 'game';
-    final bool isPromoOrder = productType == 'tiktok_promo';
+    final bool isPromoOrder = isPromoProductType(productType);
     final bool supportsOrderChat = _isChatSupportedOrderType(productType);
     final String egpPriceText = (widget.data['price'] ?? '').toString().trim();
     final String originalEgpPriceText =
@@ -1511,6 +1516,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     final String packageLabel = (widget.data['package_label'] ?? '').toString();
     final String gameId = (widget.data['game_id'] ?? '').toString();
     final String promoVideoLink = (widget.data['video_link'] ?? '').toString();
+    final String promoLinkLabel = promoLinkLabelFromProductType(productType);
     final String tiktokUser =
         (widget.data['user_tiktok'] ??
                 widget.data['tiktok_user'] ??
@@ -1558,7 +1564,9 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
         : Colors.black;
     final String leftText = isGameOrder
         ? "🎮 ${GamePackage.gameLabel(gameKey)} - $packageLabel"
-        : (isPromoOrder ? "📣 ترويج فيديو" : "💎 ${widget.data['points']}");
+        : (isPromoOrder
+              ? "📣 ${promoOrderTitleFromProductType(productType)}"
+              : "💎 ${widget.data['points']}");
 
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1803,7 +1811,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
               children: [
                 Expanded(
                   child: SelectableText(
-                    "رابط الفيديو: $promoVideoLink",
+                    "$promoLinkLabel: $promoVideoLink",
                     style: TextStyle(
                       color: colorScheme.onSurfaceVariant,
                       fontSize: 12,
@@ -1815,14 +1823,14 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
                     Clipboard.setData(ClipboardData(text: promoVideoLink));
                     TopSnackBar.show(
                       this.context,
-                      "تم نسخ رابط الفيديو",
+                      "تم نسخ $promoLinkLabel",
                       backgroundColor: colorScheme.surface,
                       textColor: colorScheme.onSurface,
                       icon: Icons.check_circle,
                     );
                   },
                   icon: const Icon(Icons.copy, size: 18),
-                  tooltip: "نسخ رابط الفيديو",
+                  tooltip: "نسخ $promoLinkLabel",
                 ),
                 IconButton(
                   onPressed: () async {
@@ -1833,7 +1841,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
                     );
                   },
                   icon: const Icon(Icons.open_in_new, size: 18),
-                  tooltip: "فتح رابط الفيديو",
+                  tooltip: "فتح $promoLinkLabel",
                 ),
               ],
             ),

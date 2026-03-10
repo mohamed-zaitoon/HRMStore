@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../core/order_status.dart';
+import '../utils/promo_order_utils.dart';
 import 'remote_config_service.dart';
 
 class CloudflareNotifyService {
@@ -79,7 +80,10 @@ class CloudflareNotifyService {
     return _send(
       title: 'لديك طلب شحن جديد',
       message: body,
-      data: <String, dynamic>{'type': 'merchant_new_order', 'order_id': orderId},
+      data: <String, dynamic>{
+        'type': 'merchant_new_order',
+        'order_id': orderId,
+      },
       targetExternalIds: _merchantExternalIdsForWhatsapp(normalized),
       fallbackRole: 'user',
       fallbackWhatsapp: normalized,
@@ -713,8 +717,8 @@ class CloudflareNotifyService {
       if (packageLabel.isNotEmpty) return packageLabel;
       return 'شحن لعبة';
     }
-    if (productType == 'tiktok_promo') {
-      return 'ترويج فيديو تيك توك';
+    if (isPromoProductType(productType)) {
+      return promoOrderTitleFromProductType(productType);
     }
     final points = (order['points'] ?? '').toString().trim();
     if (points.isNotEmpty) return '$points نقطة';

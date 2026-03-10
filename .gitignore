@@ -17,6 +17,7 @@ android/.kotlin/
 android/app/build/
 android/build/
 web/.dart_tool/
+windows/flutter/ephemeral/
 
 # IntelliJ / VSCode
 .idea/

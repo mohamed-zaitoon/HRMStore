@@ -33,13 +33,19 @@ import '../../services/update_manager.dart';
 import '../../services/usdt_price_service.dart';
 import '../../utils/html_meta.dart';
 import '../../utils/offer_discount_tiers.dart';
+import '../../utils/promo_order_utils.dart';
 import '../../utils/pricing_math.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/theme_mode_sheet.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../utils/url_sanitizer.dart';
 import '../../widgets/top_snackbar.dart';
+
+part 'home_screen_checkout_flow.dart';
+part 'home_screen_payment_actions.dart';
+part 'home_screen_promo_dialog.dart';
 
 enum _OutOfRange { none, belowMin, aboveMax }
 
@@ -90,6 +96,8 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isInputValid = false;
   static const int _minPoints = 150;
   static const int _maxPoints = 100000;
+  static const int _promoMinAmount = 150;
+  static const int _promoMaxAmount = 30000;
   static const String _tiktokChargeModeLink = 'link';
   static const String _tiktokChargeModeQr = 'qr';
   static const String _tiktokChargeModeUserPass = 'username_password';
@@ -100,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen>
   GamePackage? _selectedPackage;
   String? _selectedGameId;
   String? _promoLink;
+  String _promoPlatform = 'tiktok';
   String _tiktokChargeMode = _tiktokChargeModeLink;
   String? _tiktokPasswordForOrder;
 
@@ -141,6 +150,9 @@ class _HomeScreenState extends State<HomeScreen>
   final Set<String> _processingOrdersOpenedForChat = <String>{};
   bool _orderStatusWatchPrimed = false;
   bool _supportChatNavigationInProgress = false;
+  bool _paymentMethodActionInProgress = false;
+  bool _checkoutFlowInProgress = false;
+  bool _promoDialogFlowInProgress = false;
   Map<String, dynamic>? _selectedMerchant;
 
   bool get _arePricesReady =>
@@ -183,6 +195,62 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _refreshActiveTiktokDialog() {
     _activeTiktokDialogRefresh?.call();
+  }
+
+  // EN: Applies TikTok checkout mode fields with safe state update.
+  // AR: يطبق حقول وضع شحن تيك توك مع تحديث حالة آمن.
+  void _applyTiktokCheckoutMode({
+    required String mode,
+    required String? password,
+  }) {
+    if (!mounted) {
+      _tiktokChargeMode = mode;
+      _tiktokPasswordForOrder = password;
+      return;
+    }
+    setState(() {
+      _tiktokChargeMode = mode;
+      _tiktokPasswordForOrder = password;
+    });
+  }
+
+  // EN: Applies promo order draft values before checkout.
+  // AR: يطبق قيم طلب الترويج قبل بدء إتمام الطلب.
+  void _applyPromoOrderDraft({
+    required String promoPlatform,
+    required String promoLink,
+    required int amount,
+  }) {
+    if (!mounted) {
+      _promoPlatform = promoPlatform;
+      _promoLink = promoLink;
+      _priceValue = amount;
+      _pointsValue = null;
+      _isInputValid = true;
+      _selectedPackage = null;
+      _selectedGameId = null;
+      return;
+    }
+
+    setState(() {
+      _promoPlatform = promoPlatform;
+      _promoLink = promoLink;
+      _priceValue = amount;
+      _pointsValue = null;
+      _isInputValid = true;
+      _selectedPackage = null;
+      _selectedGameId = null;
+    });
+  }
+
+  // EN: Updates payment action lock state while preserving mounted checks.
+  // AR: يحدّث قفل تنفيذ الدفع مع مراعاة حالة mounted.
+  void _setPaymentActionLock(bool inProgress) {
+    if (!mounted) {
+      _paymentMethodActionInProgress = inProgress;
+      return;
+    }
+    setState(() => _paymentMethodActionInProgress = inProgress);
   }
 
   void _resetTiktokDialogCalculationState({bool refreshDialog = true}) {
@@ -1124,6 +1192,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _resetCheckoutMeta() {
     setState(() {
       _promoLink = null;
+      _promoPlatform = 'tiktok';
       _tiktokChargeMode = _tiktokChargeModeLink;
       _tiktokPasswordForOrder = null;
     });
@@ -1556,7 +1625,7 @@ class _HomeScreenState extends State<HomeScreen>
       );
 
       if (!mounted) return;
-      showDialog(
+      showLockedDialog(
         context: context,
         builder: (ctx) => _buildMaterialDialogCard(
           ctx,
@@ -1877,7 +1946,7 @@ class _HomeScreenState extends State<HomeScreen>
       _isInputValid = true;
     });
 
-    _startCheckoutFlow();
+    await _startCheckoutFlow();
   }
 
   Future<String?> _promptGameId(GamePackage pkg) async {
@@ -1912,406 +1981,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
 
     return result;
-  }
-
-  Future<void> _startCheckoutFlow() async {
-    if (!await _checkCancelLimit()) return;
-    if (!_isInputValid && !_isGameOrder && !_isPromoOrder) return;
-
-    if (_isGameOrder || _isPromoOrder) {
-      _tiktokChargeMode = _tiktokChargeModeLink;
-      _tiktokPasswordForOrder = null;
-      await _refreshBalancePoints(forceServer: true);
-      if (!await _ensureMerchantSelected(forcePrompt: true)) return;
-      _openPaymentDialogSafely();
-      return;
-    }
-
-    if (!_ensureTiktokHandle()) return;
-
-    final selectedMode = await _showTiktokChargeModeDialog();
-    if (!mounted || selectedMode == null) return;
-
-    if (selectedMode == _tiktokChargeModeLink ||
-        selectedMode == _tiktokChargeModeQr) {
-      setState(() {
-        _tiktokChargeMode = selectedMode;
-        _tiktokPasswordForOrder = null;
-      });
-      await _refreshBalancePoints(forceServer: true);
-      if (!await _ensureMerchantSelected(forcePrompt: true)) return;
-      _openPaymentDialogSafely();
-      return;
-    }
-
-    final password = await _showTiktokPasswordDialog();
-    if (!mounted || password == null) return;
-
-    setState(() {
-      _tiktokChargeMode = _tiktokChargeModeUserPass;
-      _tiktokPasswordForOrder = password;
-    });
-
-    await _refreshBalancePoints(forceServer: true);
-    if (!await _ensureMerchantSelected(forcePrompt: true)) return;
-    _openPaymentDialogSafely();
-  }
-
-  void _openPaymentDialogSafely() {
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      if (!await _ensureSelectedMerchantOnlineForCheckout()) return;
-      if (!mounted) return;
-      _showPaymentDialog();
-    });
-  }
-
-  Future<String?> _showTiktokChargeModeDialog() async {
-    return _showBlurDialog<String>(
-      barrierLabel: 'tiktok-charge-mode-dialog',
-      builder: (ctx) {
-        final size = MediaQuery.sizeOf(ctx);
-        final maxWidth = _resolveDialogMaxWidthForWeb(
-          size: size,
-          requested: 560,
-        );
-        return Dialog(
-          backgroundColor: TTColors.cardBg,
-          shape: Dialogs.dialogShape,
-          insetPadding: EdgeInsets.symmetric(
-            horizontal: kIsWeb ? 20 : 16,
-            vertical: 20,
-          ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxWidth),
-            child: DialogWidget(
-              color: TTColors.cardBg,
-              title: "اختيار طريقة الشحن",
-              titleStyle: const TextStyle(
-                fontFamily: 'Cairo',
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-              ),
-              customViewPosition: CustomViewPosition.BEFORE_ACTION,
-              customView: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20),
-                    child: Text(
-                      "اختار طريقة شحن عملات تيك توك قبل اختيار وسيلة الدفع.",
-                      style: TextStyle(fontFamily: 'Cairo'),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20),
-                    child: Text(
-                      "تنبيه: في حالة اختيار يوزر + باسورد يجب أن يكون التحقق بخطوتين مغلق.",
-                      style: TextStyle(
-                        color: Colors.orangeAccent,
-                        fontFamily: 'Cairo',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.pop(ctx, _tiktokChargeModeLink);
-                      },
-                      child: const Text("الشحن بلينك"),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.pop(ctx, _tiktokChargeModeQr);
-                      },
-                      child: const Text("الشحن بـ QR"),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(ctx, _tiktokChargeModeUserPass);
-                      },
-                      child: const Text("يوزر + باسورد"),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text("إلغاء"),
-                    ),
-                  ),
-                ],
-              ),
-              actions: const [],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<String?> _showTiktokPasswordDialog() async {
-    String typedPass = '';
-    String? errorText;
-    bool obscure = true;
-
-    return _showBlurDialog<String>(
-      barrierLabel: 'tiktok-password-dialog',
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => _buildMaterialDialogCard(
-          ctx,
-          title: "ادخل باسورد تيك توك",
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "تنبيه: لازم يكون التحقق بخطوتين (2FA) مقفول على حساب تيك توك قبل المتابعة.",
-                style: TextStyle(
-                  color: Colors.orangeAccent,
-                  fontFamily: 'Cairo',
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                "تنبيه أمني: غيّر كلمة السر مباشرة بعد استلام الشحن.",
-                style: TextStyle(
-                  color: Colors.orangeAccent,
-                  fontFamily: 'Cairo',
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                autofocus: true,
-                obscureText: obscure,
-                onChanged: (v) => typedPass = v,
-                decoration: InputDecoration(
-                  labelText: "باسورد تيك توك",
-                  errorText: errorText,
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      obscure ? Icons.visibility : Icons.visibility_off,
-                      size: 20,
-                    ),
-                    onPressed: () {
-                      setDialogState(() => obscure = !obscure);
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("إلغاء"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final pass = typedPass.trim();
-                if (pass.isEmpty) {
-                  setDialogState(() {
-                    errorText = "اكتب الباسورد للمتابعة";
-                  });
-                  return;
-                }
-                Navigator.pop(ctx, pass);
-              },
-              child: const Text("متابعة"),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // EN: Shows Payment Dialog.
-  // AR: تعرض Payment Dialog.
-  void _showPaymentDialog() {
-    if (!_isInputValid && !_isGameOrder && !_isPromoOrder) return;
-    if (!_isPromoOrder && !_ensureTiktokHandle()) {
-      return;
-    }
-
-    final int totalAmount = _priceValue ?? 0;
-    if (totalAmount <= 0) {
-      _showCustomToast(
-        "حدد قيمة صحيحة قبل اختيار وسيلة الدفع",
-        color: Colors.orange,
-      );
-      return;
-    }
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierLabel: "Pay",
-      barrierColor: Colors.black.withAlpha(96),
-      pageBuilder: (_, routeAnimation, secondaryAnimation) => const SizedBox(),
-      transitionBuilder: (ctx, anim, routeAnimation, secondaryAnimation) {
-        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOut);
-        final blur = Tween<double>(begin: 0, end: 8).animate(curved);
-        return BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blur.value, sigmaY: blur.value),
-          child: SlideTransition(
-            position: Tween(
-              begin: const Offset(0, -1),
-              end: Offset.zero,
-            ).animate(curved),
-            child: SafeArea(
-              child: Center(
-                child: Material(
-                  color: Colors.transparent,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: Builder(
-                        builder: (ctx) {
-                          final payableAmount = totalAmount;
-                          return GlassCard(
-                            margin: EdgeInsets.zero,
-                            padding: const EdgeInsets.all(24),
-                            borderColor: TTColors.primaryCyan.withAlpha(140),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text(
-                                  "وسيلة الدفع",
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Cairo',
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  "إجمالي الطلب: $totalAmount جنيه",
-                                  style: const TextStyle(
-                                    color: TTColors.goldAccent,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                if (_isGameOrder) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    _gameOrderTitle(_selectedPackage!),
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: TTColors.textWhite,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  if ((_selectedGameId ?? '').isNotEmpty)
-                                    Text(
-                                      "ID: $_selectedGameId",
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: TTColors.textGray,
-                                      ),
-                                    ),
-                                ],
-                                const SizedBox(height: 18),
-                                _payOption(
-                                  "فودافون كاش / محفظة",
-                                  Icons.account_balance_wallet,
-                                  Colors.orange,
-                                  () => _processWalletOrder(
-                                    payableAmount: payableAmount,
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                _payOption(
-                                  "InstaPay",
-                                  Icons.qr_code,
-                                  Colors.purpleAccent,
-                                  () => _processInstaPay(
-                                    payableAmount: payableAmount,
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                _payOptionWithLeading(
-                                  "Binance Pay",
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(4),
-                                    child: Image.asset(
-                                      'assets/icon/binance_logo.png',
-                                      width: 22,
-                                      height: 22,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                  () => _processBinancePay(
-                                    payableAmount: payableAmount,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => Navigator.pop(ctx),
-                                    icon: const Icon(Icons.close),
-                                    label: const Text("إلغاء"),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // EN: Handles pay Option.
-  // AR: تتعامل مع pay Option.
-  Widget _payOption(String t, IconData i, Color c, VoidCallback tap) {
-    return ListTile(
-      leading: Icon(i, color: c),
-      title: Text(t, style: const TextStyle(fontFamily: 'Cairo')),
-      onTap: tap,
-      tileColor: TTColors.cardBg,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    );
-  }
-
-  Widget _payOptionWithLeading(String t, Widget leading, VoidCallback tap) {
-    return ListTile(
-      leading: leading,
-      title: Text(t, style: const TextStyle(fontFamily: 'Cairo')),
-      onTap: tap,
-      tileColor: TTColors.cardBg,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    );
   }
 
   String _formatUsdtAmount(double amount) => amount.toStringAsFixed(2);
@@ -2549,7 +2218,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<Map<String, dynamic>?> _pickMerchant() async {
-    return showModalBottomSheet<Map<String, dynamic>>(
+    return showLockedModalBottomSheet<Map<String, dynamic>>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
@@ -2843,7 +2512,8 @@ class _HomeScreenState extends State<HomeScreen>
       data['package_quantity'] = _selectedPackage!.quantity;
       data['game_id'] = _selectedGameId ?? '';
     } else if (_isPromoOrder) {
-      data['product_type'] = 'tiktok_promo';
+      data['product_type'] = promoProductTypeForPlatform(_promoPlatform);
+      data['promo_platform'] = normalizePromoPlatform(_promoPlatform);
       data['video_link'] = _promoLink;
     } else {
       data['product_type'] = 'tiktok';
@@ -2970,15 +2640,20 @@ class _HomeScreenState extends State<HomeScreen>
       );
     }
 
-    if (productType == 'tiktok_promo' && promoLink.isNotEmpty) {
+    if (isPromoProductType(productType) && promoLink.isNotEmpty) {
+      final promoPlatform = promoPlatformFromProductType(productType);
       await _safeAddOrderChatMessage(
         orderId: orderId,
         senderRole: 'user',
         senderName: displayName,
-        text: 'رابط فيديو الترويج',
+        text: promoPlatform.isEmpty
+            ? 'رابط المحتوى الترويجي'
+            : promoChatLinkTextForPlatform(promoPlatform),
         attachmentType: 'link',
         attachmentUrl: ensureHttps(promoLink),
-        attachmentLabel: 'رابط الفيديو',
+        attachmentLabel: promoPlatform.isEmpty
+            ? 'رابط المحتوى'
+            : promoLinkLabelForPlatform(promoPlatform),
       );
     }
 
@@ -3006,345 +2681,6 @@ class _HomeScreenState extends State<HomeScreen>
         );
       }
     }
-  }
-
-  // EN: Processes Wallet Order.
-  // AR: تعالج Wallet Order.
-  Future<void> _processWalletOrder({required int payableAmount}) async {
-    Navigator.pop(context);
-
-    if (!await _ensureSelectedMerchantOnlineForCheckout()) return;
-    if (!await _checkCancelLimit()) return;
-    if (payableAmount <= 0) {
-      _showCustomToast("لا يوجد مبلغ مطلوب دفعه الآن.", color: Colors.orange);
-      return;
-    }
-
-    bool proceed = false;
-
-    await _showBlurDialog<void>(
-      barrierLabel: 'wallet-order-dialog',
-      builder: (ctx) => _buildMaterialDialogCard(
-        ctx,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.info, color: Colors.orange, size: 50),
-            const SizedBox(height: 10),
-            Text(
-              "المبلغ المطلوب دفعه الآن: $payableAmount جنيه",
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: TTColors.goldAccent,
-                fontFamily: 'Cairo',
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "سيتم إرسال رقم المحفظة وتأكيدات الدفع من التاجر داخل الشات بعد إنشاء الطلب.",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              proceed = false;
-            },
-            child: const Text("إلغاء"),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              proceed = true;
-            },
-            child: const Text("متابعة"),
-          ),
-        ],
-      ),
-    );
-
-    if (!proceed) return;
-    if (!mounted) return;
-    final createdOrderId = await _createOrderWithOptionalPoints(
-      payload: _buildOrderPayload(
-        method: "Wallet",
-        status: 'pending_payment',
-        paymentTarget: '',
-        priceOverride: payableAmount,
-      ),
-    );
-    if (createdOrderId == null || !mounted) return;
-
-    await _openSupportChat(orderId: createdOrderId);
-    if (!mounted) return;
-    _resetCheckoutMeta();
-  }
-
-  Future<void> _processBinancePay({required int payableAmount}) async {
-    Navigator.pop(context);
-
-    if (!await _ensureSelectedMerchantOnlineForCheckout()) return;
-    if (!await _checkCancelLimit()) return;
-    if (payableAmount <= 0) {
-      _showCustomToast("لا يوجد مبلغ مطلوب دفعه الآن.", color: Colors.orange);
-      return;
-    }
-
-    final String binanceId = _binanceId.trim();
-
-    await _refreshUsdtPriceFromExternal(forceRefresh: true);
-
-    final usdtAmount = _computeOrderUsdtAmount(egpAmount: payableAmount);
-    final usdtAmountText = usdtAmount == null
-        ? ''
-        : _formatUsdtAmount(usdtAmount);
-
-    bool proceed = false;
-
-    await _showBlurDialog<void>(
-      barrierLabel: 'binance-order-dialog',
-      builder: (ctx) => _buildMaterialDialogCard(
-        ctx,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.currency_bitcoin,
-              color: Color(0xFFF3BA2F),
-              size: 50,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              "المبلغ المطلوب: ${usdtAmountText.isEmpty ? payableAmount : '$usdtAmountText USDT'}",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "المعادِل بالجنيه: $payableAmount",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: TTColors.goldAccent, fontFamily: 'Cairo'),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "سيتم إرسال Binance Pay ID وتأكيدات الدفع داخل الشات من التاجر.",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: TTColors.textWhite, fontFamily: 'Cairo'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              proceed = false;
-            },
-            child: const Text("إلغاء"),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              proceed = true;
-            },
-            child: const Text("متابعة"),
-          ),
-        ],
-      ),
-    );
-
-    if (!proceed) return;
-    if (!mounted) return;
-    final createdOrderId = await _createOrderWithOptionalPoints(
-      payload: _buildOrderPayload(
-        method: "Binance Pay",
-        status: 'pending_payment',
-        paymentTarget: '',
-        binanceId: binanceId.isEmpty ? null : binanceId,
-        usdtAmount: usdtAmountText.isEmpty ? null : usdtAmountText,
-        usdtPrice: usdtAmount == null ? null : _usdtPrice,
-        priceOverride: payableAmount,
-      ),
-    );
-    if (createdOrderId == null || !mounted) return;
-
-    await _openSupportChat(orderId: createdOrderId);
-    if (!mounted) return;
-    _resetCheckoutMeta();
-  }
-
-  // EN: Processes Insta Pay.
-  // AR: تعالج Insta Pay.
-  Future<void> _processInstaPay({required int payableAmount}) async {
-    Navigator.pop(context);
-
-    if (!await _ensureSelectedMerchantOnlineForCheckout()) return;
-    if (!await _checkCancelLimit()) return;
-    if (payableAmount <= 0) {
-      _showCustomToast("لا يوجد مبلغ مطلوب دفعه الآن.", color: Colors.orange);
-      return;
-    }
-
-    bool proceed = false;
-
-    await _showBlurDialog<void>(
-      barrierLabel: 'instapay-order-dialog',
-      builder: (ctx) => _buildMaterialDialogCard(
-        ctx,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              "المبلغ المطلوب: $payableAmount جنيه",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: TTColors.textWhite),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "سيقوم التاجر بإرسال رابط أو رقم InstaPay داخل الشات بعد إنشاء الطلب.",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: TTColors.goldAccent),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              "بعد التحويل اضغط متابعة، وأرسل أي إثبات داخل الشات.",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: TTColors.textGray),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              proceed = false;
-            },
-            child: const Text("إلغاء"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              proceed = true;
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
-            child: const Text("متابعة"),
-          ),
-        ],
-      ),
-    );
-
-    if (!mounted) return;
-    if (!proceed) return;
-    final createdOrderId = await _createOrderWithOptionalPoints(
-      payload: _buildOrderPayload(
-        method: "InstaPay",
-        status: 'pending_payment',
-        instapayLink: null,
-        paymentTarget: '',
-        priceOverride: payableAmount,
-      ),
-    );
-    if (createdOrderId == null || !mounted) return;
-
-    _showCustomToast("تم إنشاء الطلب ✅", color: Colors.green);
-    await _openSupportChat(orderId: createdOrderId);
-    if (!mounted) return;
-    _resetCheckoutMeta();
-  }
-
-  // ترويج فيديو تيك توك
-  Future<void> _openPromoDialog() async {
-    if (!await _checkCancelLimit()) return;
-
-    final linkCtrl = TextEditingController();
-    final amountCtrl = TextEditingController();
-    bool proceed = false;
-
-    await _showBlurDialog<void>(
-      barrierLabel: 'promo-order-dialog',
-      builder: (ctx) => _buildMaterialDialogCard(
-        ctx,
-        title: "ترويج فيديو تيك توك",
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: linkCtrl,
-              decoration: const InputDecoration(
-                labelText: "رابط الفيديو",
-                hintText: "https://www.tiktok.com/...",
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: amountCtrl,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: const InputDecoration(
-                labelText: "المبلغ بالجنيه",
-                hintText: "100 - 60000",
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("إلغاء"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              proceed = true;
-              Navigator.pop(ctx);
-            },
-            child: const Text("إنشاء طلب"),
-          ),
-        ],
-      ),
-    );
-
-    if (!proceed) return;
-    if (!mounted) return;
-
-    final link = linkCtrl.text.trim();
-    final amount = _normalizeMoneyAmount(
-      raw: amountCtrl.text,
-      min: 100,
-      max: 60000,
-    );
-
-    bool isTiktokLink(String url) {
-      final uri = Uri.tryParse(url);
-      if (uri == null || !uri.hasAuthority) return false;
-      final h = uri.host.toLowerCase();
-      return h.contains('tiktok.com');
-    }
-
-    if (amount == null || link.isEmpty || !isTiktokLink(link)) {
-      TopSnackBar.show(
-        context,
-        "أدخل رابط تيك توك صالح ومبلغ بين 100 و 60000 جنيه",
-        backgroundColor: Colors.orange,
-        textColor: Colors.black,
-        icon: Icons.warning_amber_rounded,
-      );
-      return;
-    }
-
-    setState(() {
-      _promoLink = link;
-      _priceValue = amount;
-      _pointsValue = null;
-      _isInputValid = true;
-      _selectedPackage = null;
-      _selectedGameId = null;
-    });
-
-    _startCheckoutFlow();
   }
 
   Future<bool> _checkCancelLimit() async {
@@ -3822,7 +3158,7 @@ class _HomeScreenState extends State<HomeScreen>
         onTap: _openTiktokDialog,
       ),
       _MenuItem(
-        title: "ترويج فيديو تيك توك",
+        title: "ترويج محتوى",
         icon: Icons.campaign,
         onTap: _openPromoDialog,
       ),
@@ -3908,7 +3244,7 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               _webBtn("طلباتي", () => _openOrders()),
               _webBtn("شحن عملات تيك توك", _openTiktokDialog),
-              _webBtn("ترويج فيديو تيك توك", _openPromoDialog),
+              _webBtn("ترويج محتوى", _openPromoDialog),
               _webBtn("شحن ألعاب", _openGamesDialog),
               _webBtn(
                 "سياسة الخصوصية",

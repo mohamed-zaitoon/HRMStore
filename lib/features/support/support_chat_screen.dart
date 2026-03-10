@@ -13,8 +13,10 @@ import '../../core/tt_colors.dart';
 import '../../services/cancel_limit_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/order_chat_service.dart';
+import '../../utils/promo_order_utils.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/order_chat_panel.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/top_snackbar.dart';
@@ -68,7 +70,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   bool _isChatSupportedType(String productType) {
     return productType == 'tiktok' ||
         productType == 'game' ||
-        productType == 'tiktok_promo';
+        isPromoProductType(productType);
   }
 
   bool _isExecutionChatOpen(String status) {
@@ -367,7 +369,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
 
   Future<void> _confirmCancel(BuildContext context, String orderId) async {
     bool confirm = false;
-    await showDialog(
+    await showLockedDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: TTColors.cardBg,
@@ -479,8 +481,8 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     String productLabel;
     if (productType == 'game') {
       productLabel = 'شحن ألعاب';
-    } else if (productType == 'tiktok_promo') {
-      productLabel = 'ترويج فيديو';
+    } else if (isPromoProductType(productType)) {
+      productLabel = promoOrderTitleFromProductType(productType);
     } else {
       productLabel = 'شحن تيك توك';
     }

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_navigator.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/modal_utils.dart';
 import '../../widgets/snow_background.dart';
 import '../../widgets/top_snackbar.dart';
 
@@ -346,7 +347,7 @@ class _AdminPricesScreenState extends State<AdminPricesScreen> {
     final data = doc?.data() ?? const <String, dynamic>{};
     final initialPrice = _legacyDerivedPricePer1000(data, pricing);
 
-    final result = await showDialog<_EditRangeDialogResult>(
+    final result = await showLockedDialog<_EditRangeDialogResult>(
       context: context,
       builder: (ctx) => _EditRangeDialog(
         title: doc == null ? 'إضافة شريحة جديدة' : 'تعديل الشريحة',

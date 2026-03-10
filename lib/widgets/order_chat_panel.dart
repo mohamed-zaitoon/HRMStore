@@ -12,6 +12,7 @@ import '../core/tt_colors.dart';
 import '../services/order_chat_service.dart';
 import '../services/receipt_storage_service.dart';
 import '../utils/url_sanitizer.dart';
+import 'modal_utils.dart';
 import 'top_snackbar.dart';
 
 enum _AttachmentAction { image, link }
@@ -312,7 +313,7 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
     if (!widget.chatEnabled || _isUploadingAttachment) return;
     final linkCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
-    final result = await showDialog<(String, String)>(
+    final result = await showLockedDialog<(String, String)>(
       context: context,
       builder: (ctx) {
         return AlertDialog(
@@ -470,7 +471,7 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
   Future<void> _showImagePreview(String url, {String? title}) async {
     if (!mounted) return;
     final safeUrl = ensureHttps(url.trim());
-    await showDialog(
+    await showLockedDialog(
       context: context,
       builder: (ctx) {
         final size = MediaQuery.of(ctx).size;

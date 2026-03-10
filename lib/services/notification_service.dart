@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_navigator.dart';
 import '../core/order_status.dart';
+import '../utils/promo_order_utils.dart';
 import '../widgets/top_snackbar.dart';
 import 'onesignal_service.dart';
 import 'remote_config_service.dart';
@@ -918,8 +919,8 @@ class NotificationService {
       if (packageLabel.isNotEmpty) return packageLabel;
       return 'شحن لعبة';
     }
-    if (productType == 'tiktok_promo') {
-      return 'ترويج فيديو تيك توك';
+    if (isPromoProductType(productType)) {
+      return promoOrderTitleFromProductType(productType);
     }
     final points = (data['points'] ?? '').toString().trim();
     if (points.isNotEmpty) return '$points نقطة';
