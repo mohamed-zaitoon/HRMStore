@@ -1,8 +1,8 @@
-// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
+﻿// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
@@ -66,6 +66,12 @@ class HrmStoreApp extends StatelessWidget {
         path: '/login',
         name: 'LoginRoute',
         builder: (context, data) => _buildRootPage('/login'),
+      ),
+      NamedRouteDef(
+        path: '/admin/user-auth',
+        name: 'AdminUserAuthRoute',
+        builder: (context, data) =>
+            _withAndroidLanding('/admin/user-auth', const UserAuthScreen()),
       ),
       NamedRouteDef(
         path: '/android',
@@ -241,7 +247,7 @@ class HrmStoreApp extends StatelessWidget {
   );
 
   // EN: Creates HrmStoreApp.
-  // AR: ينشئ HrmStoreApp.
+  // AR: ظٹظ†ط´ط¦ HrmStoreApp.
   HrmStoreApp({
     super.key,
     required this.prefs,
@@ -467,7 +473,7 @@ class HrmStoreApp extends StatelessWidget {
         _stringArg(args, 'viewer_name') ??
         query.optString('viewer_name') ??
         (viewerRole == 'admin'
-            ? 'الدعم'
+            ? 'ط§ظ„ط¯ط¹ظ…'
             : (prefs.getString('user_name') ?? ''));
     final fallbackWhatsapp =
         _stringArg(args, 'whatsapp') ??
@@ -550,8 +556,8 @@ class HrmStoreApp extends StatelessWidget {
   }
 
   bool _isMerchantModeActive() {
-    // اعتمد على الحالة المتغيرة (prefs/AppInfo) فقط حتى ينتقل
-    // المستخدم فوراً من وضع التاجر إلى وضع المستخدم بدون loop.
+    // ط§ط¹طھظ…ط¯ ط¹ظ„ظ‰ ط§ظ„ط­ط§ظ„ط© ط§ظ„ظ…طھط؛ظٹط±ط© (prefs/AppInfo) ظپظ‚ط· ط­طھظ‰ ظٹظ†طھظ‚ظ„
+    // ط§ظ„ظ…ط³طھط®ط¯ظ… ظپظˆط±ط§ظ‹ ظ…ظ† ظˆط¶ط¹ ط§ظ„طھط§ط¬ط± ط¥ظ„ظ‰ ظˆط¶ط¹ ط§ظ„ظ…ط³طھط®ط¯ظ… ط¨ط¯ظˆظ† loop.
     return AppInfo.isMerchantApp || (prefs.getBool('is_merchant') ?? false);
   }
 
@@ -646,11 +652,11 @@ class HrmStoreApp extends StatelessWidget {
   }
 
   String _normalizeRoute(String name) {
-    // أزل index.html إن وُجد
+    // ط£ط²ظ„ index.html ط¥ظ† ظˆظڈط¬ط¯
     if (name.endsWith('/index.html')) {
       name = name.substring(0, name.length - '/index.html'.length);
     }
-    // أزل الشرطة المائلة في النهاية مع الحفاظ على الجذر
+    // ط£ط²ظ„ ط§ظ„ط´ط±ط·ط© ط§ظ„ظ…ط§ط¦ظ„ط© ظپظٹ ط§ظ„ظ†ظ‡ط§ظٹط© ظ…ط¹ ط§ظ„ط­ظپط§ط¸ ط¹ظ„ظ‰ ط§ظ„ط¬ط°ط±
     if (name.endsWith('/') && name.length > 1) {
       name = name.substring(0, name.length - 1);
     }
@@ -670,7 +676,7 @@ class HrmStoreApp extends StatelessWidget {
     if (!lowered.contains('android')) return false;
 
     // EN: Force Android landing only for Android versions > 9.
-    // AR: فرض صفحة تحميل التطبيق فقط لإصدارات أندرويد الأعلى من 9.
+    // AR: ظپط±ط¶ طµظپط­ط© طھط­ظ…ظٹظ„ ط§ظ„طھط·ط¨ظٹظ‚ ظپظ‚ط· ظ„ط¥طµط¯ط§ط±ط§طھ ط£ظ†ط¯ط±ظˆظٹط¯ ط§ظ„ط£ط¹ظ„ظ‰ ظ…ظ† 9.
     final majorVersion = _extractAndroidMajorVersion(userAgent);
     if (majorVersion == null) return false;
     return majorVersion > 9;
@@ -695,7 +701,7 @@ class HrmStoreApp extends StatelessWidget {
   }
 
   // EN: Builds widget UI.
-  // AR: تبني واجهة الودجت.
+  // AR: طھط¨ظ†ظٹ ظˆط§ط¬ظ‡ط© ط§ظ„ظˆط¯ط¬طھ.
   @override
   Widget build(BuildContext context) {
     return DynamicColorBuilder(
@@ -723,7 +729,7 @@ class HrmStoreApp extends StatelessWidget {
                 GlobalCupertinoLocalizations.delegate,
               ],
               builder: (context, child) {
-                final content = child ?? const SizedBox.shrink();
+                final baseContent = child ?? const SizedBox.shrink();
 
                 final brightness = Theme.of(context).brightness;
                 final background = TTColors.backgroundFor(brightness);
@@ -744,8 +750,8 @@ class HrmStoreApp extends StatelessWidget {
                 SystemChrome.setSystemUIOverlayStyle(overlayStyle);
 
                 final wrapped = kIsWeb
-                    ? content
-                    : ConnectionBlocker(child: content);
+                    ? baseContent
+                    : ConnectionBlocker(child: baseContent);
 
                 final availabilityWrapped = isAdminApp
                     ? wrapped
@@ -757,10 +763,33 @@ class HrmStoreApp extends StatelessWidget {
 
                 final gated = AccessBlocker(child: accountWrapped);
 
-                final appContent = AnnotatedRegion<SystemUiOverlayStyle>(
+                Widget appContent = AnnotatedRegion<SystemUiOverlayStyle>(
                   value: overlayStyle,
                   child: gated,
                 );
+
+                if (!kIsWeb &&
+                    defaultTargetPlatform == TargetPlatform.windows &&
+                    isAdminApp) {
+                  final mediaQuery = MediaQuery.of(context);
+                  final double narrowWidth = mediaQuery.size.width > 320
+                      ? 320
+                      : mediaQuery.size.width;
+                  appContent = MediaQuery(
+                    data: mediaQuery.copyWith(
+                      size: Size(narrowWidth, mediaQuery.size.height),
+                    ),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: narrowWidth,
+                        ),
+                        child: appContent,
+                      ),
+                    ),
+                  );
+                }
+
                 return EasyLoading.init()(context, appContent);
               },
             );
@@ -771,9 +800,9 @@ class HrmStoreApp extends StatelessWidget {
   }
 
   // EN: Builds Theme.
-  // AR: تبني Theme.
+  // AR: طھط¨ظ†ظٹ Theme.
   ThemeData _buildTheme(Brightness brightness, ColorScheme? dynamicScheme) {
-    dynamicScheme; // نحافظ على التوقيع مع تعطيل الاعتماد على Dynamic Color
+    dynamicScheme; // ظ†ط­ط§ظپط¸ ط¹ظ„ظ‰ ط§ظ„طھظˆظ‚ظٹط¹ ظ…ط¹ طھط¹ط·ظٹظ„ ط§ظ„ط§ط¹طھظ…ط§ط¯ ط¹ظ„ظ‰ Dynamic Color
     final bool isDark = brightness == Brightness.dark;
     final text = TTColors.textFor(brightness);
     final textMuted = TTColors.textMutedFor(brightness);
@@ -1141,17 +1170,17 @@ class _WebTitleObserver extends NavigatorObserver {
 
 class _NotFoundScreen extends StatelessWidget {
   // EN: Creates NotFoundScreen.
-  // AR: ينشئ NotFoundScreen.
+  // AR: ظٹظ†ط´ط¦ NotFoundScreen.
   const _NotFoundScreen();
 
   // EN: Builds widget UI.
-  // AR: تبني واجهة الودجت.
+  // AR: طھط¨ظ†ظٹ ظˆط§ط¬ظ‡ط© ط§ظ„ظˆط¯ط¬طھ.
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Center(
         child: Text(
-          '404 - الصفحة غير موجودة',
+          '404 - ط§ظ„طµظپط­ط© ط؛ظٹط± ظ…ظˆط¬ظˆط¯ط©',
           style: TextStyle(
             color: TTColors.textGray,
             fontSize: 20,
@@ -1162,3 +1191,6 @@ class _NotFoundScreen extends StatelessWidget {
     );
   }
 }
+
+
+

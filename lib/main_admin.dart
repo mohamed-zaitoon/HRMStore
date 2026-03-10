@@ -28,7 +28,10 @@ Future<void> main() async {
 
   usePathUrlStrategy();
 
-  const supportedPlatforms = {TargetPlatform.android};
+  const supportedPlatforms = {
+    TargetPlatform.android,
+    TargetPlatform.windows,
+  };
   final isSupportedPlatform =
       !kIsWeb && supportedPlatforms.contains(defaultTargetPlatform);
   if (!isSupportedPlatform) {
@@ -112,7 +115,7 @@ class _AdminPlatformBlockedApp extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Text(
-              'نسخة الأدمن متاحة على أندرويد فقط.',
+              'نسخة الأدمن متاحة على أندرويد وويندوز فقط.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: Colors.red.shade700,

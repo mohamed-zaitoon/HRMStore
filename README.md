@@ -10,13 +10,13 @@
 ![Firebase](https://img.shields.io/badge/Firebase-039BE5?style=for-the-badge&logo=firebase&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 ![Web](https://img.shields.io/badge/Web-4285F4?style=for-the-badge&logo=google-chrome&logoColor=white)
-
-HRM Store is a Flutter application for purchasing TikTok coins with a smooth, Arabic‑first experience. It runs on Android and Web and uses Firebase for data, configuration, and notifications.
+![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
+HRM Store is a Flutter application for purchasing TikTok coins with a smooth, Arabic-first experience. It runs on Android and Web, and now ships a Windows desktop build for the admin console only. Firebase powers data, configuration, and notifications.
 
 ## Highlights
 
-- Cross‑platform Flutter app (Android + Web)
-- Arabic‑first UI with RTL support and modern glassmorphism design
+- Cross-platform Flutter app (Android + Web; Windows for admin)
+- Arabic-first UI with RTL support and modern glassmorphism design
 - Dynamic pricing rules stored in Firestore
 - Orders flow with receipt uploads and status tracking
 - Remote Config for operational settings and offers
@@ -27,6 +27,7 @@ HRM Store is a Flutter application for purchasing TikTok coins with a smooth, Ar
 - Entrypoints  
   - `lib/main.dart`: Boots the user app; initializes Firebase, theme, remote config, OneSignal, sets `isAdminApp=false`.  
   - `lib/main_admin.dart`: Boots the admin app with `isAdminApp=true`, stores the flag in SharedPreferences, then launches `HrmStoreApp`.
+  - Windows desktop builds are wired to `lib/main_admin.dart` by default (admin-only) via `windows/CMakeLists.txt`.
 
 - App shell  
   - `lib/app/hrm_store_app.dart`: Main `MaterialApp`; wires routes for user/admin, applies dynamic color + theme mode, guards web deep links, and uses `_WebTitleObserver` to update page title.  
@@ -117,6 +118,13 @@ External IDs are role‑scoped for user devices:
 - Flutter SDK (stable)
 - Firebase CLI
 - Node.js 22 (for Cloud Functions)
+
+### Windows (Admin desktop)
+
+- Install Visual Studio 2022 with the "Desktop development with C++" workload.
+- Ensure desktop is enabled: `flutter config --enable-windows-desktop`.
+- Build or run the admin flavor on Windows: `flutter run -d windows` or `flutter build windows` (wired to `lib/main_admin.dart` by default).
+- The user app is blocked on desktop; use the Web build or Android/iOS for end users.
 
 ### Safe Public Setup (Without Secrets)
 

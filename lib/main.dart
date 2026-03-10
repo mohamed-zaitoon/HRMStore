@@ -29,6 +29,18 @@ Future<void> main() async {
 
   usePathUrlStrategy();
 
+  const desktopOnlyForAdmin = {
+    TargetPlatform.windows,
+    TargetPlatform.macOS,
+    TargetPlatform.linux,
+  };
+  final isBlockedDesktop =
+      !kIsWeb && desktopOnlyForAdmin.contains(defaultTargetPlatform);
+  if (isBlockedDesktop) {
+    runApp(const _UserDesktopBlockedApp());
+    return;
+  }
+
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Desktop (Windows/macOS/Linux) and Web lack Crashlytics/App Check support.
@@ -113,5 +125,31 @@ Future<void> _runGlobalUpdateCheck() async {
       return;
     }
     await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+}
+
+class _UserDesktopBlockedApp extends StatelessWidget {
+  const _UserDesktopBlockedApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'نسخة سطح المكتب مخصصة للإدمن فقط. استخدم نسخة الويب أو تطبيق الموبايل.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.red.shade700,
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

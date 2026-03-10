@@ -1,4 +1,4 @@
-// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
+﻿// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 import com.android.build.api.dsl.ApplicationExtension
 import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
 import java.io.FileInputStream
@@ -28,8 +28,8 @@ configure<ApplicationExtension>{
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     defaultConfig {
@@ -139,5 +139,6 @@ dependencies {
 }
 
 tasks.withType<KotlinCompile>().configureEach {
-    compilerOptions.jvmTarget.set(JvmTarget.JVM_21)
+    compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
 }
+

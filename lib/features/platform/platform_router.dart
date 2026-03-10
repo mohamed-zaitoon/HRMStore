@@ -17,6 +17,10 @@ class PlatformRouter extends StatelessWidget {
   Widget build(BuildContext context) {
     final path = kIsWeb ? Uri.base.path : "/";
 
+    if (kIsWeb && path.startsWith("/admin/user-auth")) {
+      return const UserAuthScreen();
+    }
+
     if (kIsWeb && path.startsWith("/admin")) {
       return const AdminLoginScreen();
     }
@@ -24,3 +28,4 @@ class PlatformRouter extends StatelessWidget {
     return const UserAuthScreen();
   }
 }
+
