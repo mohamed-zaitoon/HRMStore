@@ -21,6 +21,7 @@ import 'services/update_manager.dart';
 import 'app/hrm_store_app.dart';
 import 'core/app_info.dart';
 import 'core/app_navigator.dart';
+import 'widgets/startup_splash_gate.dart';
 
 // EN: App entry point.
 // AR: نقطة بدء التطبيق.
@@ -76,7 +77,14 @@ Future<void> main() async {
   await prefs.setBool('is_merchant', isMerchant);
 
   runApp(
-    HrmStoreApp(prefs: prefs, isAdminApp: isAdmin, isMerchantApp: isMerchant),
+    StartupSplashGate(
+      enabled: !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
+      child: HrmStoreApp(
+        prefs: prefs,
+        isAdminApp: isAdmin,
+        isMerchantApp: isMerchant,
+      ),
+    ),
   );
 
   unawaited(AppLinksService.start(isAdminApp: isAdmin));

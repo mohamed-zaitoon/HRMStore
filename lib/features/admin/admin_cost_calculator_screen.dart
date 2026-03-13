@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../widgets/glass_app_bar.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/snow_background.dart';
+import '../../utils/pricing_math.dart';
 
 class AdminCostCalculatorScreen extends StatefulWidget {
   const AdminCostCalculatorScreen({super.key});
@@ -19,7 +20,7 @@ class _AdminCostCalculatorScreenState extends State<AdminCostCalculatorScreen> {
   final TextEditingController _coinsCountCtrl = TextEditingController();
 
   double? _baseCostPer1000;
-  double? _manualCalculatedCost;
+  int? _manualCalculatedCost;
   bool _isLoadingBaseCost = false;
   String? _loadError;
 
@@ -118,11 +119,11 @@ class _AdminCostCalculatorScreenState extends State<AdminCostCalculatorScreen> {
     }
   }
 
-  double? _calculateTotalCost() {
+  int? _calculateTotalCost() {
     final baseCostPer1000 = _baseCostPer1000;
     final coins = _parsePositive(_coinsCountCtrl.text);
     if (baseCostPer1000 == null || coins == null) return null;
-    return (coins / 1000) * baseCostPer1000;
+    return ceilMoneyAmount((coins / 1000) * baseCostPer1000);
   }
 
   void _handleCoinsChanged() {
@@ -218,7 +219,7 @@ class _AdminCostCalculatorScreenState extends State<AdminCostCalculatorScreen> {
                           ? "اكتب عدد العملات ليظهر السعر."
                           : _manualCalculatedCost == null
                           ? "أدخل عدد عملات صحيح مع توفر سعر 1000 الأساسي."
-                          : "السعر: ${_formatNumber(_manualCalculatedCost!)} ج.م",
+                          : "السعر: ${_manualCalculatedCost!} ج.م",
                       style: TextStyle(
                         color: _manualCalculatedCost == null
                             ? colorScheme.onSurfaceVariant

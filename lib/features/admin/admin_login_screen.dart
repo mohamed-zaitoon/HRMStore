@@ -1,4 +1,4 @@
-﻿// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
+// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -122,8 +122,8 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       final passwordValid = storedPassword.isNotEmpty
           ? _secureEquals(storedPassword, password)
           : storedHash.isNotEmpty
-              ? _secureEquals(storedHash.toLowerCase(), inputHash.toLowerCase())
-              : false;
+          ? _secureEquals(storedHash.toLowerCase(), inputHash.toLowerCase())
+          : false;
       if (!passwordValid) return 'بيانات الدخول غير صحيحة';
 
       final storedWhatsapp = _normalizeWhatsapp(
@@ -151,7 +151,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   ) async {
     try {
       final admins = FirebaseFirestore.instance.collection('admins');
-      final exists = await admins.where('email', isEqualTo: email).limit(1).get();
+      final exists = await admins
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get();
       if (exists.docs.isNotEmpty) {
         return 'الحساب موجود بالفعل';
       }
@@ -197,7 +200,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       inputTheme: InputDecorationTheme(
         filled: true,
         fillColor: TTColors.cardBgFor(brightness),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
       ),
       titleStyle: TextStyle(
@@ -220,7 +226,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         color: TTColors.textWhite,
       ),
       switchAuthTextColor: TTColors.textFor(brightness),
-      authButtonPadding: const EdgeInsets.symmetric(horizontal: 30, vertical: 10),
+      authButtonPadding: const EdgeInsets.symmetric(
+        horizontal: 30,
+        vertical: 10,
+      ),
       buttonTheme: LoginButtonTheme(
         backgroundColor: TTColors.primaryCyan,
         iconColor: TTColors.textWhite,
@@ -281,17 +290,25 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   @override
   Widget build(BuildContext context) {
     if (_checkingSession) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator(color: TTColors.primaryCyan)),
+      return Scaffold(
+        backgroundColor: TTColors.backgroundFor(Theme.of(context).brightness),
+        body: const Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.2),
+          ),
+        ),
       );
     }
 
     final brightness = Theme.of(context).brightness;
 
     return FlutterLogin(
-      title: '${AppInfo.appName} (أدمن)',
+      title: AppInfo.appName,
       userType: LoginUserType.email,
-      onLogin: (data) => _loginAdmin(data.name.trim().toLowerCase(), data.password),
+      onLogin: (data) =>
+          _loginAdmin(data.name.trim().toLowerCase(), data.password),
       onSignup: (data) => _registerAdmin(
         (data.name ?? '').trim().toLowerCase(),
         data.password ?? '',

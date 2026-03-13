@@ -967,9 +967,13 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
   Widget build(BuildContext context) {
     if (_checkingSession) {
       return Scaffold(
-        backgroundColor: TTColors.cardBg,
+        backgroundColor: TTColors.backgroundFor(Theme.of(context).brightness),
         body: const Center(
-          child: CircularProgressIndicator(color: TTColors.primaryCyan),
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.2),
+          ),
         ),
       );
     }
