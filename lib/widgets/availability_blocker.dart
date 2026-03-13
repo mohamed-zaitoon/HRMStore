@@ -105,12 +105,7 @@ class AvailabilityBlocker extends StatelessWidget {
           return child;
         }
         if (!snapshot.hasData) {
-          return Scaffold(
-            backgroundColor: TTColors.cardBg,
-            body: const Center(
-              child: CircularProgressIndicator(color: TTColors.primaryCyan),
-            ),
-          );
+          return child;
         }
 
         final decision = snapshot.data!;

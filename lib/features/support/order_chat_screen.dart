@@ -193,7 +193,6 @@ class _OrderChatScreenState extends State<OrderChatScreen> {
     final result = await showLockedDialog<(String, String)>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
         title: const Text(
           'إرسال لينك تسجيل الدخول',
           style: TextStyle(fontFamily: 'Cairo'),

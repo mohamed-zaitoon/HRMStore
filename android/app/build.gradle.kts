@@ -34,8 +34,25 @@ configure<ApplicationExtension>{
 
     defaultConfig {
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
+        // If pubspec uses pre-release style (e.g. 1.6.0-160), Flutter may not
+        // provide flutter.versionCode and it falls back to 1.
+        // We recover build number from versionName suffix to keep split-per-abi
+        // codes stable (arm64 => 2000 + buildNumber, e.g. 2160).
+        val versionNameText = flutter.versionName
+        val fallbackBuildNumber = Regex(""".*-(\d+)$""")
+            .find(versionNameText)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?: 1
+        versionCode = if (flutter.versionCode > 1) {
+            flutter.versionCode
+        } else {
+            fallbackBuildNumber
+        }
         versionName = flutter.versionName
+        // Keep only Arabic Android resources from dependencies.
+        resourceConfigurations.addAll(listOf("ar"))
 
         manifestPlaceholders["applicationName"] = ".HrmStoreApp"
     }
@@ -141,4 +158,3 @@ dependencies {
 tasks.withType<KotlinCompile>().configureEach {
     compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
 }
-

@@ -1,8 +1,9 @@
-﻿// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
+// Open-source code. Copyright Mohamed Zaitoon 2025-2026.
 
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
@@ -781,9 +782,7 @@ class HrmStoreApp extends StatelessWidget {
                     ),
                     child: Center(
                       child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: narrowWidth,
-                        ),
+                        constraints: BoxConstraints(maxWidth: narrowWidth),
                         child: appContent,
                       ),
                     ),
@@ -1093,8 +1092,10 @@ class HrmStoreApp extends StatelessWidget {
         ),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: cardBg,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        // Material 3 spec: rounded 28dp dialogs with capped width.
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        constraints: const BoxConstraints(maxWidth: 560),
+        surfaceTintColor: Colors.transparent,
       ),
       // ignore: deprecated_member_use
       buttonBarTheme: const ButtonBarThemeData(
@@ -1191,6 +1192,3 @@ class _NotFoundScreen extends StatelessWidget {
     );
   }
 }
-
-
-

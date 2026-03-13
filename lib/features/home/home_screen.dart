@@ -2,7 +2,6 @@
 
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
@@ -11,9 +10,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
 import 'package:icons_plus/icons_plus.dart';
-import 'package:material_dialogs/material_dialogs.dart';
-import 'package:material_dialogs/shared/types.dart';
-import 'package:material_dialogs/widgets/dialogs/dialog_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -460,32 +456,13 @@ class _HomeScreenState extends State<HomeScreen>
   Future<T?> _showBlurDialog<T>({
     required WidgetBuilder builder,
     bool barrierDismissible = false,
-    String barrierLabel = 'Dialog',
+    String? barrierLabel,
   }) {
-    return showGeneralDialog<T>(
+    return showDialog<T>(
       context: context,
       barrierDismissible: barrierDismissible,
       barrierLabel: barrierLabel,
-      barrierColor: Colors.black.withAlpha(96),
-      transitionDuration: const Duration(milliseconds: 220),
-      pageBuilder: (_, routeAnimation, secondaryAnimation) =>
-          const SizedBox.shrink(),
-      transitionBuilder: (_, animation, routeAnimation, secondaryAnimation) {
-        final curved = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
-        );
-        final blur = Tween<double>(begin: 0, end: 8).animate(curved);
-
-        return BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blur.value, sigmaY: blur.value),
-          child: FadeTransition(
-            opacity: curved,
-            child: SafeArea(child: Builder(builder: builder)),
-          ),
-        );
-      },
+      builder: builder,
     );
   }
 
@@ -496,55 +473,29 @@ class _HomeScreenState extends State<HomeScreen>
     List<Widget>? actions,
     TextStyle? titleStyle,
   }) {
-    final size = MediaQuery.sizeOf(context);
-    final maxWidth = _resolveDialogMaxWidthForWeb(size: size, requested: 560);
-    final constrainedContent = ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      child: content,
+    final media = MediaQuery.of(context);
+    final size = media.size;
+    final maxWidth = _resolveDialogMaxWidth(size: size, requested: 560);
+    final maxHeight = math.max(
+      220.0,
+      size.height - media.viewInsets.bottom - 24,
     );
 
     return AlertDialog(
-      backgroundColor: TTColors.cardBg,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      insetPadding: EdgeInsets.symmetric(
-        horizontal: kIsWeb ? 20 : 16,
-        vertical: 20,
-      ),
-      titlePadding: title == null
-          ? EdgeInsets.zero
-          : const EdgeInsets.fromLTRB(24, 24, 24, 0),
-      contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-      actionsPadding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-      title: title == null
-          ? null
-          : Text(
-              title,
-              style:
-                  titleStyle ??
-                  const TextStyle(
-                    fontFamily: 'Cairo',
-                    fontWeight: FontWeight.w700,
-                    fontSize: 18,
-                  ),
-            ),
-      content: constrainedContent,
+      constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxHeight),
+      scrollable: true,
+      title: title == null ? null : Text(title, style: titleStyle),
+      content: content,
       actions: actions,
-      actionsAlignment: MainAxisAlignment.end,
-      actionsOverflowAlignment: OverflowBarAlignment.end,
-      actionsOverflowDirection: VerticalDirection.down,
-      actionsOverflowButtonSpacing: 8,
-      buttonPadding: const EdgeInsets.symmetric(horizontal: 8),
     );
   }
 
-  double _resolveDialogMaxWidthForWeb({
+  double _resolveDialogMaxWidth({
     required Size size,
     required double requested,
   }) {
-    if (!kIsWeb) return requested;
-    final cappedRequested = math.min(requested, 500.0);
-    final available = math.max(320.0, size.width - 40);
-    return math.min(cappedRequested, available);
+    final available = math.max(280.0, size.width - 48);
+    return math.min(requested, available);
   }
 
   Future<void> _openAccountDialog() async {

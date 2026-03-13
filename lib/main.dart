@@ -23,6 +23,13 @@ import 'core/app_info.dart';
 import 'core/app_navigator.dart';
 import 'widgets/startup_splash_gate.dart';
 
+typedef _UserBootState = ({
+  SharedPreferences prefs,
+  String whatsapp,
+  bool isAdmin,
+  bool isMerchant,
+});
+
 // EN: App entry point.
 // AR: نقطة بدء التطبيق.
 Future<void> main() async {
@@ -42,6 +49,14 @@ Future<void> main() async {
     return;
   }
 
+  final bootFuture = _prepareUserBoot();
+
+  runApp(_UserBootRoot(bootFuture: bootFuture));
+
+  unawaited(_startUserBackgroundTasks(bootFuture));
+}
+
+Future<_UserBootState> _prepareUserBoot() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Desktop (Windows/macOS/Linux) and Web lack Crashlytics/App Check support.
@@ -75,20 +90,54 @@ Future<void> main() async {
 
   await prefs.setBool('is_admin', isAdmin);
   await prefs.setBool('is_merchant', isMerchant);
+  await UpdateManager.cleanupDownloadedApksAfterUpdate();
 
-  runApp(
-    StartupSplashGate(
-      enabled: !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
-      child: HrmStoreApp(
-        prefs: prefs,
-        isAdminApp: isAdmin,
-        isMerchantApp: isMerchant,
-      ),
-    ),
+  return (
+    prefs: prefs,
+    whatsapp: whatsapp,
+    isAdmin: isAdmin,
+    isMerchant: isMerchant,
   );
+}
 
-  unawaited(AppLinksService.start(isAdminApp: isAdmin));
-  unawaited(_postInit(whatsapp: whatsapp, isAdmin: isAdmin));
+Future<void> _startUserBackgroundTasks(
+  Future<_UserBootState> bootFuture,
+) async {
+  try {
+    final boot = await bootFuture;
+    unawaited(AppLinksService.start(isAdminApp: boot.isAdmin));
+    unawaited(_postInit(whatsapp: boot.whatsapp, isAdmin: boot.isAdmin));
+  } catch (_) {
+    // Ignore boot failures here; the boot future controls navigation surface.
+  }
+}
+
+class _UserBootRoot extends StatelessWidget {
+  const _UserBootRoot({required this.bootFuture});
+
+  final Future<_UserBootState> bootFuture;
+
+  @override
+  Widget build(BuildContext context) {
+    return StartupSplashGate(
+      enabled: !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
+      waitForInitBeforeNextScreen: () async {
+        await bootFuture;
+      },
+      child: FutureBuilder<_UserBootState>(
+        future: bootFuture,
+        builder: (context, snapshot) {
+          final boot = snapshot.data;
+          if (boot == null) return const ColoredBox(color: Color(0xFF0F1115));
+          return HrmStoreApp(
+            prefs: boot.prefs,
+            isAdminApp: boot.isAdmin,
+            isMerchantApp: boot.isMerchant,
+          );
+        },
+      ),
+    );
+  }
 }
 
 Future<void> _postInit({

@@ -652,7 +652,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
     await showLockedDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: TTColors.cardBg,
         title: const Text('تأكيد الإلغاء'),
         content: const Text(
           'هل أنت متأكد أنك تريد إلغاء الطلب؟ بعد 5 إلغاءات خلال 24 ساعة سيتم حظر إنشاء طلبات جديدة لمدة 24 ساعة.',

@@ -974,7 +974,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     await showLockedDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1066,7 +1065,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     return showLockedDialog<_QrImageSourceOption>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
         title: const Text(
           'مصدر صورة QR',
           style: TextStyle(fontFamily: 'Cairo'),
@@ -1172,7 +1170,6 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
     return showLockedDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
         title: const Text("سبب الرفض (اختياري)"),
         content: TextField(
           autofocus: true,

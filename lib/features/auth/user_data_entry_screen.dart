@@ -134,76 +134,27 @@ class _UserDataEntryScreenState extends State<UserDataEntryScreen> {
     await showLockedDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: GlassCard(
-                margin: EdgeInsets.zero,
-                padding: const EdgeInsets.all(22),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Icon(
-                      Icons.privacy_tip,
-                      size: 48,
-                      color: TTColors.primaryCyan,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      "تنبيه الخصوصية",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontFamily: 'Cairo',
-                        fontWeight: FontWeight.bold,
-                        color: TTColors.textWhite,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      "نحتاج رقم الواتساب للتواصل معك في حالة حدوث مشكلة،"
-                      " ونحتاج يوزر التيك توك للتأكد أن العملات تصل للحساب الصحيح.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: TTColors.textGray, height: 1.5),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              Navigator.pop(dialogContext);
-                              AppNavigator.pushNamed(context, '/privacy');
-                            },
-                            child: const Text("سياسة الخصوصية"),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () => Navigator.pop(dialogContext),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Theme.of(
-                                context,
-                              ).colorScheme.secondary,
-                              foregroundColor: Theme.of(
-                                context,
-                              ).colorScheme.onSecondary,
-                            ),
-                            child: const Text("حسناً"),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
+        return AlertDialog(
+          icon: const Icon(Icons.privacy_tip),
+          title: const Text("تنبيه الخصوصية"),
+          content: const Text(
+            "نحتاج رقم الواتساب للتواصل معك في حالة حدوث مشكلة،"
+            " ونحتاج يوزر التيك توك للتأكد أن العملات تصل للحساب الصحيح.",
+            textAlign: TextAlign.center,
           ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                AppNavigator.pushNamed(context, '/privacy');
+              },
+              child: const Text("سياسة الخصوصية"),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text("حسناً"),
+            ),
+          ],
         );
       },
     );

@@ -22,6 +22,12 @@ import 'core/app_info.dart';
 import 'core/app_navigator.dart';
 import 'widgets/startup_splash_gate.dart';
 
+typedef _AdminBootState = ({
+  SharedPreferences prefs,
+  bool isAdmin,
+  bool isMerchant,
+});
+
 // EN: App entry point.
 // AR: نقطة بدء التطبيق.
 Future<void> main() async {
@@ -37,6 +43,14 @@ Future<void> main() async {
     return;
   }
 
+  final bootFuture = _prepareAdminBoot();
+
+  runApp(_AdminBootRoot(bootFuture: bootFuture));
+
+  unawaited(_startAdminBackgroundTasks(bootFuture));
+}
+
+Future<_AdminBootState> _prepareAdminBoot() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Crashlytics متاحة عمليًا على Android/iOS فقط.
@@ -69,20 +83,49 @@ Future<void> main() async {
   await prefs.setBool('is_merchant', isMerchant);
   AppInfo.isAdminApp = isAdmin;
   AppInfo.isMerchantApp = isMerchant;
+  await UpdateManager.cleanupDownloadedApksAfterUpdate();
 
-  runApp(
-    StartupSplashGate(
+  return (prefs: prefs, isAdmin: isAdmin, isMerchant: isMerchant);
+}
+
+Future<void> _startAdminBackgroundTasks(
+  Future<_AdminBootState> bootFuture,
+) async {
+  try {
+    final boot = await bootFuture;
+    unawaited(AppLinksService.start(isAdminApp: boot.isAdmin));
+    unawaited(_postInit());
+  } catch (_) {
+    // Ignore boot failures here; the boot future controls navigation surface.
+  }
+}
+
+class _AdminBootRoot extends StatelessWidget {
+  const _AdminBootRoot({required this.bootFuture});
+
+  final Future<_AdminBootState> bootFuture;
+
+  @override
+  Widget build(BuildContext context) {
+    return StartupSplashGate(
       enabled: !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
-      child: HrmStoreApp(
-        prefs: prefs,
-        isAdminApp: isAdmin,
-        isMerchantApp: isMerchant,
+      waitForInitBeforeNextScreen: () async {
+        await bootFuture;
+      },
+      child: FutureBuilder<_AdminBootState>(
+        future: bootFuture,
+        builder: (context, snapshot) {
+          final boot = snapshot.data;
+          if (boot == null) return const ColoredBox(color: Color(0xFF0F1115));
+          return HrmStoreApp(
+            prefs: boot.prefs,
+            isAdminApp: boot.isAdmin,
+            isMerchantApp: boot.isMerchant,
+          );
+        },
       ),
-    ),
-  );
-
-  unawaited(AppLinksService.start(isAdminApp: isAdmin));
-  unawaited(_postInit());
+    );
+  }
 }
 
 Future<void> _postInit() async {

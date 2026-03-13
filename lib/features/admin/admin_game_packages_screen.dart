@@ -39,7 +39,6 @@ class _AdminGamePackagesScreenState extends State<AdminGamePackagesScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: Theme.of(ctx).colorScheme.surface,
           title: Text(isNew ? "إضافة باقة" : "تعديل باقة"),
           content: SingleChildScrollView(
             child: Column(

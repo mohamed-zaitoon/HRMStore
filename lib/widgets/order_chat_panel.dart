@@ -317,7 +317,6 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          backgroundColor: Theme.of(ctx).colorScheme.surface,
           title: const Text(
             'إرسال رابط',
             style: TextStyle(fontFamily: 'Cairo'),
@@ -476,90 +475,60 @@ class _OrderChatPanelState extends State<OrderChatPanel> {
       builder: (ctx) {
         final size = MediaQuery.of(ctx).size;
         final colorScheme = Theme.of(ctx).colorScheme;
-        return Dialog(
-          backgroundColor: colorScheme.surface,
-          insetPadding: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+        return AlertDialog(
+          icon: Icon(Icons.image, color: colorScheme.primary),
+          title: Text(
+            title?.trim().isNotEmpty == true ? title!.trim() : 'صورة مرفقة',
+            style: const TextStyle(
+              fontFamily: 'Cairo',
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          child: ConstrainedBox(
+          content: ConstrainedBox(
             constraints: BoxConstraints(
               maxWidth: 640,
               maxHeight: size.height * 0.8,
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.image, color: colorScheme.primary),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          title?.trim().isNotEmpty == true
-                              ? title!.trim()
-                              : 'صورة مرفقة',
-                          style: const TextStyle(
-                            fontFamily: 'Cairo',
-                            fontWeight: FontWeight.w600,
-                          ),
+            child: InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 4,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(
+                  safeUrl,
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return Center(
+                      child: CircularProgressIndicator(
+                        value: progress.expectedTotalBytes == null
+                            ? null
+                            : progress.cumulativeBytesLoaded /
+                                  progress.expectedTotalBytes!,
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return Center(
+                      child: Text(
+                        'تعذر تحميل الصورة',
+                        style: TextStyle(
+                          color: colorScheme.onSurfaceVariant,
+                          fontFamily: 'Cairo',
                         ),
                       ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        icon: const Icon(Icons.close),
-                        tooltip: "إغلاق",
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
-                const Divider(height: 1),
-                Flexible(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: InteractiveViewer(
-                      minScale: 0.8,
-                      maxScale: 4,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.network(
-                          safeUrl,
-                          fit: BoxFit.contain,
-                          loadingBuilder: (context, child, progress) {
-                            if (progress == null) return child;
-                            return Center(
-                              child: CircularProgressIndicator(
-                                value: progress.expectedTotalBytes == null
-                                    ? null
-                                    : progress.cumulativeBytesLoaded /
-                                          progress.expectedTotalBytes!,
-                              ),
-                            );
-                          },
-                          errorBuilder: (context, error, stackTrace) {
-                            return Center(
-                              child: Text(
-                                'تعذر تحميل الصورة',
-                                style: TextStyle(
-                                  color: colorScheme.onSurfaceVariant,
-                                  fontFamily: 'Cairo',
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إغلاق'),
+            ),
+          ],
         );
       },
     );

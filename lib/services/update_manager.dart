@@ -12,13 +12,12 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_info.dart';
 import '../core/constants.dart';
-import '../core/tt_colors.dart';
 import '../utils/url_sanitizer.dart';
-import '../widgets/glass_card.dart';
 import '../widgets/top_snackbar.dart';
 
 typedef _ApkAsset = ({String name, String browserUrl, String apiUrl});
@@ -28,6 +27,7 @@ enum ReleaseStage { alpha, beta, rc, stable }
 class UpdateManager {
   static const MethodChannel _androidChannel = MethodChannel('tt_android_info');
   static const _downloadDirName = "Download";
+  static const _lastApkCleanupVersionKey = 'last_apk_cleanup_app_version';
   static String _adminGithubToken = '';
   static const Duration _autoCheckCooldown = Duration(minutes: 5);
   static DateTime? _lastAutoCheckAt;
@@ -50,6 +50,34 @@ class UpdateManager {
     if (AppInfo.isAdminApp && _hasAdminGithubToken)
       'authorization': 'Bearer ${_adminGithubToken.trim()}',
   };
+
+  // EN: Cleans downloaded APK files once per app version after app update.
+  // AR: ينظّف ملفات APK المنزّلة مرة واحدة لكل إصدار بعد تحديث التطبيق.
+  static Future<void> cleanupDownloadedApksAfterUpdate() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+
+    try {
+      final pi = await PackageInfo.fromPlatform();
+      final currentVersion = pi.version.trim();
+      if (currentVersion.isEmpty) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      final lastCleanedVersion =
+          prefs.getString(_lastApkCleanupVersionKey)?.trim() ?? '';
+      if (lastCleanedVersion == currentVersion) return;
+
+      final deleted = await _deleteDownloadedApkFiles();
+      await prefs.setString(_lastApkCleanupVersionKey, currentVersion);
+
+      if (deleted > 0) {
+        debugPrint(
+          'UpdateManager: deleted $deleted APK file(s) after update to $currentVersion',
+        );
+      }
+    } catch (e) {
+      debugPrint('UpdateManager: APK cleanup skipped: $e');
+    }
+  }
 
   // EN: Checks check.
   // AR: تفحص check.
@@ -297,44 +325,15 @@ class UpdateManager {
         valueListenable: progress,
         builder: (_, value, child) {
           final percent = (value * 100).clamp(0, 100);
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(
-              horizontal: 18,
-              vertical: 24,
-            ),
-            child: GlassCard(
-              margin: EdgeInsets.zero,
-              padding: const EdgeInsets.all(18),
-              borderColor: TTColors.primaryCyan.withAlpha(140),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    "جاري تنزيل التحديث...",
-                    style: TextStyle(
-                      fontFamily: 'Cairo',
-                      fontWeight: FontWeight.bold,
-                      color: TTColors.primaryCyan,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  LinearProgressIndicator(
-                    value: value == 0 ? null : value,
-                    backgroundColor: TTColors.textGray.withValues(alpha: 0.2),
-                    color: TTColors.primaryCyan,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "${percent.toStringAsFixed(0)}%",
-                    style: TextStyle(
-                      fontFamily: 'Cairo',
-                      color: TTColors.textGray,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
+          return AlertDialog(
+            title: const Text("جاري تنزيل التحديث..."),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LinearProgressIndicator(value: value == 0 ? null : value),
+                const SizedBox(height: 8),
+                Text("${percent.toStringAsFixed(0)}%"),
+              ],
             ),
           );
         },
@@ -465,6 +464,49 @@ class UpdateManager {
     return dir;
   }
 
+  static Future<int> _deleteDownloadedApkFiles() async {
+    final dirs = <Directory>[];
+
+    try {
+      final support = await getApplicationSupportDirectory();
+      dirs.add(Directory(p.join(support.path, _downloadDirName)));
+    } catch (_) {}
+
+    try {
+      final ext = await getExternalStorageDirectory();
+      if (ext != null) {
+        dirs.add(Directory(p.join(ext.path, _downloadDirName)));
+      }
+    } catch (_) {}
+
+    try {
+      final cache = await getTemporaryDirectory();
+      dirs.add(Directory(p.join(cache.path, _downloadDirName)));
+    } catch (_) {}
+
+    final seen = <String>{};
+    int deletedCount = 0;
+
+    for (final dir in dirs) {
+      final normalized = dir.path.replaceAll('\\', '/');
+      if (!seen.add(normalized)) continue;
+      if (!await dir.exists()) continue;
+
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        if (!entity.path.toLowerCase().endsWith('.apk')) continue;
+        try {
+          await entity.delete();
+          deletedCount++;
+        } catch (_) {
+          // Ignore file deletion failures; next run can retry.
+        }
+      }
+    }
+
+    return deletedCount;
+  }
+
   static Future<bool> _ensureDir(Directory dir) async {
     if (await dir.exists()) return true;
     await dir.create(recursive: true);
@@ -555,8 +597,6 @@ class UpdateManager {
       return lower.contains('admin') || lower.contains('hrmstore-admin');
     }
 
-    bool isUserAsset(String name) => !isAdminAsset(name);
-
     String pickFirst(List<_ApkAsset> list, bool Function(String) matcher) {
       for (final asset in list) {
         if (matcher(asset.name)) {
@@ -629,8 +669,15 @@ class UpdateManager {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(color: TTColors.primaryCyan),
+      builder: (_) => const AlertDialog(
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Flexible(child: Text("جاري فحص التحديث...")),
+          ],
+        ),
       ),
     );
   }
@@ -648,105 +695,42 @@ class UpdateManager {
       barrierDismissible: false,
       builder: (ctx) => PopScope(
         canPop: !force,
-        child: Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 24,
+        child: AlertDialog(
+          title: Text(force ? "تحديث مهم" : "تحديث جديد متوفر"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "الإصدار الجديد: $version",
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                force
+                    ? "يوجد تحديث مهم لتحسين الأداء والاستقرار. يُفضّل التحديث الآن."
+                    : "يوجد تحديث أحدث من نسختك الحالية. ننصح بالتحديث الآن.",
+              ),
+            ],
           ),
-          child: GlassCard(
-            margin: EdgeInsets.zero,
-            padding: const EdgeInsets.all(22),
-            borderColor: TTColors.primaryCyan.withAlpha(140),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  force ? "تحديث مهم" : "تحديث جديد متوفر 🚀",
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontFamily: 'Cairo',
-                    color: TTColors.primaryCyan,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
-                Text(
-                  "الإصدار الجديد: $version",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: TTColors.textWhite,
-                    fontSize: 16,
-                  ),
-                ),
-
-                const SizedBox(height: 14),
-
-                Text(
-                  force
-                      ? "يوجد تحديث مهم لتحسين الأداء والاستقرار. يُفضّل التحديث الآن."
-                      : "يوجد تحديث أحدث من نسختك الحالية. ننصح بالتحديث الآن.",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontSize: 13,
-                    color: TTColors.textGray,
-                  ),
-                ),
-
-                const SizedBox(height: 18),
-
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (!force)
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: Text(
-                          "لاحقاً",
-                          style: TextStyle(
-                            color: TTColors.textGray,
-                            fontFamily: 'Cairo',
-                          ),
-                        ),
-                      ),
-                    if (force && !kIsWeb)
-                      TextButton(
-                        onPressed: SystemNavigator.pop,
-                        child: Text(
-                          "خروج",
-                          style: TextStyle(
-                            color: TTColors.textGray,
-                            fontFamily: 'Cairo',
-                          ),
-                        ),
-                      ),
-                    ElevatedButton(
-                      onPressed: () async {
-                        await _downloadAndInstall(context, version, url);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: TTColors.primaryCyan,
-                        foregroundColor: Colors.black,
-                      ),
-                      child: Text(
-                        "تحديث الآن",
-                        style: const TextStyle(
-                          fontFamily: 'Cairo',
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+          actions: [
+            if (!force)
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("لاحقاً"),
+              ),
+            if (force && !kIsWeb)
+              TextButton(
+                onPressed: SystemNavigator.pop,
+                child: const Text("خروج"),
+              ),
+            FilledButton(
+              onPressed: () async {
+                await _downloadAndInstall(context, version, url);
+              },
+              child: const Text("تحديث الآن"),
             ),
-          ),
+          ],
         ),
       ),
     );

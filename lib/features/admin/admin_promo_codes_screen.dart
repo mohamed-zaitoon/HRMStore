@@ -143,7 +143,6 @@ class AdminPromoCodesScreen extends StatelessWidget {
     showLockedDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
         title: const Text(
           "إضافة كود جديد",
           style: TextStyle(fontFamily: 'Cairo'),

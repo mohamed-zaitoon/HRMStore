@@ -7,7 +7,6 @@
     </style>
     
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowBackground">#0F1115</item>
-        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
 </resources>

@@ -67,34 +67,23 @@ extension _HomeScreenPromoDialog on _HomeScreenState {
     required String initialPlatform,
   }) async {
     var selectedPlatform = normalizePromoPlatform(initialPlatform);
-    var isSubmitting = false;
     var isClosing = false;
-    String? submitPlatform;
 
-    await _showPromoBlurDialog<void>(
+    return _showPromoBlurDialog<String>(
       barrierLabel: 'promo-order-dialog',
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
-          Future<void> closeDialog({required bool submit}) async {
+          void closeDialog({required bool submit}) {
             if (isClosing) return;
-
-            setDialogState(() {
-              isClosing = true;
-              isSubmitting = submit;
-            });
+            isClosing = true;
 
             if (submit) {
-              submitPlatform = selectedPlatform;
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(ctx).pop(selectedPlatform);
+              return;
             }
 
-            final navigator = Navigator.maybeOf(ctx);
-            final didPop = navigator != null && await navigator.maybePop();
-            if (!didPop && ctx.mounted) {
-              setDialogState(() {
-                isClosing = false;
-                isSubmitting = false;
-              });
-            }
+            Navigator.of(ctx).pop();
           }
 
           return _buildMaterialDialogCard(
@@ -103,17 +92,6 @@ extension _HomeScreenPromoDialog on _HomeScreenState {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: Text(
-                    'اختر المنصة ثم أضف الرابط والمبلغ.',
-                    style: TextStyle(
-                      color: TTColors.textGray,
-                      fontFamily: 'Cairo',
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -153,34 +131,18 @@ extension _HomeScreenPromoDialog on _HomeScreenState {
             ),
             actions: [
               TextButton(
-                onPressed: (isSubmitting || isClosing)
-                    ? null
-                    : () {
-                        unawaited(closeDialog(submit: false));
-                      },
+                onPressed: isClosing ? null : () => closeDialog(submit: false),
                 child: const Text("إلغاء"),
               ),
               ElevatedButton(
-                onPressed: (isSubmitting || isClosing)
-                    ? null
-                    : () {
-                        unawaited(closeDialog(submit: true));
-                      },
-                child: isSubmitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text("إنشاء طلب"),
+                onPressed: isClosing ? null : () => closeDialog(submit: true),
+                child: const Text("إنشاء طلب"),
               ),
             ],
           );
         },
       ),
     );
-
-    return submitPlatform;
   }
 
   // EN: Shows promo dialog with stable route child and same blur/fade style.
@@ -189,27 +151,11 @@ extension _HomeScreenPromoDialog on _HomeScreenState {
     required WidgetBuilder builder,
     String barrierLabel = 'promo-order-dialog',
   }) {
-    return showGeneralDialog<T>(
+    return showDialog<T>(
       context: context,
       barrierDismissible: false,
       barrierLabel: barrierLabel,
-      barrierColor: Colors.black.withAlpha(96),
-      transitionDuration: const Duration(milliseconds: 220),
-      pageBuilder: (_, routeAnimation, secondaryAnimation) =>
-          SafeArea(child: Builder(builder: builder)),
-      transitionBuilder: (_, animation, routeAnimation, child) {
-        final curved = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
-        );
-        final blur = Tween<double>(begin: 0, end: 8).animate(curved);
-
-        return BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blur.value, sigmaY: blur.value),
-          child: FadeTransition(opacity: curved, child: child),
-        );
-      },
+      builder: builder,
     );
   }
 }

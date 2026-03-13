@@ -152,7 +152,6 @@ class AdminCodeRequestsScreen extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
         title: const Text("تخصيص كود خصم"),
         content: Column(
           mainAxisSize: MainAxisSize.min,

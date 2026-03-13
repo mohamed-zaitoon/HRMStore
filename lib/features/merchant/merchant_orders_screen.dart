@@ -911,7 +911,6 @@ class _MerchantOrderCardState extends State<MerchantOrderCard> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setStateDialog) => AlertDialog(
-          backgroundColor: Theme.of(ctx).colorScheme.surface,
           title: const Text(
             'سبب رفض الطلب (إلزامي)',
             style: TextStyle(fontFamily: 'Cairo'),

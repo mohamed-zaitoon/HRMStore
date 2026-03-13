@@ -51,12 +51,7 @@ class _AccessBlockerState extends State<AccessBlocker> {
   @override
   Widget build(BuildContext context) {
     if (_checking) {
-      return Scaffold(
-        backgroundColor: TTColors.cardBg,
-        body: const Center(
-          child: CircularProgressIndicator(color: TTColors.primaryCyan),
-        ),
-      );
+      return widget.child;
     }
 
     if (_decision.allowed) {

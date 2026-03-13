@@ -68,105 +68,57 @@ extension _HomeScreenCheckoutFlow on _HomeScreenState {
     return _showBlurDialog<String>(
       barrierLabel: 'tiktok-charge-mode-dialog',
       builder: (ctx) {
-        final size = MediaQuery.sizeOf(ctx);
-        final maxWidth = _resolveDialogMaxWidthForWeb(
-          size: size,
-          requested: 560,
-        );
-        return Dialog(
-          backgroundColor: TTColors.cardBg,
-          shape: Dialogs.dialogShape,
-          insetPadding: EdgeInsets.symmetric(
-            horizontal: kIsWeb ? 20 : 16,
-            vertical: 20,
+        return _buildMaterialDialogCard(
+          ctx,
+          title: "اختيار طريقة الشحن",
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                "اختار طريقة شحن عملات تيك توك قبل اختيار وسيلة الدفع.",
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "تنبيه: في حالة اختيار يوزر + باسورد يجب أن يكون التحقق بخطوتين مغلق.",
+                style: TextStyle(
+                  color: Theme.of(ctx).colorScheme.error,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 14),
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.pop(ctx, _HomeScreenState._tiktokChargeModeLink);
+                },
+                child: const Text("الشحن بلينك"),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.pop(ctx, _HomeScreenState._tiktokChargeModeQr);
+                },
+                child: const Text("الشحن بـ QR"),
+              ),
+              const SizedBox(height: 10),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(
+                    ctx,
+                    _HomeScreenState._tiktokChargeModeUserPass,
+                  );
+                },
+                child: const Text("يوزر + باسورد"),
+              ),
+            ],
           ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxWidth),
-            child: DialogWidget(
-              color: TTColors.cardBg,
-              title: "اختيار طريقة الشحن",
-              titleStyle: const TextStyle(
-                fontFamily: 'Cairo',
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-              ),
-              customViewPosition: CustomViewPosition.BEFORE_ACTION,
-              customView: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20),
-                    child: Text(
-                      "اختار طريقة شحن عملات تيك توك قبل اختيار وسيلة الدفع.",
-                      style: TextStyle(fontFamily: 'Cairo'),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20),
-                    child: Text(
-                      "تنبيه: في حالة اختيار يوزر + باسورد يجب أن يكون التحقق بخطوتين مغلق.",
-                      style: TextStyle(
-                        color: Colors.orangeAccent,
-                        fontFamily: 'Cairo',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.pop(
-                          ctx,
-                          _HomeScreenState._tiktokChargeModeLink,
-                        );
-                      },
-                      child: const Text("الشحن بلينك"),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.pop(
-                          ctx,
-                          _HomeScreenState._tiktokChargeModeQr,
-                        );
-                      },
-                      child: const Text("الشحن بـ QR"),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(
-                          ctx,
-                          _HomeScreenState._tiktokChargeModeUserPass,
-                        );
-                      },
-                      child: const Text("يوزر + باسورد"),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text("إلغاء"),
-                    ),
-                  ),
-                ],
-              ),
-              actions: const [],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("إلغاء"),
             ),
-          ),
+          ],
         );
       },
     );
@@ -270,160 +222,106 @@ extension _HomeScreenCheckoutFlow on _HomeScreenState {
       return;
     }
 
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: false,
+    _showBlurDialog<void>(
       barrierLabel: "Pay",
-      barrierColor: Colors.black.withAlpha(96),
-      pageBuilder: (_, routeAnimation, secondaryAnimation) => const SizedBox(),
-      transitionBuilder: (ctx, anim, routeAnimation, secondaryAnimation) {
-        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOut);
-        final blur = Tween<double>(begin: 0, end: 8).animate(curved);
-        return BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blur.value, sigmaY: blur.value),
-          child: SlideTransition(
-            position: Tween(
-              begin: const Offset(0, -1),
-              end: Offset.zero,
-            ).animate(curved),
-            child: SafeArea(
-              child: Center(
-                child: Material(
-                  color: Colors.transparent,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: Builder(
-                        builder: (ctx) {
-                          final payableAmount = totalAmount;
-                          return GlassCard(
-                            margin: EdgeInsets.zero,
-                            padding: const EdgeInsets.all(24),
-                            borderColor: TTColors.primaryCyan.withAlpha(140),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text(
-                                  "وسيلة الدفع",
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Cairo',
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  "إجمالي الطلب: $totalAmount جنيه",
-                                  style: const TextStyle(
-                                    color: TTColors.goldAccent,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                if (_isGameOrder) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    _gameOrderTitle(_selectedPackage!),
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: TTColors.textWhite,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  if ((_selectedGameId ?? '').isNotEmpty)
-                                    Text(
-                                      "ID: $_selectedGameId",
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: TTColors.textGray,
-                                      ),
-                                    ),
-                                ] else if (_isPromoOrder) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    promoOrderTitleForPlatform(_promoPlatform),
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: TTColors.textWhite,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  if ((_promoLink ?? '').trim().isNotEmpty)
-                                    Text(
-                                      (_promoLink ?? '').trim(),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: TTColors.textGray,
-                                      ),
-                                    ),
-                                ],
-                                const SizedBox(height: 18),
-                                _payOption(
-                                  "فودافون كاش / محفظة",
-                                  Icons.account_balance_wallet,
-                                  Colors.orange,
-                                  () => _processWalletOrder(
-                                    payableAmount: payableAmount,
-                                    paymentDialogContext: ctx,
-                                  ),
-                                  enabled: !_paymentMethodActionInProgress,
-                                ),
-                                const SizedBox(height: 10),
-                                _payOption(
-                                  "InstaPay",
-                                  Icons.qr_code,
-                                  Colors.purpleAccent,
-                                  () => _processInstaPay(
-                                    payableAmount: payableAmount,
-                                    paymentDialogContext: ctx,
-                                  ),
-                                  enabled: !_paymentMethodActionInProgress,
-                                ),
-                                const SizedBox(height: 10),
-                                _payOptionWithLeading(
-                                  "Binance Pay",
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(4),
-                                    child: Image.asset(
-                                      'assets/icon/binance_logo.png',
-                                      width: 22,
-                                      height: 22,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                  () => _processBinancePay(
-                                    payableAmount: payableAmount,
-                                    paymentDialogContext: ctx,
-                                  ),
-                                  enabled: !_paymentMethodActionInProgress,
-                                ),
-                                const SizedBox(height: 12),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton.icon(
-                                    onPressed: _paymentMethodActionInProgress
-                                        ? null
-                                        : () => Navigator.of(ctx).pop(),
-                                    icon: const Icon(Icons.close),
-                                    label: const Text("إلغاء"),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
+      builder: (ctx) {
+        final payableAmount = totalAmount;
+        return _buildMaterialDialogCard(
+          ctx,
+          title: "وسيلة الدفع",
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "إجمالي الطلب: $totalAmount جنيه",
+                  style: const TextStyle(
+                    color: TTColors.goldAccent,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              ),
+                if (_isGameOrder) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _gameOrderTitle(_selectedPackage!),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Theme.of(ctx).colorScheme.onSurface,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  if ((_selectedGameId ?? '').isNotEmpty)
+                    Text("ID: $_selectedGameId", textAlign: TextAlign.center),
+                ] else if (_isPromoOrder) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    promoOrderTitleForPlatform(_promoPlatform),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Theme.of(ctx).colorScheme.onSurface,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  if ((_promoLink ?? '').trim().isNotEmpty)
+                    Text(
+                      (_promoLink ?? '').trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                ],
+                const SizedBox(height: 18),
+                _payOption(
+                  "فودافون كاش / محفظة",
+                  Icons.account_balance_wallet,
+                  Colors.orange,
+                  () => _processWalletOrder(
+                    payableAmount: payableAmount,
+                    paymentDialogContext: ctx,
+                  ),
+                  enabled: !_paymentMethodActionInProgress,
+                ),
+                const SizedBox(height: 10),
+                _payOption(
+                  "InstaPay",
+                  Icons.qr_code,
+                  Colors.purpleAccent,
+                  () => _processInstaPay(
+                    payableAmount: payableAmount,
+                    paymentDialogContext: ctx,
+                  ),
+                  enabled: !_paymentMethodActionInProgress,
+                ),
+                const SizedBox(height: 10),
+                _payOptionWithLeading(
+                  "Binance Pay",
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Image.asset(
+                      'assets/icon/binance_logo.png',
+                      width: 22,
+                      height: 22,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  () => _processBinancePay(
+                    payableAmount: payableAmount,
+                    paymentDialogContext: ctx,
+                  ),
+                  enabled: !_paymentMethodActionInProgress,
+                ),
+              ],
             ),
           ),
+          actions: [
+            TextButton.icon(
+              onPressed: _paymentMethodActionInProgress
+                  ? null
+                  : () => Navigator.of(ctx).pop(),
+              icon: const Icon(Icons.close),
+              label: const Text("إلغاء"),
+            ),
+          ],
         );
       },
     );
