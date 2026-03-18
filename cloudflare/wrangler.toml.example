@@ -1,0 +1,9 @@
+name = "hrmstore-onesignal-relay"
+main = "worker.js"
+compatibility_date = "2026-02-21"
+
+# Optional: route on your own domain
+# routes = [{ pattern = "notify.example.com/*", zone_name = "example.com" }]
+
+# Optional: use workers.dev subdomain
+# workers_dev = true
