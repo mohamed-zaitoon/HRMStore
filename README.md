@@ -58,7 +58,7 @@ The public repository exists to document the project idea and preserve safe inte
 
 ## Live Project
 
-- Website: `https://hrmstore.mohamedzaitoon.com/`
+- Website: [https://hrmstore.mohamedzaitoon.com/](https://hrmstore.mohamedzaitoon.com/)
 
 ## License
 
