@@ -18,12 +18,9 @@ The product combines a customer-facing app with internal admin tooling so orders
 
 This public repository is intentionally limited. The production implementation now lives in a private repository, while this repo keeps high-level documentation and safe example configuration files that help explain the project without exposing operational logic, secrets, or proprietary code.
 
-## Current Public Project Info
+## Translation
 
-- App version: `1.6.2+162`
-- Flutter: `3.41.0` (stable)
-- Dart: `3.11.0`
-- Platforms: Android, Web, and Windows for admin tooling
+You can translate this README into any language using your browser's built-in translation feature or GitHub page translation tools.
 
 ## What The Project Does
 
